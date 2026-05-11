@@ -100,7 +100,7 @@ export default function Home() {
         .order("name");
 
       if (error) {
-        console.error(error);
+        console.log(error);
         return;
       }
 
@@ -157,6 +157,16 @@ const [resolved, setResolved] = useState(true);
 const [filterTechnician, setFilterTechnician] = useState("");
 const [filterRegion, setFilterRegion] = useState("");
 const [filterStatus, setFilterStatus] = useState("");
+const [message, setMessage] = useState("");
+const [messageType, setMessageType] = useState<"success" | "error">("success");
+function showMessage(text: string, type: "success" | "error" = "success") {
+  setMessage(text);
+  setMessageType(type);
+
+  setTimeout(() => {
+    setMessage("");
+  }, 3000);
+}
 const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
 
 const filteredSites = sites
@@ -201,31 +211,35 @@ const availableRegions = Array.from(
 
   const cost = materialCost(selectedMaterials);
 
-  const { error } = await supabase.from("tickets").insert([
-  {
-    site,
-    region: region || "Da definire",
-    entity,
-    city,
-    site_id: siteId,
-    problem,
-    materials: selectedMaterials,
-    technician,
-    status: "Aperto",
-    cost,
-    slot: selectedSlot,
-intervention_date: selectedDate || null,
-  },
-]);
+  const { data, error } = await supabase
+  .from("tickets")
+  .insert([
+    {
+      site,
+      region: region || "Da definire",
+      entity,
+      city,
+      site_id: siteId,
+      problem,
+      materials: selectedMaterials,
+      technician,
+      status: "Aperto",
+      cost,
+      slot: selectedSlot,
+      intervention_date: selectedDate || null,
+    },
+  ])
+  .select()
+  .single();
 
   if (error) {
     console.error(error);
-    alert("Errore salvataggio ticket");
+    showMessage("Errore salvataggio ticket", "error");
     return;
   }
 
   const newTicket = {
-    id: `TMP-${Date.now()}`,
+    id: data.id,
     site,
     region,
     problem,
@@ -250,7 +264,7 @@ setSelectedSlot("");
 setSelectedMaterials([]);
 
 
-  alert("Ticket salvato su database");
+  showMessage("Ticket salvato su database");
 }
 async function planTicket(id: string) {
   if (!selectedDate || !selectedSlot || !technician) {
@@ -270,7 +284,7 @@ async function planTicket(id: string) {
 
   if (error) {
     console.error(error);
-    alert("Errore pianificazione ticket");
+    showMessage("Errore pianificazione ticket", "error");
     return;
   }
 
@@ -288,35 +302,40 @@ async function planTicket(id: string) {
     )
   );
 
-  alert("Ticket pianificato");
+  showMessage("Ticket pianificato");
 }
  async function closeTicket(id: string) {
-  const today = new Date().toISOString().split("T")[0];
+  console.log("CLICK CHIUSURA", id);
+
+  const today = new Date().toISOString().slice(0, 10);
 
   const { error } = await supabase
     .from("tickets")
     .update({
       status: "Chiuso",
       intervention_date: today,
-      closing_notes: closingNotes,
-      resolved,
-      future_needs: futureNeeds,
+      closing_notes: closingNotes || "",
+      future_needs: futureNeeds || "",
+      resolved: resolved,
     })
-    .eq("id", id);
+    .eq("id", Number(id));
 
   if (error) {
-    console.error(error);
-    alert("Errore chiusura ticket");
+    console.log("ERRORE CHIUSURA:", error);
+    showMessage("Errore chiusura ticket", "error");
     return;
   }
 
   setTickets((prev) =>
     prev.map((t) =>
-      t.id === id
+      String(t.id) === String(id)
         ? {
             ...t,
             status: "Chiuso",
-            date: new Date().toLocaleDateString("it-IT"),
+            date: today,
+            closingNotes: closingNotes || "",
+            futureNeeds: futureNeeds || "",
+            resolved: resolved,
           }
         : t
     )
@@ -326,7 +345,7 @@ async function planTicket(id: string) {
   setFutureNeeds("");
   setResolved(true);
 
-  alert("Ticket chiuso e salvato");
+  showMessage("Ticket chiuso e salvato");
 }
 
   function exportCsv() {
@@ -393,6 +412,15 @@ async function planTicket(id: string) {
     <main className="min-h-screen bg-slate-100 p-6 text-slate-900">
       <div className="mx-auto max-w-7xl space-y-6">
         <header className="h-[240px] overflow-hidden rounded-3xl bg-slate-950 p-8 text-white shadow">
+          {message && (
+  <div
+    className={`rounded-2xl p-4 text-sm font-bold text-white shadow ${
+      messageType === "success" ? "bg-green-700" : "bg-red-700"
+    }`}
+  >
+    {message}
+  </div>
+)}
   <div className="flex flex-col items-center justify-center">
     <img
       src="/secom-logo.png.png"
@@ -433,121 +461,95 @@ async function planTicket(id: string) {
           <h2 className="mb-4 text-xl font-bold">Apri nuova chiamata</h2>
 
                     <div className="grid gap-4 md:grid-cols-2">
-            <div className="relative">
-              <input
-                className="w-full rounded-xl border p-3"
-                placeholder="Cerca sede: es. Alatri, Bari, Ferrara..."
-                value={siteSearch}
-                onChange={(e) => {
-                  setSiteSearch(e.target.value);
-                  setSite("");
-                  setRegion("");
-                  setEntity("");
-                  setCity("");
-                  setSiteId(null);
-                }}
-              />
+  <div className="relative">
+    <input
+      className="w-full rounded-xl border p-3"
+      placeholder="Cerca sede: es. Alatri, Bari, Ferrara..."
+      value={siteSearch}
+      onChange={(e) => {
+        setSiteSearch(e.target.value);
+        setSite("");
+        setRegion("");
+        setEntity("");
+        setCity("");
+        setSiteId(null);
+      }}
+    />
 
-              {siteSearch && !site && (
-                <div className="absolute z-20 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border bg-white shadow-lg">
-                  {filteredSites.length === 0 && (
-                    <div className="p-3 text-sm text-slate-500">
-                      Nessuna sede trovata
-                    </div>
-                  )}
-
-                  {filteredSites.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      className="block w-full border-b p-3 text-left hover:bg-slate-100"
-                      onClick={() => {
-                        setSite(s.name);
-                        setSiteSearch(s.name);
-                        setRegion(s.region || "");
-                        setEntity(s.entity || "");
-                        setCity(s.city || "");
-                        setSiteId(s.id || null);
-                      }}
-                    >
-                      <div className="font-semibold">{s.name}</div>
-                      <div className="text-xs text-slate-500">
-                        {s.city || "Città n/d"} · {s.entity || "Ente n/d"}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <select
-
-  className="rounded-xl border p-3"
-  value={site}
-  onChange={(e) => {
-    const selected = sites.find(
-      (s) => s.name === e.target.value
-    );
-
-    setSite(e.target.value);
-
-    if (selected) {
-      setRegion(selected.region || "");
-      setEntity(selected.entity || "");
-      setCity(selected.city || "");
-      setSiteId(selected.id || null);
-    }
-  }}
->
-  <option value="">Seleziona sede</option>
-
-  {sites.map((s) => (
-    <option key={s.id} value={s.name}>
-      {s.name} — {s.entity || "Ente n/d"}
-    </option>
-  ))}
-</select>
-
-            <input
-  className="rounded-xl border p-3 bg-slate-100"
-  placeholder="Regione automatica"
-  value={region}
-  readOnly
-/>
-
-            <textarea
-              className="rounded-xl border p-3 md:col-span-2"
-              placeholder="Descrizione intervento"
-              value={problem}
-              onChange={(e) => setProblem(e.target.value)}
-            />
-
-            <select
-              className="rounded-xl border p-3"
-              value={technician}
-              onChange={(e) => setTechnician(e.target.value)}
-            >
-              <option value="">Tecnico non assegnato</option>
-              {technicians.map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-            <input
-  type="date"
-  className="rounded-xl border p-3"
-  value={selectedDate}
-  onChange={(e) => setSelectedDate(e.target.value)}
-/>
-
-<select
-  className="rounded-xl border p-3"
-  value={selectedSlot}
-  onChange={(e) => setSelectedSlot(e.target.value)}
->
-  <option value="">Seleziona slot</option>
-  <option value="Mattina">Mattina</option>
-  <option value="Pomeriggio">Pomeriggio</option>
-</select>
+    {siteSearch && !site && (
+      <div className="absolute z-20 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border bg-white shadow-lg">
+        {filteredSites.length === 0 && (
+          <div className="p-3 text-sm text-slate-500">
+            Nessuna sede trovata
           </div>
+        )}
+
+        {filteredSites.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className="block w-full border-b p-3 text-left hover:bg-slate-100"
+            onClick={() => {
+              setSite(s.name);
+              setSiteSearch(s.name);
+              setRegion(s.region || "");
+              setEntity(s.entity || "");
+              setCity(s.city || "");
+              setSiteId(s.id || null);
+            }}
+          >
+            <div className="font-semibold">{s.name}</div>
+            <div className="text-xs text-slate-500">
+              {s.city || "Città n/d"} · {s.entity || "Ente n/d"}
+            </div>
+          </button>
+        ))}
+      </div>
+    )}
+  </div>
+
+  <input
+    className="rounded-xl border bg-slate-100 p-3"
+    placeholder="Regione automatica"
+    value={region}
+    readOnly
+  />
+
+  <textarea
+    className="rounded-xl border p-3 md:col-span-2"
+    placeholder="Descrizione intervento"
+    value={problem}
+    onChange={(e) => setProblem(e.target.value)}
+  />
+
+  <select
+    className="rounded-xl border p-3"
+    value={technician}
+    onChange={(e) => setTechnician(e.target.value)}
+  >
+    <option value="">Tecnico non assegnato</option>
+    {technicians.map((t) => (
+      <option key={t}>{t}</option>
+    ))}
+  </select>
+
+  <input
+    type="date"
+    className="rounded-xl border p-3"
+    value={selectedDate}
+    onChange={(e) => setSelectedDate(e.target.value)}
+  />
+
+  <select
+    className="rounded-xl border p-3"
+    value={selectedSlot}
+    onChange={(e) => setSelectedSlot(e.target.value)}
+  >
+    <option value="">Seleziona slot</option>
+    <option value="Mattina">Mattina</option>
+    <option value="Pomeriggio">Pomeriggio</option>
+  </select>
+</div>
 
           <h3 className="mt-5 mb-3 font-bold">Materiali necessari</h3>
 
@@ -679,99 +681,132 @@ async function planTicket(id: string) {
     </button>
   </div>
 
-  <div className="overflow-x-auto">
-    <table className="w-full border-collapse text-left text-sm">
-      <thead>
-        <tr className="bg-slate-200">
-          <th className="p-3">ID</th>
-          <th>Sede</th>
-          <th>Regione</th>
-          <th>Problema</th>
-          <th>Materiali</th>
-          <th>Costo</th>
-          <th>Tecnico</th>
-          <th>Stato</th>
-          <th>Azione</th>
-        </tr>
-      </thead>
+  <div className="grid gap-4 md:hidden">
+  {filteredTickets.map((t) => (
+    <div key={t.id} className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="font-bold">{t.site}</p>
 
-      <tbody>
-        {filteredTickets.map((t) => (
-          <tr key={t.id} className="border-b">
-            <td className="p-3 font-bold">{t.id}</td>
-            <td>{t.site}</td>
-            <td>{t.region}</td>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-bold text-white ${
+            t.status === "Chiuso"
+              ? t.resolved === false
+                ? "bg-red-600"
+                : "bg-green-600"
+              : t.status === "Pianificato"
+              ? "bg-yellow-500"
+              : "bg-blue-600"
+          }`}
+        >
+          {t.status}
+        </span>
+      </div>
 
-            <td>
-              <div>
-                <p className="font-semibold">{t.problem}</p>
+      <p className="text-sm text-slate-500">
+        {t.region || "Regione n/d"} · {t.technician || "Tecnico non assegnato"}
+      </p>
 
-                {t.closingNotes && (
-                  <p className="mt-1 text-xs text-slate-500">
-                    Chiusura: {t.closingNotes}
-                  </p>
-                )}
+      <p className="mt-3 font-semibold">{t.problem}</p>
 
-                {t.futureNeeds && (
-                  <p className="mt-1 text-xs text-red-600">
-                    Future needs: {t.futureNeeds}
-                  </p>
-                )}
+      <p className="mt-2 text-sm text-slate-600">
+        Materiali:{" "}
+        {t.materialIds
+          .map((id: string) => materials.find((m) => m.id === id)?.name)
+          .join(" + ") || "Nessuno"}
+      </p>
+
+      <p className="mt-1 text-sm font-bold">
+        Costo: {euro(materialCost(t.materialIds))}
+      </p>
+
+      {t.closingNotes && (
+        <p className="mt-2 text-xs text-slate-500">
+          Chiusura: {t.closingNotes}
+        </p>
+      )}
+
+      {t.futureNeeds && (
+        <p className="mt-2 text-xs text-red-600">
+          Future needs: {t.futureNeeds}
+        </p>
+      )}
+
+      {t.status !== "Chiuso" && (
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={() => planTicket(String(t.id))}
+            className="flex-1 rounded-xl bg-blue-700 px-3 py-2 text-white"
+          >
+            Pianifica
+          </button>
+
+          <button
+            onClick={() => closeTicket(String(t.id))}
+            className="flex-1 rounded-xl bg-slate-900 px-3 py-2 text-white"
+          >
+            Chiudi
+          </button>
+        </div>
+      )}
+    </div>
+  ))}
+</div>
+
+<div className="hidden overflow-x-auto md:block">
+  <table className="w-full border-collapse text-left text-sm">
+    <thead>
+      <tr className="bg-slate-200">
+        <th className="p-3">ID</th>
+        <th>Sede</th>
+        <th>Regione</th>
+        <th>Problema</th>
+        <th>Materiali</th>
+        <th>Costo</th>
+        <th>Tecnico</th>
+        <th>Stato</th>
+        <th>Azione</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {filteredTickets.map((t) => (
+        <tr key={t.id} className="border-b">
+          <td className="p-3 font-bold">{t.id}</td>
+          <td>{t.site}</td>
+          <td>{t.region}</td>
+          <td>{t.problem}</td>
+          <td>
+            {t.materialIds
+              .map((id: string) => materials.find((m) => m.id === id)?.name)
+              .join(" + ") || "Nessuno"}
+          </td>
+          <td className="font-bold">{euro(materialCost(t.materialIds))}</td>
+          <td>{t.technician || "Non assegnato"}</td>
+          <td>{t.status}</td>
+          <td>
+            {t.status !== "Chiuso" && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => planTicket(String(t.id))}
+                  className="rounded-lg bg-blue-700 px-3 py-1 text-white"
+                >
+                  Pianifica
+                </button>
+
+                <button
+                  onClick={() => closeTicket(String(t.id))}
+                  className="rounded-lg bg-slate-900 px-3 py-1 text-white"
+                >
+                  Chiudi
+                </button>
               </div>
-            </td>
-
-            <td>
-              {t.materialIds
-                .map((id: string) => materials.find((m) => m.id === id)?.name)
-                .join(" + ") || "Nessuno"}
-            </td>
-
-            <td className="font-bold">
-              {euro(materialCost(t.materialIds))}
-            </td>
-
-            <td>{t.technician || "Non assegnato"}</td>
-
-            <td>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-bold text-white ${
-                  t.status === "Chiuso"
-                    ? t.resolved === false
-                      ? "bg-red-600"
-                      : "bg-green-600"
-                    : t.status === "Pianificato"
-                    ? "bg-yellow-500"
-                    : "bg-blue-600"
-                }`}
-              >
-                {t.status}
-              </span>
-            </td>
-
-            <td>
-              {t.status !== "Chiuso" && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => planTicket(String(t.id))}
-                    className="rounded-lg bg-blue-700 px-3 py-1 text-white"
-                  >
-                    Pianifica
-                  </button>
-
-                  <button
-                    onClick={() => closeTicket(String(t.id))}
-                    className="rounded-lg bg-slate-900 px-3 py-1 text-white"
-                  >
-                    Chiudi
-                  </button>
-                </div>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
+            )}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
 </section>
       </div>
     </main>
