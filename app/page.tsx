@@ -724,7 +724,7 @@ async function planTicket(id: string) {
 </td>
                     <td>
                       {t.materialIds
-                        .map((id) => materials.find((m) => m.id === id)?.name)
+                        .map((id: string) => materials.find((m) => m.id === id)?.name)
                         .join(" + ") || "Nessuno"}
                     </td>
                     <td className="font-bold">{euro(materialCost(t.materialIds))}</td>
