@@ -159,6 +159,17 @@ const [filterRegion, setFilterRegion] = useState("");
 const [filterStatus, setFilterStatus] = useState("");
 const [message, setMessage] = useState("");
 const [messageType, setMessageType] = useState<"success" | "error">("success");
+const [budgetVisible, setBudgetVisible] = useState(true);
+
+const [budget, setBudget] = useState(() => {
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem("atlas-budget");
+
+    return saved ? Number(saved) : 50000;
+  }
+
+  return 50000;
+});
 function showMessage(text: string, type: "success" | "error" = "success") {
   setMessage(text);
   setMessageType(type);
@@ -181,7 +192,7 @@ const filteredSites = sites
     [tickets]
   );
 
-  const remainingBudget = INITIAL_BUDGET - totalForecast;
+  const remainingBudget = budget - totalForecast;
 
 const filteredTickets = tickets.filter((t) => {
   const matchTechnician =
@@ -409,9 +420,9 @@ async function planTicket(id: string) {
 }
 
   return (
-    <main className="min-h-screen bg-slate-100 p-6 text-slate-900">
+    <main className="min-h-screen bg-slate-100 p-3 text-slate-900 md:p-6">
       <div className="mx-auto max-w-7xl space-y-6">
-        <header className="h-[240px] overflow-hidden rounded-3xl bg-slate-950 p-8 text-white shadow">
+        <header className="h-[210px] md:h-[240px] overflow-hidden rounded-3xl bg-slate-950 p-8 text-white shadow">
           {message && (
   <div
     className={`rounded-2xl p-4 text-sm font-bold text-white shadow ${
@@ -425,7 +436,7 @@ async function planTicket(id: string) {
     <img
       src="/secom-logo.png.png"
       alt="Secom"
-      className="h-64 w-auto object-contain"
+      className="h-44 w-auto object-contain md:h-64"
     />
 
     <div className="mt-0 text-4xl font-bold tracking-[0.45em] text-white">
@@ -439,23 +450,66 @@ async function planTicket(id: string) {
 </header>
 
         <section className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-2xl bg-white p-5 shadow">
-            <p className="text-sm text-slate-500">Budget iniziale</p>
-            <p className="text-2xl font-bold">{euro(INITIAL_BUDGET)}</p>
-          </div>
-          <div className="rounded-2xl bg-white p-5 shadow">
-            <p className="text-sm text-slate-500">Costo previsto</p>
-            <p className="text-2xl font-bold">{euro(totalForecast)}</p>
-          </div>
-          <div className="rounded-2xl bg-white p-5 shadow">
-            <p className="text-sm text-slate-500">Budget residuo</p>
-            <p className="text-2xl font-bold">{euro(remainingBudget)}</p>
-          </div>
-          <div className="rounded-2xl bg-white p-5 shadow">
-            <p className="text-sm text-slate-500">Ticket totali</p>
-            <p className="text-2xl font-bold">{tickets.length}</p>
-          </div>
-        </section>
+  <div className="rounded-2xl bg-white p-5 shadow">
+    <p className="text-sm text-slate-500">Budget iniziale</p>
+
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-2xl font-bold">
+        {budgetVisible ? euro(budget) : "••••••"}
+      </p>
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => {
+            const value = prompt("Nuovo budget:");
+
+            if (!value) return;
+
+            const parsed = Number(value);
+
+            if (isNaN(parsed)) return;
+
+            setBudget(parsed);
+
+            localStorage.setItem(
+              "atlas-budget",
+              String(parsed)
+            );
+
+            showMessage("Budget aggiornato");
+          }}
+          className="rounded-lg bg-slate-200 px-2 py-1 text-xs font-bold"
+        >
+          ✏️
+        </button>
+
+        <button
+          onClick={() =>
+            setBudgetVisible(!budgetVisible)
+          }
+          className="rounded-lg bg-slate-200 px-2 py-1 text-xs font-bold"
+        >
+          {budgetVisible ? "👁️" : "🙈"}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div className="rounded-2xl bg-white p-5 shadow">
+    <p className="text-sm text-slate-500">Costo previsto</p>
+    <p className="text-2xl font-bold">{euro(totalForecast)}</p>
+  </div>
+
+  <div className="rounded-2xl bg-white p-5 shadow">
+    <p className="text-sm text-slate-500">Budget residuo</p>
+    <p className="text-2xl font-bold">{euro(remainingBudget)}</p>
+  </div>
+
+  <div className="rounded-2xl bg-white p-5 shadow">
+    <p className="text-sm text-slate-500">Ticket totali</p>
+    <p className="text-2xl font-bold">{tickets.length}</p>
+  </div>
+</section>
 
         <section className="rounded-3xl bg-white p-6 shadow">
           <h2 className="mb-4 text-xl font-bold">Apri nuova chiamata</h2>
