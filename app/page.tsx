@@ -720,7 +720,14 @@ async function planTicket(id: string) {
   <h2 className="mb-4 text-xl font-bold">Mappa sedi</h2>
 
   <div className="rounded-2xl bg-slate-100 p-6 text-sm text-slate-600">
-    Mappa temporaneamente disattivata. La riattiviamo dopo aver stabilizzato il deploy.
+    <section className="rounded-3xl bg-white p-6 shadow">
+  <h2 className="mb-4 text-xl font-bold">Mappa sedi</h2>
+
+  <AtlasMap
+    sites={sites}
+    tickets={filteredTickets}
+  />
+</section>
   </div>
 </section>
 <section className="rounded-3xl bg-white p-6 shadow">
