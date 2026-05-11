@@ -392,23 +392,17 @@ async function planTicket(id: string) {
   return (
     <main className="min-h-screen bg-slate-100 p-6 text-slate-900">
       <div className="mx-auto max-w-7xl space-y-6">
-        <header className="rounded-3xl bg-slate-950 p-8 text-white shadow">
+        <header className="h-[240px] overflow-hidden rounded-3xl bg-slate-950 p-8 text-white shadow">
   <div className="flex flex-col items-center justify-center">
-    <div className="flex flex-col items-center">
-  <div className="rounded-2xl bg-white px-8 py-4 shadow">
-    <span className="text-5xl font-extrabold tracking-tight text-emerald-800">
-      Secom
-    </span>
-  </div>
+    <img
+      src="/secom-logo.png.png"
+      alt="Secom"
+      className="h-64 w-auto object-contain"
+    />
 
-  <span className="mt-2 text-xs uppercase tracking-[0.35em] text-slate-400">
-    Logo provvisorio
-  </span>
-</div>
-
-    <h1 className="mt-2 text-4xl font-bold tracking-[0.4em] text-white">
+    <div className="mt-0 text-4xl font-bold tracking-[0.45em] text-white">
       ATLAS
-    </h1>
+    </div>
 
     <p className="mt-3 text-sm text-slate-400">
       Centrale operativa nazionale interventi SPISPHOTO
@@ -622,8 +616,8 @@ async function planTicket(id: string) {
     </label>
   </div>
 </section>
+
 <section className="rounded-3xl bg-white p-6 shadow">
-  <section className="rounded-3xl bg-white p-6 shadow">
   <h2 className="mb-4 text-xl font-bold">Filtri operativi</h2>
 
   <div className="grid gap-4 md:grid-cols-3">
@@ -665,12 +659,13 @@ async function planTicket(id: string) {
     </select>
   </div>
 </section>
+
+<section className="rounded-3xl bg-white p-6 shadow">
   <h2 className="mb-4 text-xl font-bold">Mappa sedi</h2>
 
-  <AtlasMap
-  sites={sites}
-  tickets={filteredTickets}
-/>
+  <div className="rounded-2xl bg-slate-100 p-6 text-sm text-slate-600">
+    Mappa temporaneamente disattivata. La riattiviamo dopo aver stabilizzato il deploy.
+  </div>
 </section>
 <section className="rounded-3xl bg-white p-6 shadow">
   <div className="mb-4 flex items-center justify-between">
@@ -686,89 +681,98 @@ async function planTicket(id: string) {
 
   <div className="overflow-x-auto">
     <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="bg-slate-200">
-                  <th className="p-3">ID</th>
-                  <th>Sede</th>
-                  <th>Regione</th>
-                  <th>Problema</th>
-                  <th>Materiali</th>
-                  <th>Costo</th>
-                  <th>Tecnico</th>
-                  <th>Stato</th>
-                  <th>Azione</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTickets.map((t) => (
-                  <tr key={t.id} className="border-b">
-                    <td className="p-3 font-bold">{t.id}</td>
-                    <td>{t.site}</td>
-                    <td>{t.region}</td>
-                    <td>
-  <div>
-    <p className="font-semibold">{t.problem}</p>
+      <thead>
+        <tr className="bg-slate-200">
+          <th className="p-3">ID</th>
+          <th>Sede</th>
+          <th>Regione</th>
+          <th>Problema</th>
+          <th>Materiali</th>
+          <th>Costo</th>
+          <th>Tecnico</th>
+          <th>Stato</th>
+          <th>Azione</th>
+        </tr>
+      </thead>
 
-    {t.closingNotes && (
-      <p className="mt-1 text-xs text-slate-500">
-        Chiusura: {t.closingNotes}
-      </p>
-    )}
+      <tbody>
+        {filteredTickets.map((t) => (
+          <tr key={t.id} className="border-b">
+            <td className="p-3 font-bold">{t.id}</td>
+            <td>{t.site}</td>
+            <td>{t.region}</td>
 
-    {t.futureNeeds && (
-      <p className="mt-1 text-xs text-red-600">
-        Future needs: {t.futureNeeds}
-      </p>
-    )}
+            <td>
+              <div>
+                <p className="font-semibold">{t.problem}</p>
+
+                {t.closingNotes && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Chiusura: {t.closingNotes}
+                  </p>
+                )}
+
+                {t.futureNeeds && (
+                  <p className="mt-1 text-xs text-red-600">
+                    Future needs: {t.futureNeeds}
+                  </p>
+                )}
+              </div>
+            </td>
+
+            <td>
+              {t.materialIds
+                .map((id: string) => materials.find((m) => m.id === id)?.name)
+                .join(" + ") || "Nessuno"}
+            </td>
+
+            <td className="font-bold">
+              {euro(materialCost(t.materialIds))}
+            </td>
+
+            <td>{t.technician || "Non assegnato"}</td>
+
+            <td>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-bold text-white ${
+                  t.status === "Chiuso"
+                    ? t.resolved === false
+                      ? "bg-red-600"
+                      : "bg-green-600"
+                    : t.status === "Pianificato"
+                    ? "bg-yellow-500"
+                    : "bg-blue-600"
+                }`}
+              >
+                {t.status}
+              </span>
+            </td>
+
+            <td>
+              {t.status !== "Chiuso" && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => planTicket(String(t.id))}
+                    className="rounded-lg bg-blue-700 px-3 py-1 text-white"
+                  >
+                    Pianifica
+                  </button>
+
+                  <button
+                    onClick={() => closeTicket(String(t.id))}
+                    className="rounded-lg bg-slate-900 px-3 py-1 text-white"
+                  >
+                    Chiudi
+                  </button>
+                </div>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   </div>
-</td>
-                    <td>
-                      {t.materialIds
-                        .map((id: string) => materials.find((m) => m.id === id)?.name)
-                        .join(" + ") || "Nessuno"}
-                    </td>
-                    <td className="font-bold">{euro(materialCost(t.materialIds))}</td>
-                    <td>{t.technician || "Non assegnato"}</td>
-                    <td>
-  <span
-    className={`rounded-full px-3 py-1 text-xs font-bold text-white ${
-      t.status === "Chiuso"
-  ? t.resolved === false
-    ? "bg-red-600"
-    : "bg-green-600"
-  : t.status === "Pianificato"
-  ? "bg-yellow-500"
-  : "bg-blue-600"
-    }`}
-  >
-    {t.status}
-  </span>
-</td>
-                    <td>
-  {t.status !== "Chiuso" && (
-    <div className="flex gap-2">
-      <button
-        onClick={() => planTicket(String(t.id))}
-        className="rounded-lg bg-blue-700 px-3 py-1 text-white"
-      >
-        Pianifica
-      </button>
-
-      <button
-        onClick={() => closeTicket(t.id)}
-        className="rounded-lg bg-slate-900 px-3 py-1 text-white"
-      >
-        Chiudi
-      </button>
-    </div>
-  )}
-</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+</section>
       </div>
     </main>
   );
