@@ -916,60 +916,6 @@ const calendarSiteResults = sites
   })
   .slice(0, 8);
 async function updateCalendarTicket() {
-  if (!editingCalendarTicketId || !selectedCalendarDay || !calendarTechnician || !calendarSite || !calendarTime) {
-    showMessage("Completa giorno, tecnico, cliente e orario", "error");
-    return;
-  }
-
-  const { error } = await supabase
-    .from("tickets")
-    .update({
-      site: calendarSite.name,
-      region: calendarSite.region || "Da definire",
-      entity: calendarSite.entity || "",
-      city: calendarSite.city || "",
-      site_id: calendarSite.id || null,
-      technician: calendarTechnician,
-      slot: calendarTime,
-      intervention_date: selectedCalendarDay,
-      status: "Pianificato",
-    })
-    .eq("id", Number(editingCalendarTicketId));
-
-  if (error) {
-    console.log(error);
-    showMessage("Errore modifica intervento", "error");
-    return;
-  }
-
-  setTickets((prev) =>
-    prev.map((t) =>
-      String(t.id) === String(editingCalendarTicketId)
-        ? {
-            ...t,
-            site: calendarSite.name,
-            region: calendarSite.region || "",
-            entity: calendarSite.entity || "",
-            city: calendarSite.city || "",
-            technician: calendarTechnician,
-            slot: calendarTime,
-            date: selectedCalendarDay,
-            status: "Pianificato",
-          }
-        : t
-    )
-  );
-
-  setEditingCalendarTicketId(null);
-  setSelectedCalendarDay(null);
-  setCalendarTechnician("");
-  setCalendarSiteSearch("");
-  setCalendarSite(null);
-  setCalendarTime("");
-
-  showMessage("Intervento calendario aggiornato");
-}
-async function updateCalendarTicket() {
   if (
     !editingCalendarTicketId ||
     !selectedCalendarDay ||
