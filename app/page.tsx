@@ -26,6 +26,10 @@ Menu,
 X,
 Download,
 MoreHorizontal,
+Moon,
+Sun,
+Clock,
+CheckCircle2,
 } from "lucide-react";
 
 const AtlasMap = dynamic(() => import("@/components/AtlasMap"), {
@@ -387,6 +391,8 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
+  const [ticketType, setTicketType] = useState<"ordinaria" | "straordinaria">("ordinaria");
+  const [ticketTypesById, setTicketTypesById] = useState<Record<string, "ordinaria" | "straordinaria">>({});
 
   const [closingNotes, setClosingNotes] = useState("");
   const [futureNeeds, setFutureNeeds] = useState("");
@@ -437,6 +443,31 @@ useEffect(() => {
     return INITIAL_BUDGET;
   });
 
+  const [budgets, setBudgets] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("atlas-budgets");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch {
+          // fallback sotto
+        }
+      }
+    }
+
+    return [
+      {
+        id: "BUD-CARABINIERI-2024-2026",
+        contractName: "CARABINIERI ASSISTENZA 2024-2026",
+        entity: "Carabinieri",
+        value: INITIAL_BUDGET,
+        notes: "Budget iniziale collegato al contratto Carabinieri Assistenza 2024-2026",
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+  });
+
   const [clientSearch, setClientSearch] = useState("");
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [contractOverrides, setContractOverrides] = useState<any>({});
@@ -453,6 +484,7 @@ const [contactForm, setContactForm] = useState({
   phone: "",
   address: "",
   notes: "",
+  tag: "Personale",
 });
   const [calendarMonth, setCalendarMonth] = useState(new Date());
 const [selectedCalendarDay, setSelectedCalendarDay] = useState<string | null>(null);
@@ -476,6 +508,43 @@ const [mobileView, setMobileView] = useState<
   | "magazzino"
 >("home");
 const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+const [notificationsOpen, setNotificationsOpen] = useState(false);
+const [manualReminders, setManualReminders] = useState<any[]>(() => {
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem("atlas-reminders");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return [];
+      }
+    }
+  }
+
+  return [];
+});
+const [calendarReminderEnabled, setCalendarReminderEnabled] = useState(false);
+const [calendarReminderNote, setCalendarReminderNote] = useState("");
+const [mobileInventoryFormOpen, setMobileInventoryFormOpen] = useState(false);
+const [editingInventoryIndex, setEditingInventoryIndex] = useState<number | null>(null);
+const [inventoryForm, setInventoryForm] = useState({
+  id: "",
+  name: "",
+  value: "0",
+  quantity: "0",
+});
+const [mobileBudgetFormOpen, setMobileBudgetFormOpen] = useState(false);
+const [budgetClientSearch, setBudgetClientSearch] = useState("");
+const [budgetClient, setBudgetClient] = useState<any | null>(null);
+const [budgetForm, setBudgetForm] = useState({
+  contractName: "CARABINIERI ASSISTENZA 2024-2026",
+  value: String(budget),
+  notes: "",
+});
+const [mobileCalendarFormOpen, setMobileCalendarFormOpen] = useState(false);
+const [mobileContactFormOpen, setMobileContactFormOpen] = useState(false);
+const [mobileContactFilter, setMobileContactFilter] = useState<"Tutti" | "Personale" | "Fornitore" | "Istituzione" | "Preferiti">("Tutti");
 
   useEffect(() => {
     const savedContracts = localStorage.getItem("atlas-contract-overrides");
@@ -485,6 +554,8 @@ const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     if (savedInventory) setInventory(JSON.parse(savedInventory));
     const savedContacts = localStorage.getItem("atlas-contacts");
 if (savedContacts) setContacts(JSON.parse(savedContacts));
+    const savedTicketTypes = localStorage.getItem("atlas-ticket-types");
+if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
   }, []);
 
   useEffect(() => {
@@ -526,6 +597,10 @@ if (savedContacts) setContacts(JSON.parse(savedContacts));
           futureNeeds: t.future_needs || "",
           closingNotes: t.closing_notes || "",
           slot: t.slot || "",
+          ticketType:
+            (typeof window !== "undefined"
+              ? JSON.parse(localStorage.getItem("atlas-ticket-types") || "{}")?.[String(t.id)]
+              : undefined) || t.ticket_type || "ordinaria",
         })) || [];
 
       setTickets(formatted);
@@ -556,6 +631,44 @@ if (savedContacts) setContacts(JSON.parse(savedContacts));
         ...(contractOverrides[selectedContractBase.name] || {}),
       }
     : undefined;
+
+  const totalBudget = budgets.reduce(
+    (sum, item) => sum + Number(item.value || item.total || 0),
+    0
+  ) || budget;
+
+  function getTicketType(ticket: any): "ordinaria" | "straordinaria" {
+    return (
+      ticket?.ticketType ||
+      ticketTypesById[String(ticket?.id)] ||
+      ticket?.ticket_type ||
+      "ordinaria"
+    );
+  }
+
+  function getTicketContract(ticket: any) {
+    return getContractInfo(ticket?.site || "", ticket?.entity || "", editableContracts);
+  }
+
+  function getBudgetSpent(contractName?: string) {
+    return tickets
+      .filter((ticket) => getTicketType(ticket) === "straordinaria")
+      .filter((ticket) => {
+        if (!contractName) return true;
+        return getTicketContract(ticket)?.name === contractName;
+      })
+      .reduce((sum, ticket) => sum + materialCost(ticket.materialIds || []), 0);
+  }
+
+  function getBudgetTotal(contractName?: string) {
+    if (!contractName) return totalBudget;
+    const found = budgets.find((item) => item.contractName === contractName);
+    return Number(found?.value || 0);
+  }
+
+  function getBudgetRemaining(contractName?: string) {
+    return getBudgetTotal(contractName) - getBudgetSpent(contractName);
+  }
 
   function updateContractField(contractName: string, field: string, value: string) {
     const updated = {
@@ -611,11 +724,14 @@ if (savedContacts) setContacts(JSON.parse(savedContacts));
     .slice(0, 10);
 
   const totalForecast = useMemo(
-    () => tickets.reduce((sum, t) => sum + materialCost(t.materialIds || []), 0),
-    [tickets]
+    () =>
+      tickets
+        .filter((t) => getTicketType(t) === "straordinaria")
+        .reduce((sum, t) => sum + materialCost(t.materialIds || []), 0),
+    [tickets, ticketTypesById]
   );
 
-  const remainingBudget = budget - totalForecast;
+  const remainingBudget = totalBudget - totalForecast;
 
   const filteredTickets = tickets.filter((t) => {
     const matchTechnician = !filterTechnician || t.technician === filterTechnician;
@@ -742,7 +858,15 @@ if (savedContacts) setContacts(JSON.parse(savedContacts));
       resolved: true,
       closingNotes: "",
       futureNeeds: "",
+      ticketType,
     };
+
+    const updatedTicketTypes = {
+      ...ticketTypesById,
+      [String(data.id)]: ticketType,
+    };
+    setTicketTypesById(updatedTicketTypes);
+    localStorage.setItem("atlas-ticket-types", JSON.stringify(updatedTicketTypes));
 
     setTickets([newTicket, ...tickets]);
 
@@ -757,6 +881,7 @@ if (savedContacts) setContacts(JSON.parse(savedContacts));
     setSelectedDate("");
     setSelectedSlot("");
     setSelectedMaterials([]);
+    setTicketType("ordinaria");
 
     showMessage("Ticket salvato su database");
   }
@@ -854,6 +979,7 @@ if (savedContacts) setContacts(JSON.parse(savedContacts));
       "Materiali",
       "Costo",
       "Tecnico",
+      "Tipo chiamata",
       "Stato",
       "Risolto",
       "Data intervento",
@@ -874,6 +1000,7 @@ if (savedContacts) setContacts(JSON.parse(savedContacts));
         .join(" + "),
       materialCost(t.materialIds || []),
       t.technician || "",
+      getTicketType(t),
       t.status,
       t.resolved === false ? "No" : "Sì",
       t.date || "",
@@ -929,7 +1056,7 @@ const mobileCalendarCells = Array.from({ length: 42 }, (_, i) => {
 });
 
 const mobileSelectedDate =
-  selectedCalendarDay || new Date().toISOString().slice(0, 10);
+  selectedCalendarDay || formatLocalDate(new Date());
 
 const mobileSelectedTickets = tickets.filter((t) => t.date === mobileSelectedDate);
 
@@ -999,10 +1126,18 @@ async function updateCalendarTicket() {
             slot: calendarTime,
             date: selectedCalendarDay,
             status: "Pianificato",
+            ticketType,
           }
         : t
     )
   );
+
+  const updatedTicketTypes = {
+    ...ticketTypesById,
+    [String(editingCalendarTicketId)]: ticketType,
+  };
+  setTicketTypesById(updatedTicketTypes);
+  localStorage.setItem("atlas-ticket-types", JSON.stringify(updatedTicketTypes));
 
   setEditingCalendarTicketId(null);
   setExpandedCalendarTicketId(null);
@@ -1061,7 +1196,15 @@ async function addCalendarTicket() {
     resolved: true,
     closingNotes: "",
     futureNeeds: "",
+    ticketType,
   };
+
+  const updatedTicketTypes = {
+    ...ticketTypesById,
+    [String(data.id)]: ticketType,
+  };
+  setTicketTypesById(updatedTicketTypes);
+  localStorage.setItem("atlas-ticket-types", JSON.stringify(updatedTicketTypes));
 
   setTickets([newTicket, ...tickets]);
 
@@ -1083,12 +1226,30 @@ const contactClientResults = sites
   })
   .slice(0, 8);
 
+const budgetClientResults = sites
+  .filter((s) => {
+    const q = budgetClientSearch.toLowerCase();
+
+    return `${s.name} ${s.city} ${s.entity} ${s.region}`
+      .toLowerCase()
+      .includes(q);
+  })
+  .slice(0, 8);
+
 const filteredContacts = contacts.filter((contact) => {
   const q = contactSearch.toLowerCase();
+  const tag = contact.tag || "Personale";
 
-  return `${contact.name} ${contact.phone} ${contact.address} ${contact.notes} ${contact.clientName} ${contact.clientCity} ${contact.clientRegion}`
+  const matchesSearch = `${contact.name} ${contact.phone} ${contact.address} ${contact.notes} ${contact.clientName} ${contact.clientCity} ${contact.clientRegion} ${tag}`
     .toLowerCase()
     .includes(q);
+
+  const matchesTag =
+    mobileContactFilter === "Tutti" ||
+    (mobileContactFilter === "Preferiti" && contact.favorite) ||
+    tag === mobileContactFilter;
+
+  return matchesSearch && matchesTag;
 });
 
 function resetContactForm() {
@@ -1100,6 +1261,7 @@ function resetContactForm() {
     phone: "",
     address: "",
     notes: "",
+    tag: "Personale",
   });
 }
 
@@ -1115,6 +1277,7 @@ function saveContact() {
     phone: contactForm.phone,
     address: contactForm.address,
     notes: contactForm.notes,
+    tag: contactForm.tag || "Personale",
     clientId: contactClient?.id || null,
     clientName: contactClient?.name || contactClientSearch || "",
     clientCity: contactClient?.city || "",
@@ -1150,6 +1313,7 @@ function editContact(contact: any) {
     phone: contact.phone || "",
     address: contact.address || "",
     notes: contact.notes || "",
+    tag: contact.tag || "Personale",
   });
 }
 
@@ -1159,6 +1323,553 @@ function deleteContact(id: string) {
   localStorage.setItem("atlas-contacts", JSON.stringify(updated));
   resetContactForm();
   showMessage("Contatto eliminato");
+}
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function openBudgetForm(contractName?: string) {
+  const selectedContractName = contractName || budgetForm.contractName || budgets[0]?.contractName || editableContracts[0]?.name || "";
+  const existing = budgets.find((item) => item.contractName === selectedContractName);
+
+  setBudgetForm({
+    contractName: selectedContractName,
+    value: String(existing?.value || budget || INITIAL_BUDGET),
+    notes: existing?.notes || "",
+  });
+  setMobileBudgetFormOpen(true);
+}
+
+function saveMobileBudget() {
+  const parsed = Number(String(budgetForm.value || "0").replace(",", "."));
+  const contract = editableContracts.find((item) => item.name === budgetForm.contractName);
+
+  if (!contract) {
+    showMessage("Seleziona un contratto / entità", "error");
+    return;
+  }
+
+  if (Number.isNaN(parsed)) {
+    showMessage("Valore budget non valido", "error");
+    return;
+  }
+
+  const payload = {
+    id: `BUD-${contract.name.replace(/[^A-Z0-9]+/gi, "-").toUpperCase()}`,
+    contractName: contract.name,
+    entity: contract.clientType || contract.name,
+    value: parsed,
+    notes: budgetForm.notes || "",
+    updatedAt: new Date().toISOString(),
+  };
+
+  const updated = budgets.some((item) => item.contractName === contract.name)
+    ? budgets.map((item) => (item.contractName === contract.name ? payload : item))
+    : [payload, ...budgets];
+
+  setBudgets(updated);
+  localStorage.setItem("atlas-budgets", JSON.stringify(updated));
+  setBudget(updated.reduce((sum, item) => sum + Number(item.value || 0), 0));
+  localStorage.setItem("atlas-budget", String(updated.reduce((sum, item) => sum + Number(item.value || 0), 0)));
+
+  setMobileBudgetFormOpen(false);
+  showMessage("Budget contratto aggiornato");
+}
+
+async function promptPlanTicket(id: string) {
+  const current = tickets.find((t) => String(t.id) === String(id));
+  const date = prompt("Data intervento (AAAA-MM-GG):", current?.date || selectedDate || formatLocalDate(new Date()));
+  if (!date) return;
+
+  const slot = prompt("Slot (Mattina/Pomeriggio):", current?.slot || selectedSlot || "Mattina");
+  if (!slot) return;
+
+  const tech = prompt("Tecnico:", current?.technician || technician || technicians[0]);
+  if (!tech) return;
+
+  const { error } = await supabase
+    .from("tickets")
+    .update({
+      technician: tech,
+      intervention_date: date,
+      slot,
+      status: "Pianificato",
+    })
+    .eq("id", Number(id));
+
+  if (error) {
+    console.log(error);
+    showMessage("Errore pianificazione ticket", "error");
+    return;
+  }
+
+  setTickets((prev) =>
+    prev.map((t) =>
+      String(t.id) === String(id)
+        ? { ...t, technician: tech, date, slot, status: "Pianificato" }
+        : t
+    )
+  );
+
+  showMessage("Ticket pianificato");
+}
+
+async function promptCloseTicket(id: string) {
+  const notes = prompt("Note chiusura:", closingNotes || "");
+  if (notes === null) return;
+
+  const future = prompt("Necessità future:", futureNeeds || "");
+  if (future === null) return;
+
+  const today = formatLocalDate(new Date());
+
+  const { error } = await supabase
+    .from("tickets")
+    .update({
+      status: "Chiuso",
+      intervention_date: today,
+      closing_notes: notes,
+      future_needs: future,
+      resolved: true,
+    })
+    .eq("id", Number(id));
+
+  if (error) {
+    console.log(error);
+    showMessage("Errore chiusura ticket", "error");
+    return;
+  }
+
+  setTickets((prev) =>
+    prev.map((t) =>
+      String(t.id) === String(id)
+        ? {
+            ...t,
+            status: "Chiuso",
+            date: today,
+            closingNotes: notes,
+            futureNeeds: future,
+            resolved: true,
+          }
+        : t
+    )
+  );
+
+  showMessage("Ticket chiuso");
+}
+
+function startCalendarCreate(day?: string) {
+  setEditingCalendarTicketId(null);
+  setExpandedCalendarTicketId(null);
+  setSelectedCalendarDay(day || mobileSelectedDate || formatLocalDate(new Date()));
+  setCalendarTechnician("");
+  setCalendarSiteSearch("");
+  setCalendarSite(null);
+  setCalendarTime("");
+  setTicketType("ordinaria");
+  setMobileCalendarFormOpen(true);
+}
+
+function startCalendarEdit(ticket: any) {
+  setEditingCalendarTicketId(String(ticket.id));
+  setExpandedCalendarTicketId(String(ticket.id));
+  setSelectedCalendarDay(ticket.date || mobileSelectedDate || formatLocalDate(new Date()));
+  setCalendarTechnician(ticket.technician || "");
+  setCalendarSiteSearch(ticket.site || "");
+  setCalendarSite({
+    id: ticket.site_id || null,
+    name: ticket.site || "",
+    region: ticket.region || "",
+    entity: ticket.entity || "",
+    city: ticket.city || "",
+  });
+  setCalendarTime(ticket.slot || "");
+  setTicketType(getTicketType(ticket));
+  setMobileCalendarFormOpen(true);
+}
+
+async function saveMobileCalendarTicket() {
+  const reminderDate = selectedCalendarDay || mobileSelectedDate || formatLocalDate(new Date());
+  const reminderTitle = calendarSite?.name
+    ? `Intervento ${calendarSite.name}`
+    : calendarSiteSearch
+    ? `Intervento ${calendarSiteSearch}`
+    : "Intervento calendario";
+
+  if (editingCalendarTicketId) {
+    await updateCalendarTicket();
+  } else {
+    await addCalendarTicket();
+  }
+
+  if (calendarReminderEnabled) {
+    addManualReminder(reminderTitle, reminderDate, calendarReminderNote || calendarTime || "Reminder calendario");
+    setCalendarReminderEnabled(false);
+    setCalendarReminderNote("");
+  }
+
+  setMobileCalendarFormOpen(false);
+}
+
+async function promptAddClient() {
+  const name = prompt("Nome sede/cliente:");
+  if (!name) return;
+
+  const cityValue = prompt("Città:", "") || "";
+  const entityValue = prompt("Ente:", "") || "";
+  const regionValue = prompt("Regione:", "Da definire") || "Da definire";
+
+  const { data, error } = await supabase
+    .from("sites")
+    .insert([
+      {
+        name,
+        city: cityValue,
+        entity: entityValue,
+        region: regionValue,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    console.log(error);
+    showMessage("Errore creazione cliente", "error");
+    return;
+  }
+
+  setSites((prev) => [normalizeSiteRegion(data), ...prev]);
+  showMessage("Cliente/sede aggiunto");
+}
+
+function editMobileContract(contract: any) {
+  const startDate = prompt("Data inizio contratto (AAAA-MM-GG):", contract.startDate !== "Da verificare" ? contract.startDate : "");
+  if (startDate !== null) updateContractField(contract.name, "startDate", startDate || "Da verificare");
+
+  const endDate = prompt("Scadenza contratto (AAAA-MM-GG):", contract.endDate !== "Da verificare" ? contract.endDate : "");
+  if (endDate !== null) updateContractField(contract.name, "endDate", endDate || "Da verificare");
+
+  const pdf = prompt("Link PDF contratto:", contract.pdf || "");
+  if (pdf !== null) updateContractField(contract.name, "pdf", pdf);
+
+  const notes = prompt("Note contratto:", contract.notes || "");
+  if (notes !== null) updateContractField(contract.name, "notes", notes);
+}
+
+function startContactCreate() {
+  setEditingContactId(null);
+  setContactClientSearch("");
+  setContactClient(null);
+  setContactForm({
+    name: "",
+    phone: "",
+    address: "",
+    notes: "",
+    tag: "Personale",
+  });
+  setMobileContactFormOpen(true);
+}
+
+function startContactEdit(contact: any) {
+  editContact(contact);
+  setMobileContactFormOpen(true);
+}
+
+function saveMobileContact() {
+  saveContact();
+  setMobileContactFormOpen(false);
+}
+
+function startInventoryCreate() {
+  setEditingInventoryIndex(null);
+  setInventoryForm({
+    id: "",
+    name: "",
+    value: "0",
+    quantity: "0",
+  });
+  setMobileInventoryFormOpen(true);
+}
+
+function startInventoryEdit(index: number) {
+  const item = inventory[index];
+  if (!item) return;
+
+  setEditingInventoryIndex(index);
+  setInventoryForm({
+    id: item.id || "",
+    name: item.name || "",
+    value: String(item.value || 0),
+    quantity: String(item.quantity || 0),
+  });
+  setMobileInventoryFormOpen(true);
+}
+
+function saveInventoryItemMobile() {
+  const name = inventoryForm.name.trim();
+  const id = inventoryForm.id.trim() || name.toUpperCase().replace(/\s+/g, "-");
+
+  if (!name || !id) {
+    showMessage("Nome e ID articolo sono obbligatori", "error");
+    return;
+  }
+
+  const payload = {
+    id,
+    name,
+    value: Number(String(inventoryForm.value || "0").replace(",", ".")),
+    quantity: Number(String(inventoryForm.quantity || "0").replace(",", ".")),
+  };
+
+  const updated =
+    editingInventoryIndex === null
+      ? [payload, ...inventory]
+      : inventory.map((item, index) =>
+          index === editingInventoryIndex ? { ...item, ...payload } : item
+        );
+
+  setInventory(updated);
+  localStorage.setItem("atlas-inventory", JSON.stringify(updated));
+  setMobileInventoryFormOpen(false);
+  setEditingInventoryIndex(null);
+  showMessage(editingInventoryIndex === null ? "Articolo aggiunto" : "Articolo aggiornato");
+}
+
+function deleteInventoryItemMobile() {
+  if (editingInventoryIndex === null) return;
+
+  const updated = inventory.filter((_, index) => index !== editingInventoryIndex);
+  setInventory(updated);
+  localStorage.setItem("atlas-inventory", JSON.stringify(updated));
+  setMobileInventoryFormOpen(false);
+  setEditingInventoryIndex(null);
+  showMessage("Articolo eliminato");
+}
+
+function openSystemMobile(systemName: string) {
+  setSelectedSystem(selectedSystem === systemName ? null : systemName);
+}
+
+function renderDateInput(value: string, onChange: (value: string) => void, className = input) {
+  return (
+    <div className="relative w-full">
+      <input
+        type="date"
+        className={`${className} w-full appearance-none pr-12`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <CalendarDays
+        size={20}
+        className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
+      />
+    </div>
+  );
+}
+
+function addManualReminder(title: string, date: string, note = "") {
+  if (!title || !date) return;
+
+  const reminder = {
+    id: `REM-${Date.now()}`,
+    title,
+    date,
+    note,
+    done: false,
+    createdAt: new Date().toISOString(),
+  };
+
+  const updated = [reminder, ...manualReminders];
+  setManualReminders(updated);
+  localStorage.setItem("atlas-reminders", JSON.stringify(updated));
+}
+
+function toggleReminderDone(id: string) {
+  const updated = manualReminders.map((reminder) =>
+    reminder.id === id ? { ...reminder, done: !reminder.done } : reminder
+  );
+  setManualReminders(updated);
+  localStorage.setItem("atlas-reminders", JSON.stringify(updated));
+}
+
+const todayIso = formatLocalDate(new Date());
+const tomorrowDate = new Date();
+tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+const tomorrowIso = formatLocalDate(tomorrowDate);
+
+const budgetAlerts = budgets
+  .map((item) => {
+    const remaining = getBudgetRemaining(item.contractName);
+    const total = Number(item.value || 0);
+    const percentage = total > 0 ? Math.round((remaining / total) * 100) : 0;
+    return { ...item, remaining, percentage };
+  })
+  .filter((item) => item.value > 0 && item.percentage <= 20);
+
+const todayTickets = tickets.filter((ticket) => ticket.date === todayIso);
+const tomorrowTickets = tickets.filter((ticket) => ticket.date === tomorrowIso);
+
+const notificationItems = [
+  ...manualReminders
+    .filter((reminder) => !reminder.done)
+    .map((reminder) => ({
+      id: reminder.id,
+      type: "Reminder",
+      title: reminder.title,
+      detail: `${reminder.date}${reminder.note ? ` · ${reminder.note}` : ""}`,
+      tone: "blue",
+      action: () => toggleReminderDone(reminder.id),
+    })),
+  ...todayTickets.map((ticket) => ({
+    id: `today-${ticket.id}`,
+    type: "Oggi",
+    title: ticket.site || "Intervento",
+    detail: `${ticket.slot || "Slot n/d"} · ${ticket.technician || "Tecnico n/d"}`,
+    tone: "emerald",
+  })),
+  ...tomorrowTickets.map((ticket) => ({
+    id: `tomorrow-${ticket.id}`,
+    type: "Domani",
+    title: ticket.site || "Intervento",
+    detail: `${ticket.slot || "Slot n/d"} · ${ticket.technician || "Tecnico n/d"}`,
+    tone: "blue",
+  })),
+  ...expiringContracts.map((contract) => ({
+    id: `contract-${contract.name}`,
+    type: "Contratto",
+    title: contract.name,
+    detail: getContractStatus(contract).label,
+    tone: "amber",
+  })),
+  ...budgetAlerts.map((budgetItem) => ({
+    id: `budget-${budgetItem.id}`,
+    type: "Budget",
+    title: budgetItem.contractName,
+    detail: `Residuo ${euro(budgetItem.remaining)} (${budgetItem.percentage}%)`,
+    tone: "red",
+  })),
+  ...inventoryCritical.slice(0, 6).map((item) => ({
+    id: `inventory-${item.id}`,
+    type: "Magazzino",
+    title: item.name,
+    detail: `Quantità ${item.quantity}`,
+    tone: Number(item.quantity) <= 0 ? "red" : "amber",
+  })),
+];
+
+function renderNotificationsDrawer() {
+  if (!notificationsOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm">
+      <div
+        className={`ml-auto flex h-full w-full max-w-md flex-col border-l p-5 shadow-2xl ${
+          theme === "dark"
+            ? "border-white/10 bg-[#07111f] text-white"
+            : "border-slate-200 bg-[#f4f7fb] text-slate-950"
+        }`}
+      >
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-400">
+              ATLAS
+            </p>
+            <h2 className="text-2xl font-black">Notifiche</h2>
+          </div>
+
+          <button
+            onClick={() => setNotificationsOpen(false)}
+            className={`rounded-2xl p-3 ${
+              theme === "dark" ? "bg-white/10 text-white" : "bg-white text-slate-900 shadow-sm"
+            }`}
+          >
+            <X size={22} />
+          </button>
+        </div>
+
+        <div className={`mb-4 rounded-3xl border p-4 ${
+          theme === "dark" ? "border-white/10 bg-white/[0.05]" : "border-slate-200 bg-white"
+        }`}>
+          <p className="mb-3 text-sm font-black">Nuovo reminder manuale</p>
+          <div className="grid gap-3">
+            <input
+              className={input}
+              placeholder="Titolo reminder"
+              id="atlas-reminder-title"
+            />
+            {renderDateInput("", (value) => {
+              const field = document.getElementById("atlas-reminder-date") as HTMLInputElement | null;
+              if (field) field.value = value;
+            })}
+            <input id="atlas-reminder-date" type="hidden" />
+            <button
+              onClick={() => {
+                const title = (document.getElementById("atlas-reminder-title") as HTMLInputElement | null)?.value || "";
+                const date = (document.getElementById("atlas-reminder-date") as HTMLInputElement | null)?.value || todayIso;
+                addManualReminder(title, date);
+                showMessage("Reminder aggiunto");
+              }}
+              className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
+            >
+              + Aggiungi reminder
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+          {notificationItems.length === 0 ? (
+            <div className={`rounded-3xl border p-5 text-sm ${
+              theme === "dark" ? "border-white/10 bg-white/[0.05] text-slate-300" : "border-slate-200 bg-white text-slate-600"
+            }`}>
+              Nessuna notifica attiva.
+            </div>
+          ) : (
+            notificationItems.map((item) => (
+              <div
+                key={item.id}
+                className={`rounded-3xl border p-4 ${
+                  theme === "dark" ? "border-white/10 bg-white/[0.06]" : "border-slate-200 bg-white shadow-sm"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${
+                      item.tone === "red"
+                        ? "bg-red-500/15 text-red-300"
+                        : item.tone === "amber"
+                        ? "bg-amber-500/15 text-amber-300"
+                        : item.tone === "emerald"
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : "bg-blue-500/15 text-blue-300"
+                    }`}>
+                      {item.type}
+                    </span>
+                    <p className="mt-3 font-black">{item.title}</p>
+                    <p className={theme === "dark" ? "text-sm text-slate-400" : "text-sm text-slate-600"}>
+                      {item.detail}
+                    </p>
+                  </div>
+
+                  {"action" in item && (
+                    <button
+                      onClick={() => (item as any).action?.()}
+                      className="rounded-2xl bg-emerald-600 p-3 text-white"
+                    >
+                      <CheckCircle2 size={18} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
   const tabs = [
     { key: "operativo", label: "Operativo", icon: AlertTriangle },
@@ -1212,6 +1923,7 @@ return (
         : "bg-[#eef3f8] text-slate-900"
     }`}
   >
+    {renderNotificationsDrawer()}
     <div className="flex min-h-screen">
       <aside
         className={`hidden w-72 shrink-0 border-r p-6 lg:block ${
@@ -1280,7 +1992,7 @@ return (
         </div>
       </aside>
 
-      <div className="flex-1">
+      <div className="min-w-0 flex-1 overflow-x-hidden">
         <header className="sticky top-0 z-40 border-b border-white/10 bg-[#06111f]/95 px-5 pb-4 pt-5 backdrop-blur md:hidden">
           <div className="flex items-center justify-between">
             <button onClick={() => setMobileMenuOpen(true)} className="rounded-2xl p-2 text-white" aria-label="Apri menu mobile">
@@ -1292,9 +2004,13 @@ return (
               <h1 className="truncate text-base font-black text-white">Centrale Operativa ATLAS</h1>
             </div>
 
-            <button className="relative rounded-2xl p-2 text-white" aria-label="Notifiche">
+            <button onClick={() => setNotificationsOpen(true)} className="relative rounded-2xl p-2 text-white" aria-label="Notifiche">
               <Bell size={24} />
-              <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-blue-500" />
+              {notificationItems.length > 0 && (
+                <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-blue-500 px-1.5 py-0.5 text-center text-[10px] font-black text-white">
+                  {notificationItems.length}
+                </span>
+              )}
             </button>
           </div>
         </header>
@@ -1329,6 +2045,24 @@ return (
                 </div>
               </div>
 
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setNotificationsOpen(true)}
+                  className={`relative shrink-0 rounded-2xl border px-3 py-2 text-xs font-black shadow-sm transition-all md:px-4 md:py-3 md:text-sm ${
+                    theme === "dark"
+                      ? "border-white/10 bg-white/[0.06] text-white"
+                      : "border-slate-200 bg-white text-slate-900"
+                  }`}
+                  aria-label="Notifiche"
+                >
+                  <Bell size={18} />
+                  {notificationItems.length > 0 && (
+                    <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-blue-600 px-1.5 py-0.5 text-center text-[10px] font-black text-white">
+                      {notificationItems.length}
+                    </span>
+                  )}
+                </button>
+
               <button
                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                 className={`shrink-0 rounded-2xl border px-3 py-2 text-xs font-black shadow-sm transition-all md:px-4 md:py-3 md:text-sm ${
@@ -1342,6 +2076,7 @@ return (
                   {theme === "dark" ? "Light" : "Dark"}
                 </span>
               </button>
+              </div>
             </div>
 
             <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1416,10 +2151,26 @@ return (
                 <X size={26} />
               </button>
 
-              <div className="mb-8 flex items-center gap-3">
+              <div className="mb-5 flex items-center gap-3">
                 <img src="/secom-logo.png.png" alt="Secom" className="h-10 w-auto object-contain" />
                 <p className="text-base font-black text-white">Centrale Operativa ATLAS</p>
               </div>
+
+              {/*
+<button
+  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+  className="mb-6 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-slate-200"
+>
+  <span className="flex items-center gap-3">
+    {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+    Tema {theme === "dark" ? "chiaro" : "scuro"}
+  </span>
+
+  <span className="rounded-xl bg-blue-600/20 px-3 py-1 text-xs text-blue-300">
+    {theme === "dark" ? "Dark" : "Light"}
+  </span>
+</button>
+*/}
 
               <div className="grid gap-2">
                 {[
@@ -1457,7 +2208,7 @@ return (
           </div>
         )}
 
-        <main className="space-y-6 p-5 pb-24 md:p-8">
+        <main className="w-full max-w-full overflow-x-hidden space-y-6 p-5 pb-24 md:p-8">
             {message && (
               <div
                 className={`rounded-2xl p-4 text-sm font-bold text-white shadow ${
@@ -1467,14 +2218,14 @@ return (
                 {message}
               </div>
             )}
-            <section className="md:hidden">
+            <section className="w-full max-w-full overflow-x-hidden md:hidden">
               {mobileView !== "home" && (
                 <>
                   <button onClick={() => setMobileView("home")} className="mb-5 flex w-fit items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-blue-400">
                     <ChevronLeft size={18} />
                     Torna alla home mobile
                   </button>
-                  <div className="mb-5 flex max-w-full gap-2 overflow-x-auto border-b border-white/10 pb-4 [-ms-overflow-style:none] [scrollbar-width:none]">
+                  <div className="mb-5 flex w-full max-w-full min-w-0 gap-2 overflow-x-auto overscroll-x-contain border-b border-white/10 pb-4 [-ms-overflow-style:none] [scrollbar-width:none]">
                     {[
                       { key: "operativo", label: "Operativo", icon: AlertTriangle },
                       { key: "calendario", label: "Calendario", icon: CalendarDays },
@@ -1558,12 +2309,36 @@ return (
                     )}
                   </div>
                   <textarea className={`min-h-28 ${input}`} placeholder="Descrizione intervento" value={problem} onChange={(e) => setProblem(e.target.value)} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setTicketType("ordinaria")}
+                      className={`rounded-2xl border p-4 text-left font-black ${ticketType === "ordinaria" ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
+                    >
+                      Ordinaria
+                      <span className="mt-1 block text-xs font-bold opacity-70">Non scala budget</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTicketType("straordinaria")}
+                      className={`rounded-2xl border p-4 text-left font-black ${ticketType === "straordinaria" ? "border-amber-500 bg-amber-500/20 text-amber-200" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
+                    >
+                      Straordinaria
+                      <span className="mt-1 block text-xs font-bold opacity-70">Scala budget</span>
+                    </button>
+                  </div>
+                  {site && (
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-slate-300">
+                      <b className="text-white">Contratto rilevato:</b>{" "}
+                      {selectedContract?.name || "Nessun contratto riconosciuto"}
+                    </div>
+                  )}
                   <select className={input} value={technician} onChange={(e) => setTechnician(e.target.value)}>
                     <option value="">Tecnico non assegnato</option>
                     {technicians.map((t) => <option key={t}>{t}</option>)}
                   </select>
                   <div className="grid grid-cols-2 gap-3">
-                    <input type="date" className={input} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+                    {renderDateInput(selectedDate, setSelectedDate)}
                     <select className={input} value={selectedSlot} onChange={(e) => setSelectedSlot(e.target.value)}>
                       <option value="">Slot</option>
                       <option value="Mattina">Mattina</option>
@@ -1578,76 +2353,271 @@ return (
                 <div className="grid gap-5">
                   <div>
                     <h2 className="text-3xl font-black text-white">Calendario interventi</h2>
-                    <p className="mt-2 text-base text-slate-400">Vista mensile con interventi pianificati e inserimento rapido.</p>
+                    <p className="mt-2 break-words text-base text-slate-400">
+                      Vista mensile con interventi pianificati e inserimento rapido.
+                    </p>
                   </div>
+
                   <div className="flex items-center justify-between">
-                    <button onClick={() => changeMonth(-1)} className="rounded-2xl bg-blue-600 p-4 text-white"><ChevronLeft size={28} /></button>
+                    <button onClick={() => changeMonth(-1)} className="rounded-2xl bg-blue-600 p-4 text-white">
+                      <ChevronLeft size={28} />
+                    </button>
                     <div className="text-2xl font-black capitalize text-white">{monthLabel}</div>
-                    <button onClick={() => changeMonth(1)} className="rounded-2xl bg-blue-600 p-4 text-white"><ChevronRight size={28} /></button>
+                    <button onClick={() => changeMonth(1)} className="rounded-2xl bg-blue-600 p-4 text-white">
+                      <ChevronRight size={28} />
+                    </button>
                   </div>
-                  <div className="grid grid-cols-7 gap-1 text-center text-sm font-bold text-slate-300">
-                    {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((d) => <div key={d}>{d}</div>)}
+
+                  <div className="grid w-full grid-cols-7 gap-1 text-center text-xs font-bold text-slate-300">
+                    {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((d) => (
+                      <div key={d}>{d}</div>
+                    ))}
                   </div>
-                  <div className="grid grid-cols-7 gap-1.5">
+
+                  <div className="grid w-full grid-cols-7 gap-1">
                     {mobileCalendarCells.map((day) => {
-                      const iso = day.toISOString().slice(0, 10);
+                      const iso = formatLocalDate(day);
                       const inMonth = day.getMonth() === calendarMonth.getMonth();
                       const hasTickets = tickets.some((t) => t.date === iso);
                       const selected = mobileSelectedDate === iso;
+
                       return (
-                        <button key={iso} onClick={() => setSelectedCalendarDay(iso)} className={`min-h-[70px] rounded-xl border p-1.5 text-center ${selected ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-white"} ${!inMonth ? "opacity-30" : ""}`}>
-                          <div className="text-lg font-black">{day.getDate()}</div>
+                        <button
+                          key={iso}
+                          onClick={() => setSelectedCalendarDay(iso)}
+                          className={`aspect-square min-h-0 rounded-xl border p-1 text-center ${
+                            selected ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-white"
+                          } ${!inMonth ? "opacity-30" : ""}`}
+                        >
+                          <div className="text-base font-black">{day.getDate()}</div>
                           {hasTickets && <div className="mx-auto mt-2 h-2 w-2 rounded-full bg-blue-400" />}
                         </button>
                       );
                     })}
                   </div>
+
                   <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5">
                     <div className="flex items-center gap-3">
                       <CalendarDays className="text-slate-300" />
-                      <h3 className="text-xl font-black text-white">Interventi del {new Date(mobileSelectedDate).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}</h3>
+                      <h3 className="text-xl font-black text-white">
+                        Interventi del{" "}
+                        {new Date(`${mobileSelectedDate}T12:00:00`).toLocaleDateString("it-IT", {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </h3>
                     </div>
+
                     <div className="mt-4 grid gap-3">
-                      {mobileSelectedTickets.length === 0 ? <p className="text-slate-400">Nessun intervento pianificato.</p> : mobileSelectedTickets.map((t) => (
-                        <div key={t.id} className="rounded-2xl bg-slate-950/40 p-3">
-                          <p className="font-black text-white">{t.slot || "Orario n/d"} · {t.site}</p>
-                          <p className="text-sm text-slate-400">{t.technician || "Tecnico n/d"}</p>
-                        </div>
-                      ))}
+                      {mobileSelectedTickets.length === 0 ? (
+                        <p className="text-slate-400">Nessun intervento pianificato.</p>
+                      ) : (
+                        mobileSelectedTickets.map((t) => (
+                          <div key={t.id} className="rounded-2xl bg-slate-950/40 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-black text-white">
+                                  {t.slot || "Orario n/d"} · {t.site}
+                                </p>
+                                <p className="text-sm text-slate-400">{t.technician || "Tecnico n/d"}</p>
+                              </div>
+                              <button
+                                onClick={() => startCalendarEdit(t)}
+                                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white"
+                              >
+                                Modifica
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
-                  <button onClick={() => setSelectedCalendarDay(mobileSelectedDate)} className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Nuovo intervento</button>
+
+                  {mobileCalendarFormOpen && (
+                    <div className="rounded-3xl border border-blue-500/30 bg-blue-500/10 p-5">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="text-xl font-black text-white">
+                          {editingCalendarTicketId ? "Modifica intervento" : "Nuovo intervento"}
+                        </h3>
+                        <button
+                          onClick={() => setMobileCalendarFormOpen(false)}
+                          className="rounded-xl bg-white/10 px-3 py-2 text-sm font-black text-white"
+                        >
+                          Chiudi
+                        </button>
+                      </div>
+
+                      <div className="grid gap-3">
+                        {renderDateInput(selectedCalendarDay || "", (value) => setSelectedCalendarDay(value))}
+
+                        <select
+                          className={input}
+                          value={calendarTechnician}
+                          onChange={(e) => setCalendarTechnician(e.target.value)}
+                        >
+                          <option value="">Seleziona tecnico</option>
+                          {technicians.map((t) => (
+                            <option key={t}>{t}</option>
+                          ))}
+                        </select>
+
+                        <div className="relative">
+                          <input
+                            className={`w-full ${input}`}
+                            placeholder="Cerca cliente/sede..."
+                            value={calendarSiteSearch}
+                            onChange={(e) => {
+                              setCalendarSiteSearch(e.target.value);
+                              setCalendarSite(null);
+                            }}
+                          />
+
+                          {calendarSiteSearch && !calendarSite && (
+                            <div className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-white/10 bg-slate-950 shadow-xl">
+                              {calendarSiteResults.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  className="block w-full border-b border-white/10 p-4 text-left"
+                                  onClick={() => {
+                                    setCalendarSite(s);
+                                    setCalendarSiteSearch(s.name);
+                                  }}
+                                >
+                                  <div className="font-black text-white">{s.name}</div>
+                                  <div className="text-xs text-slate-400">
+                                    {s.city || "Città n/d"} · {s.entity || "Ente n/d"}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <select
+                          className={input}
+                          value={calendarTime}
+                          onChange={(e) => setCalendarTime(e.target.value)}
+                        >
+                          <option value="">Seleziona orario/slot</option>
+                          <option value="Mattina">Mattina</option>
+                          <option value="Pomeriggio">Pomeriggio</option>
+                        </select>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setTicketType("ordinaria")}
+                            className={`rounded-2xl border p-4 text-left font-black ${ticketType === "ordinaria" ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
+                          >
+                            Ordinaria
+                            <span className="mt-1 block text-xs font-bold opacity-70">Non scala budget</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTicketType("straordinaria")}
+                            className={`rounded-2xl border p-4 text-left font-black ${ticketType === "straordinaria" ? "border-amber-500 bg-amber-500/20 text-amber-200" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
+                          >
+                            Straordinaria
+                            <span className="mt-1 block text-xs font-bold opacity-70">Scala budget</span>
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={saveMobileCalendarTicket}
+                          className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white"
+                        >
+                          {editingCalendarTicketId ? "Salva modifica" : "Aggiungi intervento"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => startCalendarCreate(mobileSelectedDate)}
+                    className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white"
+                  >
+                    + Nuovo intervento
+                  </button>
                 </div>
               )}
 
               {mobileView === "registro" && (
                 <div className="grid gap-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-3xl font-black text-white">Registro chiamate</h2>
-                    <button onClick={exportCsv} className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 font-black text-white"><Download size={18} /> Esporta CSV</button>
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-3xl font-black leading-tight text-white">Registro chiamate</h2>
+                    <button
+                      onClick={exportCsv}
+                      className="shrink-0 flex items-center gap-2 rounded-2xl bg-emerald-600 px-3 py-3 text-sm font-black text-white"
+                    >
+                      <Download size={18} /> Esporta
+                    </button>
                   </div>
+
                   <div className="grid gap-3">
                     {tickets.map((t) => (
-                      <div key={t.id} className="grid grid-cols-[40px_1fr] gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+                      <div
+                        key={t.id}
+                        className="grid grid-cols-[40px_1fr] gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4"
+                      >
                         <div className="text-xl font-black text-blue-500">{t.id}</div>
+
                         <div>
                           <p className="text-sm font-black uppercase text-white">{t.site}</p>
-                          <p className="mt-1 text-sm text-slate-400">{t.region || "Regione n/d"} · {t.problem}</p>
+                          <p className="mt-1 text-sm text-slate-400">
+                            {t.region || "Regione n/d"} · {t.problem}
+                          </p>
+
                           <div className="mt-3 flex items-center justify-between gap-3">
                             <div>
-                              <p className="text-lg font-black text-white">{euro(materialCost(t.materialIds || []))}</p>
+                              <p className="text-lg font-black text-white">
+                                {euro(materialCost(t.materialIds || []))}
+                              </p>
                               <p className="text-sm text-slate-300">{t.technician || "Non assegnato"}</p>
+                              {(t.date || t.slot) && (
+                                <p className="text-xs text-slate-500">
+                                  {t.date || "Data n/d"} · {t.slot || "Slot n/d"}
+                                </p>
+                              )}
                             </div>
+
                             <div className="text-right">
-                              <p className="mb-2 text-sm text-slate-300"><span className="mr-1 text-emerald-400">●</span>{t.status}</p>
-                              {t.status !== "Chiuso" && <div className="flex gap-2"><button onClick={() => planTicket(String(t.id))} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white">Pianifica</button><button onClick={() => setClosingTicketId(String(t.id))} className="rounded-xl bg-slate-700 px-3 py-2 text-sm font-bold text-white">Chiudi</button></div>}
+                              <p className="mb-2 text-sm text-slate-300">
+                                <span className="mr-1 text-emerald-400">●</span>
+                                {t.status}
+                              </p>
+
+                              {t.status !== "Chiuso" && (
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => promptPlanTicket(String(t.id))}
+                                    className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white"
+                                  >
+                                    Pianifica
+                                  </button>
+                                  <button
+                                    onClick={() => promptCloseTicket(String(t.id))}
+                                    className="rounded-xl bg-slate-700 px-3 py-2 text-sm font-bold text-white"
+                                  >
+                                    Chiudi
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
-                  <button onClick={() => setMobileView("operativo")} className="sticky bottom-4 rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Nuova chiamata/intervento</button>
+
+                  <button
+                    onClick={() => setMobileView("operativo")}
+                    className="sticky bottom-4 rounded-3xl bg-blue-600 p-5 text-xl font-black text-white"
+                  >
+                    + Nuova chiamata/intervento
+                  </button>
                 </div>
               )}
 
@@ -1655,36 +2625,162 @@ return (
 
               {mobileView === "budget" && (
                 <div className="grid gap-4">
-                  <h2 className="text-3xl font-black text-white">Budget</h2>
-                  {[
-                    { label: "Budget iniziale", value: euro(budget), color: "border-l-blue-500" },
-                    { label: "Costo previsto", value: euro(totalForecast), color: "border-l-amber-500" },
-                    { label: "Budget residuo", value: euro(remainingBudget), color: "border-l-emerald-500" },
-                    { label: "Ticket totali", value: String(tickets.length), color: "border-l-purple-500" },
-                  ].map((item) => (
-                    <div key={item.label} className={`rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/10 border-l-4 ${item.color}`}>
-                      <p className="text-base font-black text-slate-300">{item.label}</p>
-                      <p className="mt-3 text-3xl font-black text-white">{item.value}</p>
+                  <h2 className="text-3xl font-black text-white">Budget per contratto</h2>
+
+                  <div className="grid gap-3">
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/10 border-l-4 border-l-blue-500">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-base font-black text-slate-300">Budget totale contratti</p>
+                          <p className="mt-3 text-3xl font-black text-white">
+                            {budgetVisible ? euro(totalBudget) : "••••••"}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => openBudgetForm()}
+                          className="rounded-2xl bg-white/10 px-4 py-3 text-lg font-black text-white"
+                          aria-label="Modifica budget"
+                        >
+                          ✏️
+                        </button>
+                      </div>
                     </div>
-                  ))}
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5">
-                    <div className="mb-4 flex items-center justify-between">
-                      <h3 className="text-xl font-black text-white">Avanzamento budget</h3>
-                      <span className="rounded-xl bg-blue-600/20 px-3 py-1 text-sm font-black text-blue-400">{budget > 0 ? Math.round((totalForecast / budget) * 100) : 0}%</span>
+
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/10 border-l-4 border-l-amber-500">
+                      <p className="text-base font-black text-slate-300">Consumo straordinari</p>
+                      <p className="mt-3 text-3xl font-black text-white">{euro(totalForecast)}</p>
+                      <p className="mt-2 text-xs font-bold text-slate-400">Solo le chiamate straordinarie scalano il budget.</p>
                     </div>
-                    <div className="h-3 overflow-hidden rounded-full bg-slate-800">
-                      <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.min(100, budget > 0 ? (totalForecast / budget) * 100 : 0)}%` }} />
-                    </div>
-                    <div className="mt-4 flex justify-between text-sm text-slate-300">
-                      <div><p>Speso</p><p className="font-black text-white">{euro(totalForecast)}</p></div>
-                      <div className="text-right"><p>Residuo</p><p className="font-black text-white">{euro(remainingBudget)}</p></div>
+
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/10 border-l-4 border-l-emerald-500">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-base font-black text-slate-300">Residuo totale</p>
+                          <p className="mt-3 text-3xl font-black text-white">
+                            {budgetVisible ? euro(remainingBudget) : "••••••"}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setBudgetVisible(!budgetVisible)}
+                          className="rounded-2xl bg-white/10 px-4 py-3 text-lg font-black text-white"
+                          aria-label="Mostra o nascondi budget"
+                        >
+                          {budgetVisible ? "👁️" : "🙈"}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5">
-                    <h3 className="mb-4 text-xl font-black text-white">Dettaglio costi previsti</h3>
-                    {["Personale", "Materiali", "Servizi"].map((row) => <div key={row} className="flex items-center justify-between border-t border-white/10 py-4 text-slate-300"><span className="font-bold">{row}</span><ChevronRight size={18} /></div>)}
+
+                  <div className="grid gap-3">
+                    {budgets.map((item) => {
+                      const spent = getBudgetSpent(item.contractName);
+                      const total = Number(item.value || 0);
+                      const percent = total > 0 ? Math.min(100, Math.round((spent / total) * 100)) : 0;
+                      return (
+                        <div key={item.id || item.contractName} className="rounded-3xl border border-white/10 bg-white/[0.06] p-5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-lg font-black text-white">{item.contractName}</p>
+                              <p className="text-sm text-slate-400">{item.entity || "Entità non definita"}</p>
+                            </div>
+                            <button onClick={() => openBudgetForm(item.contractName)} className="rounded-xl bg-white/10 px-3 py-2 text-sm font-black text-white">✏️</button>
+                          </div>
+                          <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-800">
+                            <div className="h-full rounded-full bg-blue-600" style={{ width: `${percent}%` }} />
+                          </div>
+                          <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
+                            <div><p className="text-slate-400">Budget</p><p className="font-black text-white">{budgetVisible ? euro(total) : "••••••"}</p></div>
+                            <div><p className="text-slate-400">Scalato</p><p className="font-black text-amber-300">{euro(spent)}</p></div>
+                            <div><p className="text-slate-400">Residuo</p><p className="font-black text-emerald-300">{budgetVisible ? euro(total - spent) : "••••••"}</p></div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <button className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Aggiorna budget</button>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5">
+                    <h3 className="mb-4 text-xl font-black text-white">Straordinari per contratto</h3>
+                    {budgets.length === 0 ? (
+                      <p className="text-sm text-slate-400">Nessun budget configurato.</p>
+                    ) : (
+                      budgets.map((item) => (
+                        <button
+                          key={`detail-${item.contractName}`}
+                          onClick={() => setMobileView("registro")}
+                          className="flex w-full items-center justify-between border-t border-white/10 py-4 text-left text-slate-300"
+                        >
+                          <span className="font-bold">{item.entity || item.contractName}</span>
+                          <span className="flex items-center gap-2">
+                            <b className="text-white">{euro(getBudgetSpent(item.contractName))}</b>
+                            <ChevronRight size={18} />
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+
+                  {mobileBudgetFormOpen && (
+                    <div className="rounded-3xl border border-blue-500/30 bg-blue-500/10 p-5">
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <h3 className="text-xl font-black text-white">Budget contratto / entità</h3>
+                        <button
+                          onClick={() => setMobileBudgetFormOpen(false)}
+                          className="rounded-xl bg-white/10 px-3 py-2 text-sm font-black text-white"
+                        >
+                          Chiudi
+                        </button>
+                      </div>
+
+                      <div className="grid gap-3">
+                        <select
+                          className={input}
+                          value={budgetForm.contractName}
+                          onChange={(e) => {
+                            const existing = budgets.find((item) => item.contractName === e.target.value);
+                            setBudgetForm({
+                              ...budgetForm,
+                              contractName: e.target.value,
+                              value: String(existing?.value || budgetForm.value || INITIAL_BUDGET),
+                              notes: existing?.notes || "",
+                            });
+                          }}
+                        >
+                          {editableContracts.map((contract) => (
+                            <option key={contract.name} value={contract.name}>{contract.name}</option>
+                          ))}
+                        </select>
+
+                        <input
+                          className={input}
+                          type="number"
+                          placeholder="Budget contratto"
+                          value={budgetForm.value}
+                          onChange={(e) => setBudgetForm({ ...budgetForm, value: e.target.value })}
+                        />
+
+                        <textarea
+                          className={input}
+                          placeholder="Note budget / riferimento contratto"
+                          value={budgetForm.notes}
+                          onChange={(e) => setBudgetForm({ ...budgetForm, notes: e.target.value })}
+                        />
+
+                        <button
+                          onClick={saveMobileBudget}
+                          className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white"
+                        >
+                          Salva budget
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => openBudgetForm()}
+                    className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white"
+                  >
+                    + Aggiorna budget contratto
+                  </button>
                 </div>
               )}
 
@@ -1703,85 +2799,633 @@ return (
 
               {mobileView === "clienti" && (
                 <div className="grid gap-4">
-                  <div className="flex items-end justify-between gap-3"><div><h2 className="text-3xl font-black text-white">Clienti / Enti</h2><p className="text-base text-slate-400">{sites.length} sedi totali</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo cliente</button></div>
-                  <input className={input} placeholder="Cerca cliente, città, sede..." value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} />
-                  <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-white/10 text-center text-sm font-black"><button className="border-b-2 border-blue-500 py-3 text-blue-400">Categorie</button><button className="py-3 text-slate-400">Elenco clienti</button></div>
-                  <div className="grid gap-3">
-                    {Object.entries(clientCategories).map(([category, categorySites]) => (
-                      <button key={category} onClick={() => setOpenCategory(openCategory === category ? null : category)} className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-left">
-                        <span className="flex items-center gap-4"><span className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600/30 text-lg font-black text-white">{category.slice(0,2).toUpperCase()}</span><span><span className="block text-lg font-black text-white">{category}</span><span className="text-sm text-slate-400">{categorySites.length} sedi</span></span></span><ChevronRight className="text-slate-400" />
-                      </button>
-                    ))}
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <h2 className="text-3xl font-black text-white">Clienti / Enti</h2>
+                      <p className="text-base text-slate-400">{sites.length} sedi totali</p>
+                    </div>
+                    <button
+                      onClick={promptAddClient}
+                      className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
+                    >
+                      + Nuovo cliente
+                    </button>
                   </div>
-                  <div className="grid grid-cols-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-center"><div><p className="text-2xl font-black text-white">{sites.length}</p><p className="text-xs text-slate-400">Sedi totali</p></div><div><p className="text-2xl font-black text-white">{Object.keys(clientCategories).length}</p><p className="text-xs text-slate-400">Categorie</p></div><div><p className="text-2xl font-black text-white">{sites.length}</p><p className="text-xs text-slate-400">Clienti</p></div></div>
+
+                  <input
+                    className={input}
+                    placeholder="Cerca cliente, città, sede..."
+                    value={clientSearch}
+                    onChange={(e) => setClientSearch(e.target.value)}
+                  />
+
+                  <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-white/10 text-center text-sm font-black">
+                    <button className="border-b-2 border-blue-500 py-3 text-blue-400">Categorie</button>
+                    <button className="py-3 text-slate-400">Elenco clienti</button>
+                  </div>
+
+                  <div className="grid gap-3">
+                    {Object.entries(clientCategories).map(([category, categorySites]) => {
+                      const filtered = categorySites.filter((s) => {
+                        const q = clientSearch.toLowerCase();
+                        return (
+                          s.name?.toLowerCase().includes(q) ||
+                          s.city?.toLowerCase().includes(q) ||
+                          s.entity?.toLowerCase().includes(q) ||
+                          s.region?.toLowerCase().includes(q)
+                        );
+                      });
+
+                      if (filtered.length === 0) return null;
+
+                      return (
+                        <div key={category} className="rounded-3xl border border-white/10 bg-white/[0.06]">
+                          <button
+                            onClick={() => setOpenCategory(openCategory === category ? null : category)}
+                            className="flex w-full items-center justify-between p-4 text-left"
+                          >
+                            <span className="flex items-center gap-4">
+                              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600/30 text-lg font-black text-white">
+                                {category.slice(0, 2).toUpperCase()}
+                              </span>
+                              <span>
+                                <span className="block text-lg font-black text-white">{category}</span>
+                                <span className="text-sm text-slate-400">{filtered.length} sedi</span>
+                              </span>
+                            </span>
+                            <ChevronRight className={`text-slate-400 transition ${openCategory === category ? "rotate-90" : ""}`} />
+                          </button>
+
+                          {openCategory === category && (
+                            <div className="grid gap-2 border-t border-white/10 p-4">
+                              {filtered.slice(0, 30).map((s) => (
+                                <button
+                                  key={s.id}
+                                  onClick={() => {
+                                    setSite(s.name);
+                                    setSiteSearch(s.name);
+                                    setRegion(s.region || "");
+                                    setEntity(s.entity || "");
+                                    setCity(s.city || "");
+                                    setSiteId(s.id || null);
+                                    setMobileView("operativo");
+                                  }}
+                                  className="rounded-2xl bg-slate-950/40 p-3 text-left"
+                                >
+                                  <p className="font-black text-white">{s.name}</p>
+                                  <p className="text-sm text-slate-400">
+                                    {s.city || "Città n/d"} · {s.entity || "Ente n/d"}
+                                  </p>
+                                  <p className="text-xs text-slate-500">{s.region || "Regione n/d"}</p>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid grid-cols-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-center">
+                    <div>
+                      <p className="text-2xl font-black text-white">{sites.length}</p>
+                      <p className="text-xs text-slate-400">Sedi totali</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-black text-white">{Object.keys(clientCategories).length}</p>
+                      <p className="text-xs text-slate-400">Categorie</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-black text-white">{sites.length}</p>
+                      <p className="text-xs text-slate-400">Clienti</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
               {mobileView === "contratti" && (
                 <div className="grid gap-4">
-                  <div className="flex items-end justify-between gap-3"><div><h2 className="text-3xl font-black text-white">Contratti / Accordi commerciali</h2><p className="text-base text-slate-400">{editableContracts.length} contratti totali</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo</button></div>
-                  <div className="grid grid-cols-4 overflow-hidden rounded-2xl border border-white/10 text-center text-xs font-black"><button className="border-b-2 border-blue-500 py-3 text-blue-400">Tutti</button><button className="py-3 text-slate-400">Attivi</button><button className="py-3 text-slate-400">In scadenza</button><button className="py-3 text-slate-400">Scaduti</button></div>
-                  {editableContracts.map((contract) => { const st = getContractStatus(contract); return (
-                    <div key={contract.name} className="rounded-3xl border border-white/10 bg-white/[0.06] p-4">
-                      <div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-white">{contract.name}</p><p className="text-sm text-slate-400">{contract.clientType}</p></div><span className={`rounded-full px-3 py-1 text-xs font-black text-white ${st.color}`}>{st.label}</span></div>
-                      <p className="mt-3 text-sm text-slate-300"><b>Periodo:</b> {contract.period}</p>
-                      <div className="mt-4 grid grid-cols-3 gap-2 border-t border-white/10 pt-4 text-xs text-slate-300"><div><p>Garanzia</p><b className="text-white">{contract.warranty}</b></div><div><p>Spedizione</p><b className="text-white">{contract.shipping}</b></div><div><p>SLA</p><b className="text-white">{contract.sla}</b></div></div>
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <h2 className="text-3xl font-black text-white">Contratti / Accordi commerciali</h2>
+                      <p className="text-base text-slate-400">{editableContracts.length} contratti totali</p>
                     </div>
-                  ); })}
+                    <button
+                      onClick={() => showMessage("Aggiunta nuovo contratto non ancora collegata a database", "error")}
+                      className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
+                    >
+                      + Nuovo
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-4 overflow-hidden rounded-2xl border border-white/10 text-center text-xs font-black">
+                    <button className="border-b-2 border-blue-500 py-3 text-blue-400">Tutti</button>
+                    <button className="py-3 text-slate-400">Attivi</button>
+                    <button className="py-3 text-slate-400">In scadenza</button>
+                    <button className="py-3 text-slate-400">Scaduti</button>
+                  </div>
+
+                  {editableContracts.map((contract) => {
+                    const st = getContractStatus(contract);
+                    return (
+                      <div key={contract.name} className="rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-lg font-black text-white">{contract.name}</p>
+                            <p className="text-sm text-slate-400">{contract.clientType}</p>
+                          </div>
+                          <span className={`rounded-full px-3 py-1 text-xs font-black text-white ${st.color}`}>
+                            {st.label}
+                          </span>
+                        </div>
+
+                        <p className="mt-3 text-sm text-slate-300">
+                          <b>Periodo:</b> {contract.period}
+                        </p>
+
+                        <div className="mt-4 grid grid-cols-3 gap-2 border-t border-white/10 pt-4 text-xs text-slate-300">
+                          <div>
+                            <p>Garanzia</p>
+                            <b className="text-white">{contract.warranty}</b>
+                          </div>
+                          <div>
+                            <p>Spedizione</p>
+                            <b className="text-white">{contract.shipping}</b>
+                          </div>
+                          <div>
+                            <p>SLA</p>
+                            <b className="text-white">{contract.sla}</b>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex gap-2">
+                          <button
+                            onClick={() => editMobileContract(contract)}
+                            className="flex-1 rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
+                          >
+                            Modifica
+                          </button>
+
+                          {contract.pdf && (
+                            <a
+                              href={contract.pdf}
+                              target="_blank"
+                              className="rounded-2xl bg-white/10 px-4 py-3 font-black text-white"
+                            >
+                              PDF
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
               {mobileView === "sistemi" && (
                 <div className="grid gap-4">
-                  <div className="flex items-end justify-between gap-3"><div><h2 className="text-3xl font-black text-white">Sistemi / Componenti</h2><p className="text-base text-slate-400">Catalogo tecnico consultabile dai tecnici</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo</button></div>
-                  <input className={input} placeholder="Cerca sistema, componente, produttore..." value={systemSearch} onChange={(e) => setSystemSearch(e.target.value)} />
-                  <div className="grid grid-cols-4 rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-center text-xs text-slate-400"><div><p className="text-xl font-black text-white">{systemsCatalog.length}</p><p>Sistemi</p></div><div><p className="text-xl font-black text-white">{systemsCatalog.reduce((sum, s:any) => sum + (s.components?.length || 0), 0)}</p><p>Componenti</p></div><div className="col-span-2"><p className="text-xl font-black text-white">{euro(systemsCatalog.reduce((sum, s:any) => sum + Number(s.totalCost || 0), 0))}</p><p>Valore totale</p></div></div>
-                  {systemsCatalog.map((system:any) => (
-                    <button key={system.name} onClick={() => setSelectedSystem(system.name)} className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-left">
-                      <span className="flex items-center gap-4"><span className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600/30 text-sm font-black text-white">{system.name.slice(0,5)}</span><span><span className="block text-xl font-black text-white">{system.name}</span><span className="text-sm text-slate-400">{system.productName || "Sistema"}</span><span className="mt-1 block text-xs text-slate-500">{system.components.length} componenti</span></span></span><span className="text-right"><span className="block font-black text-white">{euro(system.totalCost)}</span><ChevronRight className="ml-auto mt-2 text-slate-400" /></span>
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <h2 className="text-3xl font-black text-white">Sistemi / Componenti</h2>
+                      <p className="text-base text-slate-400">Catalogo tecnico consultabile dai tecnici</p>
+                    </div>
+                    <button
+                      onClick={() => showMessage("Catalogo sistemi collegato da systemsCatalog", "error")}
+                      className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
+                    >
+                      + Nuovo
                     </button>
-                  ))}
+                  </div>
+
+                  <input
+                    className={input}
+                    placeholder="Cerca sistema, componente, produttore..."
+                    value={systemSearch}
+                    onChange={(e) => setSystemSearch(e.target.value)}
+                  />
+
+                  <div className="grid grid-cols-4 rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-center text-xs text-slate-400">
+                    <div>
+                      <p className="text-xl font-black text-white">{systemsCatalog.length}</p>
+                      <p>Sistemi</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-black text-white">
+                        {systemsCatalog.reduce((sum, s: any) => sum + (s.components?.length || 0), 0)}
+                      </p>
+                      <p>Componenti</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-xl font-black text-white">
+                        {euro(systemsCatalog.reduce((sum, s: any) => sum + Number(s.totalCost || 0), 0))}
+                      </p>
+                      <p>Valore totale</p>
+                    </div>
+                  </div>
+
+                  {systemsCatalog
+                    .filter((system: any) => {
+                      const q = systemSearch.toLowerCase();
+                      return `${system.name} ${system.productName} ${system.components?.map((c: any) => c.name).join(" ")}`.toLowerCase().includes(q);
+                    })
+                    .map((system: any) => (
+                      <div key={system.name} className="rounded-3xl border border-white/10 bg-white/[0.06]">
+                        <button
+                          onClick={() => openSystemMobile(system.name)}
+                          className="flex w-full items-center justify-between p-4 text-left"
+                        >
+                          <span className="flex items-center gap-4">
+                            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600/30 text-sm font-black text-white">
+                              {system.name.slice(0, 5)}
+                            </span>
+                            <span>
+                              <span className="block text-xl font-black text-white">{system.name}</span>
+                              <span className="text-sm text-slate-400">{system.productName || "Sistema"}</span>
+                              <span className="mt-1 block text-xs text-slate-500">
+                                {system.components.length} componenti
+                              </span>
+                            </span>
+                          </span>
+                          <span className="text-right">
+                            <span className="block font-black text-white">{euro(system.totalCost)}</span>
+                            <ChevronRight className={`ml-auto mt-2 text-slate-400 transition ${selectedSystem === system.name ? "rotate-90" : ""}`} />
+                          </span>
+                        </button>
+
+                        {selectedSystem === system.name && (
+                          <div className="grid gap-2 border-t border-white/10 p-4">
+                            {(system.components || []).slice(0, 20).map((component: any, index: number) => (
+                              <div key={`${component.name}-${index}`} className="rounded-2xl bg-slate-950/40 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="font-black text-white">{component.name || "Componente"}</p>
+                                    <p className="text-xs text-slate-400">{component.category || component.type || "Categoria n/d"}</p>
+                                  </div>
+                                  <p className="shrink-0 text-sm font-black text-white">
+                                    {euro(Number(component.cost || component.price || 0))}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
                 </div>
               )}
 
               {mobileView === "contatti" && (
                 <div className="grid gap-4">
-                  <div className="flex items-end justify-between gap-3"><div><h2 className="text-3xl font-black text-white">Contatti</h2><p className="text-base text-slate-400">Rubrica tecnica, personale e fornitori.</p></div><button onClick={resetContactForm} className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo</button></div>
-                  <input className={input} placeholder="Cerca contatto, telefono, email, azienda..." value={contactSearch} onChange={(e) => setContactSearch(e.target.value)} />
-                  <div className="flex max-w-full gap-5 overflow-x-auto border-b border-white/10 text-sm font-black"><button className="border-b-2 border-blue-500 px-2 py-3 text-blue-400">Tutti</button><button className="px-2 py-3 text-slate-400">Personale</button><button className="px-2 py-3 text-slate-400">Fornitori</button><button className="px-2 py-3 text-slate-400">Istituzioni</button><button className="px-2 py-3 text-slate-400">Preferiti</button></div>
-                  <p className="text-sm text-slate-400">{filteredContacts.length} contatti trovati</p>
-                  {(filteredContacts.length ? filteredContacts : [
-                    { id: "demo1", name: "Andrea Fabbri", phone: "+39 333 123 4567", notes: "Responsabile TLC", clientName: "Comando Prov. Carabinieri Roma" },
-                    { id: "demo2", name: "Marco Conti", phone: "+39 335 987 6543", notes: "Tecnico di Sistema", clientName: "SPIS S.r.l." },
-                    { id: "demo3", name: "Laura Santini", phone: "+39 347 246 8101", notes: "Project Manager", clientName: "SMARTFAD S.p.A." },
-                  ]).map((contact:any) => (
-                    <div key={contact.id} className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.06] p-4">
-                      <div className="flex min-w-0 items-center gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-600/40 text-lg font-black text-white">{String(contact.name || "?").split(" ").map((x:string)=>x[0]).slice(0,2).join("")}</span><span className="min-w-0"><span className="block truncate text-lg font-black text-white">{contact.name}</span><span className="block truncate text-sm text-slate-400">{contact.notes || contact.clientName || "Contatto"}</span><span className="mt-2 block text-xs text-slate-400">☎ {contact.phone || "Telefono n/d"}</span></span></div><ChevronRight className="shrink-0 text-slate-400" />
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <h2 className="text-3xl font-black text-white">Contatti</h2>
+                      <p className="text-base text-slate-400">Rubrica tecnica, personale e fornitori.</p>
                     </div>
-                  ))}
+                    <button
+                      onClick={startContactCreate}
+                      className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
+                    >
+                      + Nuovo
+                    </button>
+                  </div>
+
+                  <input
+                    className={input}
+                    placeholder="Cerca contatto, telefono, email, azienda..."
+                    value={contactSearch}
+                    onChange={(e) => setContactSearch(e.target.value)}
+                  />
+
+                  <div className="flex max-w-full gap-5 overflow-x-auto border-b border-white/10 text-sm font-black">
+                    {[
+                      { key: "Tutti", label: "Tutti" },
+                      { key: "Personale", label: "Personale" },
+                      { key: "Fornitore", label: "Fornitori" },
+                      { key: "Istituzione", label: "Istituzioni" },
+                      { key: "Preferiti", label: "Preferiti" },
+                    ].map((tab) => (
+                      <button
+                        key={tab.key}
+                        onClick={() => {
+                          setMobileContactFilter(tab.key as any);
+                          setMobileContactFormOpen(false);
+                          setEditingContactId(null);
+                        }}
+                        className={`shrink-0 px-2 py-3 ${
+                          mobileContactFilter === tab.key
+                            ? "border-b-2 border-blue-500 text-blue-400"
+                            : "text-slate-400"
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {mobileContactFormOpen && (
+                    <div className="rounded-3xl border border-blue-500/30 bg-blue-500/10 p-5">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="text-xl font-black text-white">
+                          {editingContactId ? "Modifica contatto" : "Nuovo contatto"}
+                        </h3>
+                        <button
+                          onClick={() => setMobileContactFormOpen(false)}
+                          className="rounded-xl bg-white/10 px-3 py-2 text-sm font-black text-white"
+                        >
+                          Chiudi
+                        </button>
+                      </div>
+
+                      <div className="grid gap-3">
+                        <input
+                          className={input}
+                          placeholder="Nome"
+                          value={contactForm.name}
+                          onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                        />
+
+                        <input
+                          className={input}
+                          placeholder="Telefono"
+                          value={contactForm.phone}
+                          onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })}
+                        />
+
+                        <input
+                          className={input}
+                          placeholder="Indirizzo"
+                          value={contactForm.address}
+                          onChange={(e) => setContactForm({ ...contactForm, address: e.target.value })}
+                        />
+
+                        <textarea
+                          className={input}
+                          placeholder="Note"
+                          value={contactForm.notes}
+                          onChange={(e) => setContactForm({ ...contactForm, notes: e.target.value })}
+                        />
+
+                        <div className="relative">
+                          <input
+                            className={`w-full ${input}`}
+                            placeholder="Collega cliente/sede"
+                            value={contactClientSearch}
+                            onChange={(e) => {
+                              setContactClientSearch(e.target.value);
+                              setContactClient(null);
+                            }}
+                          />
+
+                          {contactClientSearch && !contactClient && (
+                            <div className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-white/10 bg-slate-950 shadow-xl">
+                              {contactClientResults.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  className="block w-full border-b border-white/10 p-4 text-left"
+                                  onClick={() => {
+                                    setContactClient(s);
+                                    setContactClientSearch(s.name);
+                                  }}
+                                >
+                                  <div className="font-black text-white">{s.name}</div>
+                                  <div className="text-xs text-slate-400">
+                                    {s.city || "Città n/d"} · {s.entity || "Ente n/d"}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <select
+                          className={input}
+                          value={contactForm.tag}
+                          onChange={(e) => setContactForm({ ...contactForm, tag: e.target.value })}
+                        >
+                          <option value="Personale">Personale</option>
+                          <option value="Fornitore">Fornitore</option>
+                          <option value="Istituzione">Istituzione</option>
+                        </select>
+
+                        <button
+                          onClick={saveMobileContact}
+                          className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white"
+                        >
+                          Salva contatto
+                        </button>
+
+                        {editingContactId && (
+                          <button
+                            onClick={() => {
+                              deleteContact(editingContactId);
+                              setMobileContactFormOpen(false);
+                            }}
+                            className="rounded-3xl bg-red-600 p-4 text-lg font-black text-white"
+                          >
+                            Elimina contatto
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {!mobileContactFormOpen && (
+                    <>
+                      <p className="text-sm text-slate-400">{filteredContacts.length} contatti trovati</p>
+
+                      {filteredContacts.map((contact: any) => (
+                        <button
+                          key={contact.id}
+                          onClick={() => startContactEdit(contact)}
+                          className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-left"
+                        >
+                          <div className="flex min-w-0 items-center gap-4">
+                            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-600/40 text-lg font-black text-white">
+                              {String(contact.name || "?").split(" ").map((x: string) => x[0]).slice(0, 2).join("")}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-lg font-black text-white">{contact.name}</span>
+                              <span className="block truncate text-sm text-slate-400">
+                                {contact.notes || contact.clientName || "Contatto"}
+                              </span>
+                              <span className="mt-2 block text-xs text-slate-400">☎ {contact.phone || "Telefono n/d"}</span>
+                              <span className="mt-2 inline-block rounded-full bg-blue-600/20 px-2 py-1 text-[11px] font-black text-blue-300">
+                                {contact.tag || "Personale"}
+                              </span>
+                            </span>
+                          </div>
+                          <ChevronRight className="shrink-0 text-slate-400" />
+                        </button>
+                      ))}
+
+                      {filteredContacts.length === 0 && (
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-slate-400">
+                          La lista è vuota.
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 
               {mobileView === "magazzino" && (
                 <div className="grid gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
-                  <div><h2 className="text-3xl font-black text-white">Magazzino</h2><p className="text-base text-slate-400">Articoli, valori, quantità e stato scorte.</p></div>
-                  <button onClick={addInventoryItem} className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Nuovo articolo</button>
-                  <input className={`w-full ${input}`} placeholder="Cerca articolo o ID..." value={inventorySearch} onChange={(e) => setInventorySearch(e.target.value)} />
-                  <div className="grid gap-3">
-                    {inventory.filter((item) => { const q = inventorySearch.toLowerCase(); return item.id.toLowerCase().includes(q) || item.name.toLowerCase().includes(q); }).map((item, index) => {
-                      const status = getInventoryStatus(Number(item.quantity));
-                      return (
-                        <div key={`${item.id}-${index}`} className="grid grid-cols-[1.2fr_0.65fr_0.65fr_1fr_18px] items-center gap-2 rounded-3xl border border-white/10 bg-white/[0.06] p-4">
-                          <div><p className="font-black uppercase text-white">{item.name}</p><p className="mt-1 text-xs text-slate-400">ID: {item.id}</p></div>
-                          <div><p className="text-xs text-slate-400">Quantità</p><p className="font-black text-white">{item.quantity}</p></div>
-                          <div><p className="text-xs text-slate-400">Minimo</p><p className="font-black text-white">0</p></div>
-                          <div><p className="text-xs text-slate-400">Stato</p><span className={status.className + " inline-block rounded-xl px-2 py-1 text-xs font-black"}>{status.label}</span></div>
-                          <ChevronRight className="text-slate-500" size={18} />
-                        </div>
-                      );
-                    })}
+                  <div>
+                    <h2 className="text-3xl font-black text-white">Magazzino</h2>
+                    <p className="text-base text-slate-400">Articoli, valori, quantità e stato scorte.</p>
                   </div>
-                  <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-slate-400"><span>ⓘ Ultimo aggiornamento: {new Date().toLocaleDateString("it-IT")} {new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}</span><span>↻</span></div>
+
+                  <button
+                    onClick={startInventoryCreate}
+                    className="w-full rounded-3xl bg-blue-600 p-5 text-xl font-black text-white"
+                  >
+                    + Nuovo articolo
+                  </button>
+
+                  {mobileInventoryFormOpen && (
+                    <div className="rounded-3xl border border-blue-500/30 bg-blue-500/10 p-5">
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <h3 className="text-xl font-black text-white">
+                          {editingInventoryIndex === null ? "Nuovo articolo" : "Modifica articolo"}
+                        </h3>
+                        <button
+                          onClick={() => setMobileInventoryFormOpen(false)}
+                          className="rounded-xl bg-white/10 px-3 py-2 text-sm font-black text-white"
+                        >
+                          Chiudi
+                        </button>
+                      </div>
+
+                      <div className="grid gap-3">
+                        <input
+                          className={input}
+                          placeholder="Nome articolo"
+                          value={inventoryForm.name}
+                          onChange={(e) => setInventoryForm({ ...inventoryForm, name: e.target.value })}
+                        />
+
+                        <input
+                          className={input}
+                          placeholder="ID articolo"
+                          value={inventoryForm.id}
+                          onChange={(e) => setInventoryForm({ ...inventoryForm, id: e.target.value })}
+                        />
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <input
+                            className={input}
+                            type="number"
+                            placeholder="Valore"
+                            value={inventoryForm.value}
+                            onChange={(e) => setInventoryForm({ ...inventoryForm, value: e.target.value })}
+                          />
+
+                          <input
+                            className={input}
+                            type="number"
+                            placeholder="Quantità"
+                            value={inventoryForm.quantity}
+                            onChange={(e) => setInventoryForm({ ...inventoryForm, quantity: e.target.value })}
+                          />
+                        </div>
+
+                        <button
+                          onClick={saveInventoryItemMobile}
+                          className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white"
+                        >
+                          Salva articolo
+                        </button>
+
+                        {editingInventoryIndex !== null && (
+                          <button
+                            onClick={deleteInventoryItemMobile}
+                            className="rounded-3xl bg-red-600 p-4 text-lg font-black text-white"
+                          >
+                            Elimina articolo
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <input
+                    className={`w-full ${input}`}
+                    placeholder="Cerca articolo o ID..."
+                    value={inventorySearch}
+                    onChange={(e) => setInventorySearch(e.target.value)}
+                  />
+
+                  <div className="grid gap-3">
+                    {inventory
+                      .filter((item) => {
+                        const q = inventorySearch.toLowerCase();
+                        return (
+                          item.id.toLowerCase().includes(q) ||
+                          item.name.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((item, index) => {
+                        const status = getInventoryStatus(Number(item.quantity));
+
+                        return (
+                          <button
+                            key={`${item.id}-${index}`}
+                            onClick={() => startInventoryEdit(index)}
+                            className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-left"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="break-words text-lg font-black uppercase leading-tight text-white">
+                                  {item.name}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-400">ID: {item.id}</p>
+                              </div>
+
+                              <ChevronRight
+                                className="mt-1 shrink-0 text-slate-500"
+                                size={20}
+                              />
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-3 gap-3">
+                              <div>
+                                <p className="text-xs text-slate-400">Quantità</p>
+                                <p className="text-xl font-black text-white">{item.quantity}</p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-slate-400">Valore</p>
+                                <p className="text-xl font-black text-white">{euro(Number(item.value || 0))}</p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-slate-400">Stato</p>
+                                <span
+                                  className={
+                                    status.className +
+                                    " mt-1 inline-block rounded-xl px-2 py-1 text-[11px] font-black"
+                                  }
+                                >
+                                  {status.label}
+                                </span>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-slate-400">
+                    <span>
+                      ⓘ Ultimo aggiornamento: {new Date().toLocaleDateString("it-IT")} {" "}
+                      {new Date().toLocaleTimeString("it-IT", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <span>↻</span>
+                  </div>
                 </div>
               )}
             </section>
@@ -1812,48 +3456,166 @@ return (
             </section>
 
             {activeTab === "budget" && (
-              <section className="hidden gap-4 md:grid md:grid-cols-4">
-                <div className={card}>
-                  <p className="text-sm text-slate-400">Budget iniziale</p>
-                  <div className="mt-2 flex items-center justify-between">
-                    <p className="text-2xl font-black">
-                      {budgetVisible ? euro(budget) : "••••••"}
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          const value = prompt("Nuovo budget:");
-                          if (!value) return;
-                          const parsed = Number(value);
-                          if (isNaN(parsed)) return;
-                          setBudget(parsed);
-                          localStorage.setItem("atlas-budget", String(parsed));
-                          showMessage("Budget aggiornato");
-                        }}
-                        className="rounded-lg bg-white/10 px-3 py-1 text-xs font-bold"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => setBudgetVisible(!budgetVisible)}
-                        className="rounded-lg bg-white/10 px-3 py-1 text-xs font-bold"
-                      >
-                        {budgetVisible ? "👁️" : "🙈"}
-                      </button>
+              <section className="hidden space-y-4 md:block">
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className={card}>
+                    <p className="text-sm text-slate-400">Budget contratti</p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <p className="text-2xl font-black">
+                        {budgetVisible ? euro(totalBudget) : "••••••"}
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openBudgetForm()}
+                          className="rounded-lg bg-white/10 px-3 py-1 text-xs font-bold"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => setBudgetVisible(!budgetVisible)}
+                          className="rounded-lg bg-white/10 px-3 py-1 text-xs font-bold"
+                        >
+                          {budgetVisible ? "👁️" : "🙈"}
+                        </button>
+                      </div>
                     </div>
+                    <p className="mt-2 text-xs text-slate-400">
+                      Somma dei budget associati a contratti/entità.
+                    </p>
+                  </div>
+                  <div className={card}>
+                    <p className="text-sm text-slate-400">Consumo straordinario</p>
+                    <p className="mt-2 text-2xl font-black">{euro(totalForecast)}</p>
+                    <p className="mt-2 text-xs text-slate-400">Solo ticket straordinari.</p>
+                  </div>
+                  <div className={card}>
+                    <p className="text-sm text-slate-400">Budget residuo</p>
+                    <p className="mt-2 text-2xl font-black">{euro(remainingBudget)}</p>
+                  </div>
+                  <div className={card}>
+                    <p className="text-sm text-slate-400">Ticket straordinari</p>
+                    <p className="mt-2 text-2xl font-black">
+                      {tickets.filter((t) => getTicketType(t) === "straordinaria").length}
+                    </p>
+                    <p className="mt-2 text-xs text-slate-400">su {tickets.length} ticket totali</p>
                   </div>
                 </div>
+
+                {mobileBudgetFormOpen && (
+                  <div className={card}>
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xl font-black">Aggiorna budget contratto</h3>
+                        <p className="text-sm text-slate-400">
+                          Il budget viene collegato al contratto/entità, non al singolo cliente.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setMobileBudgetFormOpen(false)}
+                        className="rounded-xl bg-white/10 px-3 py-2 text-sm font-black"
+                      >
+                        Chiudi
+                      </button>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <select
+                        className={input}
+                        value={budgetForm.contractName}
+                        onChange={(e) => {
+                          const existing = budgets.find((item) => item.contractName === e.target.value);
+                          const contract = editableContracts.find((item) => item.name === e.target.value);
+                          setBudgetForm({
+                            contractName: e.target.value,
+                            value: String(existing?.value || ""),
+                            notes: existing?.notes || "",
+                          });
+                          setBudgetClientSearch(contract?.clientType || "");
+                        }}
+                      >
+                        {editableContracts.map((contract) => (
+                          <option key={contract.name} value={contract.name}>
+                            {contract.name}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className={input}
+                        type="number"
+                        value={budgetForm.value}
+                        onChange={(e) => setBudgetForm({ ...budgetForm, value: e.target.value })}
+                        placeholder="Importo budget"
+                      />
+                      <input
+                        className={input}
+                        value={budgetForm.notes}
+                        onChange={(e) => setBudgetForm({ ...budgetForm, notes: e.target.value })}
+                        placeholder="Note budget"
+                      />
+                    </div>
+                    <button
+                      onClick={saveMobileBudget}
+                      className="mt-4 rounded-2xl bg-blue-600 px-5 py-3 font-black text-white hover:bg-blue-500"
+                    >
+                      Salva budget contratto
+                    </button>
+                  </div>
+                )}
+
                 <div className={card}>
-                  <p className="text-sm text-slate-400">Costo previsto</p>
-                  <p className="mt-2 text-2xl font-black">{euro(totalForecast)}</p>
-                </div>
-                <div className={card}>
-                  <p className="text-sm text-slate-400">Budget residuo</p>
-                  <p className="mt-2 text-2xl font-black">{euro(remainingBudget)}</p>
-                </div>
-                <div className={card}>
-                  <p className="text-sm text-slate-400">Ticket totali</p>
-                  <p className="mt-2 text-2xl font-black">{tickets.length}</p>
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-xl font-black">Budget per contratto/entità</h3>
+                      <p className="text-sm text-slate-400">
+                        Il consumo viene scalato solo dalle chiamate straordinarie collegate automaticamente al contratto.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => openBudgetForm()}
+                      className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
+                    >
+                      + Nuovo / modifica budget
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3">
+                    {budgets.map((item) => {
+                      const spent = getBudgetSpent(item.contractName);
+                      const total = Number(item.value || 0);
+                      const remaining = total - spent;
+                      const percent = total > 0 ? Math.min(100, Math.round((spent / total) * 100)) : 0;
+
+                      return (
+                        <div key={item.id || item.contractName} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-black">{item.contractName}</p>
+                              <p className="text-sm text-slate-400">{item.entity || "Entità da verificare"}</p>
+                            </div>
+                            <span className="rounded-xl bg-blue-600/20 px-3 py-1 text-sm font-black text-blue-300">
+                              {percent}%
+                            </span>
+                          </div>
+                          <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-900/70">
+                            <div className="h-full rounded-full bg-blue-600" style={{ width: `${percent}%` }} />
+                          </div>
+                          <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
+                            <div>
+                              <p className="text-slate-400">Totale</p>
+                              <p className="font-black">{budgetVisible ? euro(total) : "••••••"}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-400">Scalato</p>
+                              <p className="font-black text-amber-300">{euro(spent)}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-400">Residuo</p>
+                              <p className="font-black text-emerald-300">{euro(remaining)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </section>
             )}
@@ -1902,6 +3664,20 @@ return (
                         <p className="mt-3 rounded-2xl bg-white/10 p-3 text-sm text-slate-200">
                           {selectedContract.notes}
                         </p>
+                        <div className="mt-3 grid gap-3 rounded-2xl bg-slate-950/40 p-3 text-sm md:grid-cols-3">
+                          <div>
+                            <p className="text-slate-400">Budget contratto</p>
+                            <p className="font-black">{euro(getBudgetTotal(selectedContract.name))}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-400">Straordinario scalato</p>
+                            <p className="font-black text-amber-300">{euro(getBudgetSpent(selectedContract.name))}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-400">Residuo contratto</p>
+                            <p className="font-black text-emerald-300">{euro(getBudgetRemaining(selectedContract.name))}</p>
+                          </div>
+                        </div>
                       </>
                     ) : (
                       <p className="text-sm text-slate-300">
@@ -1984,12 +3760,26 @@ return (
                     ))}
                   </select>
 
-                  <input
-                    type="date"
-                    className={input}
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setTicketType("ordinaria")}
+                      className={`rounded-xl border p-3 text-left font-black ${ticketType === "ordinaria" ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-slate-950/50 text-slate-300"}`}
+                    >
+                      Ordinaria
+                      <span className="mt-1 block text-xs font-bold opacity-70">Non scala budget</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTicketType("straordinaria")}
+                      className={`rounded-xl border p-3 text-left font-black ${ticketType === "straordinaria" ? "border-amber-500 bg-amber-500/20 text-amber-200" : "border-white/10 bg-slate-950/50 text-slate-300"}`}
+                    >
+                      Straordinaria
+                      <span className="mt-1 block text-xs font-bold opacity-70">Scala budget</span>
+                    </button>
+                  </div>
+
+                  {renderDateInput(selectedDate, setSelectedDate)}
 
                   <select
                     className={input}
@@ -2026,6 +3816,9 @@ return (
                     <p className="text-sm text-slate-400">Costo nuova chiamata</p>
                     <p className="text-2xl font-black">
                       {euro(materialCost(selectedMaterials))}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {ticketType === "straordinaria" ? "Scala il budget del contratto rilevato." : "Ordinaria: non scala il budget."}
                     </p>
                   </div>
 
@@ -2251,42 +4044,20 @@ return (
                           <div className="grid gap-3 md:grid-cols-2">
                             <label>
                               <b>Inizio contratto</b>
-                              <input
-                                type="date"
-                                className={`mt-1 w-full ${lightInput}`}
-                                value={
-                                  contract.startDate !== "Da verificare"
-                                    ? contract.startDate
-                                    : ""
-                                }
-                                onChange={(e) =>
-                                  updateContractField(
-                                    contract.name,
-                                    "startDate",
-                                    e.target.value
-                                  )
-                                }
-                              />
+                              {renderDateInput(
+                                contract.startDate !== "Da verificare" ? contract.startDate : "",
+                                (value) => updateContractField(contract.name, "startDate", value),
+                                `mt-1 w-full ${lightInput}`
+                              )}
                             </label>
 
                             <label>
                               <b>Scadenza contratto</b>
-                              <input
-                                type="date"
-                                className={`mt-1 w-full ${lightInput}`}
-                                value={
-                                  contract.endDate !== "Da verificare"
-                                    ? contract.endDate
-                                    : ""
-                                }
-                                onChange={(e) =>
-                                  updateContractField(
-                                    contract.name,
-                                    "endDate",
-                                    e.target.value
-                                  )
-                                }
-                              />
+                              {renderDateInput(
+                                contract.endDate !== "Da verificare" ? contract.endDate : "",
+                                (value) => updateContractField(contract.name, "endDate", value),
+                                `mt-1 w-full ${lightInput}`
+                              )}
                             </label>
                           </div>
 
@@ -2613,7 +4384,7 @@ return (
 
     <div className="grid gap-3 md:grid-cols-7">
       {calendarDays.map((day) => {
-        const iso = day.toISOString().slice(0, 10);
+        const iso = formatLocalDate(day);
 
         const dayTickets = tickets.filter((t) => t.date === iso);
 
@@ -3160,6 +4931,56 @@ return (
               </div>
             )}
   
+          {mobileMoreOpen && (
+            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm md:hidden">
+              <button
+                className="absolute inset-0 h-full w-full"
+                aria-label="Chiudi menu altro"
+                onClick={() => setMobileMoreOpen(false)}
+              />
+
+              <div className="absolute bottom-20 left-4 right-4 rounded-3xl border border-white/10 bg-[#07111f] p-4 shadow-2xl">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-lg font-black text-white">Altre sezioni</p>
+                  <button
+                    onClick={() => setMobileMoreOpen(false)}
+                    className="rounded-2xl bg-white/10 p-2 text-slate-300"
+                    aria-label="Chiudi"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { key: "registro", label: "Registro", icon: ListChecks },
+                    { key: "contratti", label: "Contratti", icon: FileText },
+                    { key: "sistemi", label: "Sistemi", icon: Monitor },
+                    { key: "contatti", label: "Contatti", icon: Phone },
+                    { key: "magazzino", label: "Magazzino", icon: Package },
+                    { key: "operativo", label: "Operativo", icon: AlertTriangle },
+                  ].map(({ key, label, icon: Icon }) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        setMobileView(key as any);
+                        setMobileMoreOpen(false);
+                      }}
+                      className={`flex items-center gap-3 rounded-2xl border border-white/10 p-4 text-left font-black ${
+                        mobileView === key
+                          ? "bg-blue-600 text-white"
+                          : "bg-white/[0.06] text-slate-200"
+                      }`}
+                    >
+                      <Icon size={20} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           <nav className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-6 border-t border-white/10 bg-[#06111f]/95 px-2 py-2 backdrop-blur md:hidden">
             {[
               { key: "home", label: "Home", icon: HomeIcon },
@@ -3167,13 +4988,30 @@ return (
               { key: "budget", label: "Budget", icon: BarChart3 },
               { key: "mappa", label: "Mappa", icon: Map },
               { key: "clienti", label: "Clienti", icon: Users },
-              { key: "magazzino", label: "Altro", icon: MoreHorizontal },
             ].map(({ key, label, icon: Icon }) => (
-              <button key={key} onClick={() => setMobileView(key as any)} className={`flex flex-col items-center gap-1 rounded-2xl px-2 py-1 text-[11px] font-bold ${mobileView === key ? "text-blue-500" : "text-slate-400"}`}>
+              <button
+                key={key}
+                onClick={() => setMobileView(key as any)}
+                className={`flex flex-col items-center gap-1 rounded-2xl px-2 py-1 text-[11px] font-bold ${
+                  mobileView === key ? "text-blue-500" : "text-slate-400"
+                }`}
+              >
                 <Icon size={22} />
                 {label}
               </button>
             ))}
+
+            <button
+              onClick={() => setMobileMoreOpen(true)}
+              className={`flex flex-col items-center gap-1 rounded-2xl px-2 py-1 text-[11px] font-bold ${
+                ["registro", "contratti", "sistemi", "contatti", "magazzino", "operativo"].includes(mobileView)
+                  ? "text-blue-500"
+                  : "text-slate-400"
+              }`}
+            >
+              <MoreHorizontal size={22} />
+              Altro
+            </button>
           </nav>
         </main>
         </div>
