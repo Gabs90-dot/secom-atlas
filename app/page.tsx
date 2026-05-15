@@ -406,6 +406,7 @@ export default function Home() {
 | "calendario"
 | "contatti"
   >("operativo");
+  const [showMobileHome, setShowMobileHome] = useState(true);
 
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
   const [systemSearch, setSystemSearch] = useState("");
@@ -1363,7 +1364,7 @@ return (
                 {message}
               </div>
             )}
-            <section className="md:hidden">
+            <section className={`md:hidden ${showMobileHome ? "block" : "hidden"}`}>
   <div className="mb-5 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
     <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
       ATLAS Mobile
@@ -1376,7 +1377,7 @@ return (
 
   <div className="grid gap-3">
     <button
-      onClick={() => setActiveTab("operativo")}
+      onClick={() => { setActiveTab("operativo"); setShowMobileHome(false); }}
       className="rounded-3xl bg-blue-600 p-5 text-left shadow-lg shadow-blue-900/30"
     >
       <p className="text-2xl font-black text-white">+ Apri chiamata</p>
@@ -1386,7 +1387,7 @@ return (
     </button>
 
     <button
-      onClick={() => setActiveTab("calendario")}
+      onClick={() => { setActiveTab("calendario"); setShowMobileHome(false); }}
       className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
     >
       <p className="text-xl font-black">Calendario</p>
@@ -1396,7 +1397,7 @@ return (
     </button>
 
     <button
-      onClick={() => setActiveTab("registro")}
+      onClick={() => { setActiveTab("registro"); setShowMobileHome(false); }}
       className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
     >
       <p className="text-xl font-black">Registro interventi</p>
@@ -1406,7 +1407,7 @@ return (
     </button>
 
     <button
-      onClick={() => setActiveTab("clienti")}
+      onClick={() => { setActiveTab("clienti"); setShowMobileHome(false); }}
       className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
     >
       <p className="text-xl font-black">Clienti</p>
@@ -1416,7 +1417,7 @@ return (
     </button>
 
     <button
-      onClick={() => setActiveTab("contatti")}
+      onClick={() => { setActiveTab("contatti"); setShowMobileHome(false); }}
       className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
     >
       <p className="text-xl font-black">Contatti</p>
@@ -1426,7 +1427,7 @@ return (
     </button>
 
     <button
-      onClick={() => setActiveTab("magazzino")}
+      onClick={() => { setActiveTab("magazzino"); setShowMobileHome(false); }}
       className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
     >
       <p className="text-xl font-black">Magazzino</p>
@@ -1505,6 +1506,157 @@ return (
                 <div className={card}>
                   <p className="text-sm text-slate-400">Ticket totali</p>
                   <p className="mt-2 text-2xl font-black">{tickets.length}</p>
+                </div>
+              </section>
+            )}
+
+            {!showMobileHome && (
+              <button
+                onClick={() => setShowMobileHome(true)}
+                className="md:hidden rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black"
+              >
+                ← Torna alla home mobile
+              </button>
+            )}
+
+            {!showMobileHome && activeTab === "operativo" && (
+              <section className="md:hidden rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl">
+                <div className="mb-5">
+                  <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
+                    Nuova chiamata
+                  </p>
+                  <h2 className="mt-2 text-2xl font-black">Apri intervento</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Form rapido ottimizzato per telefono.
+                  </p>
+                </div>
+
+                {site && (
+                  <div className="mb-4 rounded-2xl border border-blue-400/30 bg-blue-500/10 p-4">
+                    <p className="text-sm font-black text-blue-200">{site}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {city || "Città n/d"} · {region || "Regione n/d"}
+                    </p>
+                  </div>
+                )}
+
+                <div className="grid gap-3">
+                  <div className="relative">
+                    <input
+                      className={`w-full ${input}`}
+                      placeholder="Cerca sede..."
+                      value={siteSearch}
+                      onChange={(e) => {
+                        setSiteSearch(e.target.value);
+                        setSite("");
+                        setRegion("");
+                        setEntity("");
+                        setCity("");
+                        setSiteId(null);
+                      }}
+                    />
+
+                    {siteSearch && !site && (
+                      <div className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-white/10 bg-slate-950 shadow-xl">
+                        {filteredSites.length === 0 && (
+                          <div className="p-3 text-sm text-slate-400">
+                            Nessuna sede trovata
+                          </div>
+                        )}
+
+                        {filteredSites.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className="block w-full border-b border-white/10 p-3 text-left hover:bg-white/10"
+                            onClick={() => {
+                              setSite(s.name);
+                              setSiteSearch(s.name);
+                              setRegion(s.region || "");
+                              setEntity(s.entity || "");
+                              setCity(s.city || "");
+                              setSiteId(s.id || null);
+                            }}
+                          >
+                            <div className="font-bold">{s.name}</div>
+                            <div className="text-xs text-slate-400">
+                              {s.city || "Città n/d"} · {s.entity || "Ente n/d"}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <textarea
+                    className={`min-h-28 ${input}`}
+                    placeholder="Descrizione intervento"
+                    value={problem}
+                    onChange={(e) => setProblem(e.target.value)}
+                  />
+
+                  <select
+                    className={input}
+                    value={technician}
+                    onChange={(e) => setTechnician(e.target.value)}
+                  >
+                    <option value="">Tecnico non assegnato</option>
+                    {technicians.map((t) => (
+                      <option key={t}>{t}</option>
+                    ))}
+                  </select>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <input
+                      type="date"
+                      className={input}
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                    />
+
+                    <select
+                      className={input}
+                      value={selectedSlot}
+                      onChange={(e) => setSelectedSlot(e.target.value)}
+                    >
+                      <option value="">Slot</option>
+                      <option value="Mattina">Mattina</option>
+                      <option value="Pomeriggio">Pomeriggio</option>
+                    </select>
+                  </div>
+
+                  <details className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                    <summary className="cursor-pointer text-sm font-black">
+                      Materiali necessari ({selectedMaterials.length})
+                    </summary>
+
+                    <div className="mt-3 grid gap-2">
+                      {materials.map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => toggleMaterial(m.id)}
+                          className={`rounded-2xl border p-3 text-left text-sm ${
+                            selectedMaterials.includes(m.id)
+                              ? "border-blue-400 bg-blue-600 text-white"
+                              : "border-white/10 bg-slate-950/40 text-slate-200"
+                          }`}
+                        >
+                          <span className="font-bold">{m.name}</span>
+                          <span className="ml-2 text-xs opacity-70">
+                            {euro(m.cost)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+
+                  <button
+                    onClick={addTicket}
+                    className="mt-2 rounded-3xl bg-blue-600 px-5 py-5 text-lg font-black text-white shadow-lg shadow-blue-900/30"
+                  >
+                    Salva chiamata
+                  </button>
                 </div>
               </section>
             )}
