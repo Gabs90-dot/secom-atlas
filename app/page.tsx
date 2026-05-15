@@ -1363,8 +1363,81 @@ return (
                 {message}
               </div>
             )}
+            <section className="md:hidden">
+  <div className="mb-5 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
+    <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
+      ATLAS Mobile
+    </p>
+    <h2 className="mt-2 text-2xl font-black">Cosa devi fare?</h2>
+    <p className="mt-1 text-sm text-slate-400">
+      Accesso rapido alle funzioni operative.
+    </p>
+  </div>
 
-            <section className="grid gap-4 md:grid-cols-4">
+  <div className="grid gap-3">
+    <button
+      onClick={() => setActiveTab("operativo")}
+      className="rounded-3xl bg-blue-600 p-5 text-left shadow-lg shadow-blue-900/30"
+    >
+      <p className="text-2xl font-black text-white">+ Apri chiamata</p>
+      <p className="mt-1 text-sm font-bold text-blue-100">
+        Crea subito un nuovo intervento
+      </p>
+    </button>
+
+    <button
+      onClick={() => setActiveTab("calendario")}
+      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
+    >
+      <p className="text-xl font-black">Calendario</p>
+      <p className="mt-1 text-sm text-slate-400">
+        Pianifica o modifica interventi
+      </p>
+    </button>
+
+    <button
+      onClick={() => setActiveTab("registro")}
+      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
+    >
+      <p className="text-xl font-black">Registro interventi</p>
+      <p className="mt-1 text-sm text-slate-400">
+        Vedi, pianifica o chiudi ticket
+      </p>
+    </button>
+
+    <button
+      onClick={() => setActiveTab("clienti")}
+      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
+    >
+      <p className="text-xl font-black">Clienti</p>
+      <p className="mt-1 text-sm text-slate-400">
+        Cerca sedi e riferimenti
+      </p>
+    </button>
+
+    <button
+      onClick={() => setActiveTab("contatti")}
+      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
+    >
+      <p className="text-xl font-black">Contatti</p>
+      <p className="mt-1 text-sm text-slate-400">
+        Rubrica rapida operativa
+      </p>
+    </button>
+
+    <button
+      onClick={() => setActiveTab("magazzino")}
+      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
+    >
+      <p className="text-xl font-black">Magazzino</p>
+      <p className="mt-1 text-sm text-slate-400">
+        Materiali e disponibilità
+      </p>
+    </button>
+  </div>
+</section>
+
+            <section className="hidden gap-4 md:grid md:grid-cols-4">
               <div className={card}>
                 <p className="text-sm text-slate-400">Interventi aperti</p>
                 <p className="mt-2 text-4xl font-black">
@@ -1437,7 +1510,7 @@ return (
             )}
 
             {activeTab === "operativo" && (
-              <section className={card}>
+  <section className={`${card} hidden md:block`}>
                 <h2 className="mb-5 text-2xl font-black">Apri nuova chiamata</h2>
 
                 {site && (
