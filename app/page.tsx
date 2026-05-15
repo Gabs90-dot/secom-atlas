@@ -20,6 +20,12 @@ Phone,
 CalendarDays,
 ChevronLeft,
 ChevronRight,
+Home as HomeIcon,
+Bell,
+Menu,
+X,
+Download,
+MoreHorizontal,
 } from "lucide-react";
 
 const AtlasMap = dynamic(() => import("@/components/AtlasMap"), {
@@ -406,7 +412,6 @@ export default function Home() {
 | "calendario"
 | "contatti"
   >("operativo");
-  const [showMobileHome, setShowMobileHome] = useState(true);
 
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
   const [systemSearch, setSystemSearch] = useState("");
@@ -457,6 +462,8 @@ const [calendarSite, setCalendarSite] = useState<any | null>(null);
 const [calendarTime, setCalendarTime] = useState("");
 const [editingCalendarTicketId, setEditingCalendarTicketId] = useState<string | null>(null);
 const [expandedCalendarTicketId, setExpandedCalendarTicketId] = useState<string | null>(null);
+const [mobileView, setMobileView] = useState<"home" | "operativo" | "calendario" | "registro" | "clienti" | "contatti" | "magazzino">("home");
+const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const savedContracts = localStorage.getItem("atlas-contract-overrides");
@@ -897,6 +904,24 @@ const calendarDays = Array.from(
     new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), i + 1)
 );
 
+const mobileCalendarStart = new Date(
+  calendarMonth.getFullYear(),
+  calendarMonth.getMonth(),
+  1 - ((monthStart.getDay() + 6) % 7)
+);
+
+const mobileCalendarCells = Array.from({ length: 42 }, (_, i) => {
+  const date = new Date(mobileCalendarStart);
+  date.setDate(mobileCalendarStart.getDate() + i);
+  return date;
+});
+
+const mobileSelectedDate =
+  selectedCalendarDay || new Date().toISOString().slice(0, 10);
+
+const mobileSelectedTickets = tickets.filter((t) => t.date === mobileSelectedDate);
+
+
 const monthLabel = calendarMonth.toLocaleDateString("it-IT", {
   month: "long",
   year: "numeric",
@@ -1244,8 +1269,26 @@ return (
       </aside>
 
       <div className="flex-1">
+        <header className="sticky top-0 z-40 border-b border-white/10 bg-[#06111f]/95 px-5 pb-4 pt-5 backdrop-blur md:hidden">
+          <div className="flex items-center justify-between">
+            <button onClick={() => setMobileMenuOpen(true)} className="rounded-2xl p-2 text-white" aria-label="Apri menu mobile">
+              <Menu size={26} />
+            </button>
+
+            <div className="flex min-w-0 items-center gap-3">
+              <img src="/secom-logo.png.png" alt="Secom" className="h-9 w-auto object-contain" />
+              <h1 className="truncate text-base font-black text-white">Centrale Operativa ATLAS</h1>
+            </div>
+
+            <button className="relative rounded-2xl p-2 text-white" aria-label="Notifiche">
+              <Bell size={24} />
+              <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-blue-500" />
+            </button>
+          </div>
+        </header>
+
         <header
-          className={`sticky top-0 z-30 border-b backdrop-blur ${
+          className={`hidden md:block sticky top-0 z-30 border-b backdrop-blur ${
             theme === "dark"
               ? "border-white/10 bg-[#07111f]/90"
               : "border-slate-300 bg-white/95 shadow-sm"
@@ -1354,7 +1397,51 @@ return (
           </div>
         </header>
 
-        <main className="space-y-6 p-4 md:p-8">
+        {mobileMenuOpen && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden">
+            <div className="h-full w-[82%] max-w-sm border-r border-white/10 bg-[#07111f] p-6 shadow-2xl">
+              <button onClick={() => setMobileMenuOpen(false)} className="mb-8 rounded-2xl p-2 text-slate-300" aria-label="Chiudi menu">
+                <X size={26} />
+              </button>
+
+              <div className="mb-8 flex items-center gap-3">
+                <img src="/secom-logo.png.png" alt="Secom" className="h-10 w-auto object-contain" />
+                <p className="text-base font-black text-white">Centrale Operativa ATLAS</p>
+              </div>
+
+              <div className="grid gap-2">
+                {[
+                  { key: "home", label: "Home", icon: HomeIcon },
+                  { key: "operativo", label: "Apri chiamata", icon: AlertTriangle },
+                  { key: "calendario", label: "Calendario", icon: CalendarDays },
+                  { key: "registro", label: "Registro interventi", icon: ListChecks },
+                  { key: "clienti", label: "Clienti", icon: Users },
+                  { key: "contatti", label: "Contatti", icon: Phone },
+                  { key: "magazzino", label: "Magazzino", icon: Package },
+                ].map(({ key, label, icon: Icon }) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      setMobileView(key as any);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`flex items-center justify-between rounded-2xl px-4 py-4 text-left font-bold ${
+                      mobileView === key ? "bg-blue-600/25 text-blue-300" : "text-slate-300"
+                    }`}
+                  >
+                    <span className="flex items-center gap-4">
+                      <Icon size={22} />
+                      {label}
+                    </span>
+                    {key !== "home" && <ChevronRight size={18} className="text-slate-500" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <main className="space-y-6 p-5 pb-24 md:p-8">
             {message && (
               <div
                 className={`rounded-2xl p-4 text-sm font-bold text-white shadow ${
@@ -1364,79 +1451,188 @@ return (
                 {message}
               </div>
             )}
-            <section className={`md:hidden ${showMobileHome ? "block" : "hidden"}`}>
-  <div className="mb-5 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
-    <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
-      ATLAS Mobile
-    </p>
-    <h2 className="mt-2 text-2xl font-black">Cosa devi fare?</h2>
-    <p className="mt-1 text-sm text-slate-400">
-      Accesso rapido alle funzioni operative.
-    </p>
-  </div>
+            <section className="md:hidden">
+              {mobileView !== "home" && (
+                <button onClick={() => setMobileView("home")} className="mb-5 flex items-center gap-2 text-sm font-black text-blue-400">
+                  <ChevronLeft size={18} />
+                  Torna alla home
+                </button>
+              )}
 
-  <div className="grid gap-3">
-    <button
-      onClick={() => { setActiveTab("operativo"); setShowMobileHome(false); }}
-      className="rounded-3xl bg-blue-600 p-5 text-left shadow-lg shadow-blue-900/30"
-    >
-      <p className="text-2xl font-black text-white">+ Apri chiamata</p>
-      <p className="mt-1 text-sm font-bold text-blue-100">
-        Crea subito un nuovo intervento
-      </p>
-    </button>
+              {mobileView === "home" && (
+                <div className="grid gap-4">
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/20">
+                    <p className="text-sm font-bold text-slate-400">Interventi aperti</p>
+                    <p className="mt-1 text-4xl font-black text-white">{tickets.filter((t) => t.status !== "Chiuso").length}</p>
+                  </div>
 
-    <button
-      onClick={() => { setActiveTab("calendario"); setShowMobileHome(false); }}
-      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
-    >
-      <p className="text-xl font-black">Calendario</p>
-      <p className="mt-1 text-sm text-slate-400">
-        Pianifica o modifica interventi
-      </p>
-    </button>
+                  <div className="relative">
+                    <Search size={22} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input className="w-full rounded-3xl border border-white/10 bg-white/[0.06] py-4 pl-12 pr-4 text-base text-white placeholder:text-slate-500 outline-none" placeholder="Cerca sito, cliente, contratto..." value={siteSearch} onChange={(e) => setSiteSearch(e.target.value)} />
+                  </div>
 
-    <button
-      onClick={() => { setActiveTab("registro"); setShowMobileHome(false); }}
-      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
-    >
-      <p className="text-xl font-black">Registro interventi</p>
-      <p className="mt-1 text-sm text-slate-400">
-        Vedi, pianifica o chiudi ticket
-      </p>
-    </button>
+                  <div className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
+                    <p className="text-xs font-black uppercase tracking-[0.35em] text-blue-300">ATLAS Mobile</p>
+                    <h2 className="mt-2 text-2xl font-black text-white">Cosa devi fare?</h2>
+                    <p className="mt-1 text-sm text-slate-400">Accesso rapido alle funzioni operative.</p>
+                  </div>
 
-    <button
-      onClick={() => { setActiveTab("clienti"); setShowMobileHome(false); }}
-      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
-    >
-      <p className="text-xl font-black">Clienti</p>
-      <p className="mt-1 text-sm text-slate-400">
-        Cerca sedi e riferimenti
-      </p>
-    </button>
+                  <button onClick={() => setMobileView("operativo")} className="rounded-3xl bg-blue-600 p-5 text-left shadow-lg shadow-blue-900/40">
+                    <p className="text-2xl font-black text-white">+ Apri chiamata</p>
+                    <p className="mt-1 text-sm font-bold text-blue-100">Crea subito un nuovo intervento</p>
+                  </button>
 
-    <button
-      onClick={() => { setActiveTab("contatti"); setShowMobileHome(false); }}
-      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
-    >
-      <p className="text-xl font-black">Contatti</p>
-      <p className="mt-1 text-sm text-slate-400">
-        Rubrica rapida operativa
-      </p>
-    </button>
+                  {[
+                    { key: "calendario", title: "Calendario", desc: "Pianifica o modifica interventi", icon: CalendarDays },
+                    { key: "registro", title: "Registro interventi", desc: "Vedi, pianifica o chiudi ticket", icon: ListChecks },
+                    { key: "clienti", title: "Clienti", desc: "Cerca sedi e riferimenti", icon: Users },
+                    { key: "contatti", title: "Contatti", desc: "Rubrica rapida operativa", icon: Phone },
+                    { key: "magazzino", title: "Magazzino", desc: "Materiali e disponibilità", icon: Package },
+                  ].map(({ key, title, desc, icon: Icon }) => (
+                    <button key={key} onClick={() => setMobileView(key as any)} className="flex items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left shadow-lg shadow-black/10">
+                      <Icon size={24} className="shrink-0 text-slate-200" />
+                      <span>
+                        <span className="block text-xl font-black text-white">{title}</span>
+                        <span className="mt-1 block text-sm text-slate-400">{desc}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
-    <button
-      onClick={() => { setActiveTab("magazzino"); setShowMobileHome(false); }}
-      className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"
-    >
-      <p className="text-xl font-black">Magazzino</p>
-      <p className="mt-1 text-sm text-slate-400">
-        Materiali e disponibilità
-      </p>
-    </button>
-  </div>
-</section>
+              {mobileView === "operativo" && (
+                <div className="grid gap-4">
+                  <h2 className="text-3xl font-black text-white">Apri nuova chiamata</h2>
+                  <div className="relative">
+                    <input className={`w-full ${input}`} placeholder="Cerca sede: es. Alatri, Bari, Ferrara..." value={siteSearch} onChange={(e) => { setSiteSearch(e.target.value); setSite(""); setRegion(""); setEntity(""); setCity(""); setSiteId(null); }} />
+                    {siteSearch && !site && (
+                      <div className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-white/10 bg-slate-950 shadow-xl">
+                        {filteredSites.map((s) => (
+                          <button key={s.id} type="button" className="block w-full border-b border-white/10 p-4 text-left" onClick={() => { setSite(s.name); setSiteSearch(s.name); setRegion(s.region || ""); setEntity(s.entity || ""); setCity(s.city || ""); setSiteId(s.id || null); }}>
+                            <div className="font-black text-white">{s.name}</div>
+                            <div className="text-xs text-slate-400">{s.city || "Città n/d"} · {s.entity || "Ente n/d"}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <textarea className={`min-h-28 ${input}`} placeholder="Descrizione intervento" value={problem} onChange={(e) => setProblem(e.target.value)} />
+                  <select className={input} value={technician} onChange={(e) => setTechnician(e.target.value)}>
+                    <option value="">Tecnico non assegnato</option>
+                    {technicians.map((t) => <option key={t}>{t}</option>)}
+                  </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="date" className={input} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+                    <select className={input} value={selectedSlot} onChange={(e) => setSelectedSlot(e.target.value)}>
+                      <option value="">Slot</option>
+                      <option value="Mattina">Mattina</option>
+                      <option value="Pomeriggio">Pomeriggio</option>
+                    </select>
+                  </div>
+                  <button onClick={addTicket} className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">Salva chiamata</button>
+                </div>
+              )}
+
+              {mobileView === "calendario" && (
+                <div className="grid gap-5">
+                  <div>
+                    <h2 className="text-3xl font-black text-white">Calendario interventi</h2>
+                    <p className="mt-2 text-base text-slate-400">Vista mensile con interventi pianificati e inserimento rapido.</p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <button onClick={() => changeMonth(-1)} className="rounded-2xl bg-blue-600 p-4 text-white"><ChevronLeft size={28} /></button>
+                    <div className="text-2xl font-black capitalize text-white">{monthLabel}</div>
+                    <button onClick={() => changeMonth(1)} className="rounded-2xl bg-blue-600 p-4 text-white"><ChevronRight size={28} /></button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 text-center text-sm font-bold text-slate-300">
+                    {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((d) => <div key={d}>{d}</div>)}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {mobileCalendarCells.map((day) => {
+                      const iso = day.toISOString().slice(0, 10);
+                      const inMonth = day.getMonth() === calendarMonth.getMonth();
+                      const hasTickets = tickets.some((t) => t.date === iso);
+                      const selected = mobileSelectedDate === iso;
+                      return (
+                        <button key={iso} onClick={() => setSelectedCalendarDay(iso)} className={`min-h-[70px] rounded-xl border p-1.5 text-center ${selected ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-white"} ${!inMonth ? "opacity-30" : ""}`}>
+                          <div className="text-lg font-black">{day.getDate()}</div>
+                          {hasTickets && <div className="mx-auto mt-2 h-2 w-2 rounded-full bg-blue-400" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5">
+                    <div className="flex items-center gap-3">
+                      <CalendarDays className="text-slate-300" />
+                      <h3 className="text-xl font-black text-white">Interventi del {new Date(mobileSelectedDate).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}</h3>
+                    </div>
+                    <div className="mt-4 grid gap-3">
+                      {mobileSelectedTickets.length === 0 ? <p className="text-slate-400">Nessun intervento pianificato.</p> : mobileSelectedTickets.map((t) => (
+                        <div key={t.id} className="rounded-2xl bg-slate-950/40 p-3">
+                          <p className="font-black text-white">{t.slot || "Orario n/d"} · {t.site}</p>
+                          <p className="text-sm text-slate-400">{t.technician || "Tecnico n/d"}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={() => setSelectedCalendarDay(mobileSelectedDate)} className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Nuovo intervento</button>
+                </div>
+              )}
+
+              {mobileView === "registro" && (
+                <div className="grid gap-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-3xl font-black text-white">Registro chiamate</h2>
+                    <button onClick={exportCsv} className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 font-black text-white"><Download size={18} /> Esporta CSV</button>
+                  </div>
+                  <div className="grid gap-3">
+                    {tickets.map((t) => (
+                      <div key={t.id} className="grid grid-cols-[40px_1fr] gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+                        <div className="text-xl font-black text-blue-500">{t.id}</div>
+                        <div>
+                          <p className="text-sm font-black uppercase text-white">{t.site}</p>
+                          <p className="mt-1 text-sm text-slate-400">{t.region || "Regione n/d"} · {t.problem}</p>
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-lg font-black text-white">{euro(materialCost(t.materialIds || []))}</p>
+                              <p className="text-sm text-slate-300">{t.technician || "Non assegnato"}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="mb-2 text-sm text-slate-300"><span className="mr-1 text-emerald-400">●</span>{t.status}</p>
+                              {t.status !== "Chiuso" && <div className="flex gap-2"><button onClick={() => planTicket(String(t.id))} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white">Pianifica</button><button onClick={() => setClosingTicketId(String(t.id))} className="rounded-xl bg-slate-700 px-3 py-2 text-sm font-bold text-white">Chiudi</button></div>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => setMobileView("operativo")} className="sticky bottom-4 rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Nuova chiamata/intervento</button>
+                </div>
+              )}
+
+              {mobileView === "magazzino" && (
+                <div className="grid gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                  <div><h2 className="text-3xl font-black text-white">Magazzino</h2><p className="text-base text-slate-400">Articoli, valori, quantità e stato scorte.</p></div>
+                  <button onClick={addInventoryItem} className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Nuovo articolo</button>
+                  <input className={`w-full ${input}`} placeholder="Cerca articolo o ID..." value={inventorySearch} onChange={(e) => setInventorySearch(e.target.value)} />
+                  <div className="grid gap-3">
+                    {inventory.filter((item) => { const q = inventorySearch.toLowerCase(); return item.id.toLowerCase().includes(q) || item.name.toLowerCase().includes(q); }).map((item, index) => {
+                      const status = getInventoryStatus(Number(item.quantity));
+                      return (
+                        <div key={`${item.id}-${index}`} className="grid grid-cols-[1.2fr_0.65fr_0.65fr_1fr_18px] items-center gap-2 rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+                          <div><p className="font-black uppercase text-white">{item.name}</p><p className="mt-1 text-xs text-slate-400">ID: {item.id}</p></div>
+                          <div><p className="text-xs text-slate-400">Quantità</p><p className="font-black text-white">{item.quantity}</p></div>
+                          <div><p className="text-xs text-slate-400">Minimo</p><p className="font-black text-white">0</p></div>
+                          <div><p className="text-xs text-slate-400">Stato</p><span className={status.className + " inline-block rounded-xl px-2 py-1 text-xs font-black"}>{status.label}</span></div>
+                          <ChevronRight className="text-slate-500" size={18} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-slate-400"><span>ⓘ Ultimo aggiornamento: {new Date().toLocaleDateString("it-IT")} {new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}</span><span>↻</span></div>
+                </div>
+              )}
+            </section>
 
             <section className="hidden gap-4 md:grid md:grid-cols-4">
               <div className={card}>
@@ -1464,7 +1660,7 @@ return (
             </section>
 
             {activeTab === "budget" && (
-              <section className="grid gap-4 md:grid-cols-4">
+              <section className="hidden gap-4 md:grid md:grid-cols-4">
                 <div className={card}>
                   <p className="text-sm text-slate-400">Budget iniziale</p>
                   <div className="mt-2 flex items-center justify-between">
@@ -1506,157 +1702,6 @@ return (
                 <div className={card}>
                   <p className="text-sm text-slate-400">Ticket totali</p>
                   <p className="mt-2 text-2xl font-black">{tickets.length}</p>
-                </div>
-              </section>
-            )}
-
-            {!showMobileHome && (
-              <button
-                onClick={() => setShowMobileHome(true)}
-                className="md:hidden rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black"
-              >
-                ← Torna alla home mobile
-              </button>
-            )}
-
-            {!showMobileHome && activeTab === "operativo" && (
-              <section className="md:hidden rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl">
-                <div className="mb-5">
-                  <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
-                    Nuova chiamata
-                  </p>
-                  <h2 className="mt-2 text-2xl font-black">Apri intervento</h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Form rapido ottimizzato per telefono.
-                  </p>
-                </div>
-
-                {site && (
-                  <div className="mb-4 rounded-2xl border border-blue-400/30 bg-blue-500/10 p-4">
-                    <p className="text-sm font-black text-blue-200">{site}</p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {city || "Città n/d"} · {region || "Regione n/d"}
-                    </p>
-                  </div>
-                )}
-
-                <div className="grid gap-3">
-                  <div className="relative">
-                    <input
-                      className={`w-full ${input}`}
-                      placeholder="Cerca sede..."
-                      value={siteSearch}
-                      onChange={(e) => {
-                        setSiteSearch(e.target.value);
-                        setSite("");
-                        setRegion("");
-                        setEntity("");
-                        setCity("");
-                        setSiteId(null);
-                      }}
-                    />
-
-                    {siteSearch && !site && (
-                      <div className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-white/10 bg-slate-950 shadow-xl">
-                        {filteredSites.length === 0 && (
-                          <div className="p-3 text-sm text-slate-400">
-                            Nessuna sede trovata
-                          </div>
-                        )}
-
-                        {filteredSites.map((s) => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            className="block w-full border-b border-white/10 p-3 text-left hover:bg-white/10"
-                            onClick={() => {
-                              setSite(s.name);
-                              setSiteSearch(s.name);
-                              setRegion(s.region || "");
-                              setEntity(s.entity || "");
-                              setCity(s.city || "");
-                              setSiteId(s.id || null);
-                            }}
-                          >
-                            <div className="font-bold">{s.name}</div>
-                            <div className="text-xs text-slate-400">
-                              {s.city || "Città n/d"} · {s.entity || "Ente n/d"}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <textarea
-                    className={`min-h-28 ${input}`}
-                    placeholder="Descrizione intervento"
-                    value={problem}
-                    onChange={(e) => setProblem(e.target.value)}
-                  />
-
-                  <select
-                    className={input}
-                    value={technician}
-                    onChange={(e) => setTechnician(e.target.value)}
-                  >
-                    <option value="">Tecnico non assegnato</option>
-                    {technicians.map((t) => (
-                      <option key={t}>{t}</option>
-                    ))}
-                  </select>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <input
-                      type="date"
-                      className={input}
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                    />
-
-                    <select
-                      className={input}
-                      value={selectedSlot}
-                      onChange={(e) => setSelectedSlot(e.target.value)}
-                    >
-                      <option value="">Slot</option>
-                      <option value="Mattina">Mattina</option>
-                      <option value="Pomeriggio">Pomeriggio</option>
-                    </select>
-                  </div>
-
-                  <details className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                    <summary className="cursor-pointer text-sm font-black">
-                      Materiali necessari ({selectedMaterials.length})
-                    </summary>
-
-                    <div className="mt-3 grid gap-2">
-                      {materials.map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => toggleMaterial(m.id)}
-                          className={`rounded-2xl border p-3 text-left text-sm ${
-                            selectedMaterials.includes(m.id)
-                              ? "border-blue-400 bg-blue-600 text-white"
-                              : "border-white/10 bg-slate-950/40 text-slate-200"
-                          }`}
-                        >
-                          <span className="font-bold">{m.name}</span>
-                          <span className="ml-2 text-xs opacity-70">
-                            {euro(m.cost)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </details>
-
-                  <button
-                    onClick={addTicket}
-                    className="mt-2 rounded-3xl bg-blue-600 px-5 py-5 text-lg font-black text-white shadow-lg shadow-blue-900/30"
-                  >
-                    Salva chiamata
-                  </button>
                 </div>
               </section>
             )}
@@ -1892,7 +1937,7 @@ return (
             )}
 
             {activeTab === "magazzino" && (
-  <section className={card}>
+  <section className={`${card} hidden md:block`}>
     <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div>
         <h2 className={`text-2xl font-black ${strongText}`}>Magazzino</h2>
@@ -2384,7 +2429,7 @@ return (
               </section>
             )}
 {activeTab === "calendario" && (
-  <section className={card}>
+  <section className={`${card} hidden md:block`}>
     <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div>
         <h2 className={`text-2xl font-black ${strongText}`}>Calendario interventi</h2>
@@ -2831,7 +2876,7 @@ return (
   </section>
 )}
             {activeTab === "registro" && (
-              <section className={card}>
+              <section className={`${card} hidden md:block`}>
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-2xl font-black">Registro chiamate</h2>
 
@@ -2962,7 +3007,22 @@ return (
                 </div>
               </div>
             )}
-          </main>
+  
+          <nav className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 border-t border-white/10 bg-[#06111f]/95 px-2 py-2 backdrop-blur md:hidden">
+            {[
+              { key: "home", label: "Home", icon: HomeIcon },
+              { key: "calendario", label: "Calendario", icon: CalendarDays },
+              { key: "registro", label: "Registro", icon: ListChecks },
+              { key: "clienti", label: "Clienti", icon: Users },
+              { key: "magazzino", label: "Altro", icon: MoreHorizontal },
+            ].map(({ key, label, icon: Icon }) => (
+              <button key={key} onClick={() => setMobileView(key as any)} className={`flex flex-col items-center gap-1 rounded-2xl px-2 py-1 text-[11px] font-bold ${mobileView === key ? "text-blue-500" : "text-slate-400"}`}>
+                <Icon size={22} />
+                {label}
+              </button>
+            ))}
+          </nav>
+        </main>
         </div>
       </div>
     </main>
