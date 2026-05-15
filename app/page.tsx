@@ -462,7 +462,19 @@ const [calendarSite, setCalendarSite] = useState<any | null>(null);
 const [calendarTime, setCalendarTime] = useState("");
 const [editingCalendarTicketId, setEditingCalendarTicketId] = useState<string | null>(null);
 const [expandedCalendarTicketId, setExpandedCalendarTicketId] = useState<string | null>(null);
-const [mobileView, setMobileView] = useState<"home" | "operativo" | "calendario" | "registro" | "budget" | "mappa" | "clienti" | "contratti" | "sistemi" | "contatti" | "magazzino">("home");
+const [mobileView, setMobileView] = useState<
+  | "home"
+  | "operativo"
+  | "calendario"
+  | "budget"
+  | "mappa"
+  | "registro"
+  | "clienti"
+  | "contratti"
+  | "sistemi"
+  | "contatti"
+  | "magazzino"
+>("home");
 const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -1194,7 +1206,7 @@ const strongText =
 
 return (
   <main
-    className={`min-h-screen transition-all duration-300 ${
+    className={`min-h-screen overflow-x-hidden transition-all duration-300 ${
       theme === "dark"
         ? "bg-[#07111f] text-slate-100"
         : "bg-[#eef3f8] text-slate-900"
@@ -1414,9 +1426,9 @@ return (
                   { key: "home", label: "Home", icon: HomeIcon },
                   { key: "operativo", label: "Apri chiamata", icon: AlertTriangle },
                   { key: "calendario", label: "Calendario", icon: CalendarDays },
-                  { key: "registro", label: "Registro interventi", icon: ListChecks },
                   { key: "budget", label: "Budget", icon: BarChart3 },
                   { key: "mappa", label: "Mappa", icon: Map },
+                  { key: "registro", label: "Registro interventi", icon: ListChecks },
                   { key: "clienti", label: "Clienti", icon: Users },
                   { key: "contratti", label: "Contratti", icon: FileText },
                   { key: "sistemi", label: "Sistemi", icon: Monitor },
@@ -1457,32 +1469,31 @@ return (
             )}
             <section className="md:hidden">
               {mobileView !== "home" && (
-                <button onClick={() => setMobileView("home")} className="mb-5 flex w-fit items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-blue-400">
-                  <ChevronLeft size={18} />
-                  Torna alla home mobile
-                </button>
-              )}
-
-              {mobileView !== "home" && (
-                <div className="mb-5 flex gap-2 overflow-x-auto border-b border-white/10 pb-3">
-                  {[
-                    { key: "operativo", label: "Operativo", icon: AlertTriangle },
-                    { key: "calendario", label: "Calendario", icon: CalendarDays },
-                    { key: "budget", label: "Budget", icon: BarChart3 },
-                    { key: "mappa", label: "Mappa", icon: Map },
-                    { key: "registro", label: "Registro", icon: ListChecks },
-                    { key: "clienti", label: "Clienti", icon: Users },
-                    { key: "contratti", label: "Contratti", icon: FileText },
-                    { key: "sistemi", label: "Sistemi", icon: Monitor },
-                    { key: "magazzino", label: "Magazzino", icon: Package },
-                    { key: "contatti", label: "Contatti", icon: Phone },
-                  ].map(({ key, label, icon: Icon }) => (
-                    <button key={key} onClick={() => setMobileView(key as any)} className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-black ${mobileView === key ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-slate-300"}`}>
-                      <Icon size={14} />
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <button onClick={() => setMobileView("home")} className="mb-5 flex w-fit items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-blue-400">
+                    <ChevronLeft size={18} />
+                    Torna alla home mobile
+                  </button>
+                  <div className="mb-5 flex max-w-full gap-2 overflow-x-auto border-b border-white/10 pb-4 [-ms-overflow-style:none] [scrollbar-width:none]">
+                    {[
+                      { key: "operativo", label: "Operativo", icon: AlertTriangle },
+                      { key: "calendario", label: "Calendario", icon: CalendarDays },
+                      { key: "budget", label: "Budget", icon: BarChart3 },
+                      { key: "mappa", label: "Mappa", icon: Map },
+                      { key: "registro", label: "Registro", icon: ListChecks },
+                      { key: "clienti", label: "Clienti", icon: Users },
+                      { key: "contratti", label: "Contratti", icon: FileText },
+                      { key: "sistemi", label: "Sistemi", icon: Monitor },
+                      { key: "magazzino", label: "Magazzino", icon: Package },
+                      { key: "contatti", label: "Contatti", icon: Phone },
+                    ].map(({ key, label, icon: Icon }) => (
+                      <button key={key} onClick={() => setMobileView(key as any)} className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-black ${mobileView === key ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-slate-300"}`}>
+                        <Icon size={15} />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
 
               {mobileView === "home" && (
@@ -1510,12 +1521,12 @@ return (
 
                   {[
                     { key: "calendario", title: "Calendario", desc: "Pianifica o modifica interventi", icon: CalendarDays },
-                    { key: "registro", title: "Registro interventi", desc: "Vedi, pianifica o chiudi ticket", icon: ListChecks },
                     { key: "budget", title: "Budget", desc: "Costi, residuo e avanzamento", icon: BarChart3 },
                     { key: "mappa", title: "Mappa", desc: "Sedi e interventi sul territorio", icon: Map },
-                    { key: "clienti", title: "Clienti", desc: "Categorie, sedi e riferimenti", icon: Users },
+                    { key: "registro", title: "Registro interventi", desc: "Vedi, pianifica o chiudi ticket", icon: ListChecks },
+                    { key: "clienti", title: "Clienti", desc: "Cerca sedi e riferimenti", icon: Users },
                     { key: "contratti", title: "Contratti", desc: "Accordi, SLA e scadenze", icon: FileText },
-                    { key: "sistemi", title: "Sistemi", desc: "Componenti e catalogo tecnico", icon: Monitor },
+                    { key: "sistemi", title: "Sistemi", desc: "Catalogo tecnico componenti", icon: Monitor },
                     { key: "contatti", title: "Contatti", desc: "Rubrica rapida operativa", icon: Phone },
                     { key: "magazzino", title: "Magazzino", desc: "Materiali e disponibilità", icon: Package },
                   ].map(({ key, title, desc, icon: Icon }) => (
@@ -1565,37 +1576,114 @@ return (
 
               {mobileView === "calendario" && (
                 <div className="grid gap-5">
-                  <div><h2 className="text-3xl font-black text-white">Calendario interventi</h2><p className="mt-2 text-base text-slate-400">Vista mensile con interventi pianificati e inserimento rapido.</p></div>
-                  <div className="flex items-center justify-between"><button onClick={() => changeMonth(-1)} className="rounded-2xl bg-blue-600 p-4 text-white"><ChevronLeft size={28} /></button><div className="text-2xl font-black capitalize text-white">{monthLabel}</div><button onClick={() => changeMonth(1)} className="rounded-2xl bg-blue-600 p-4 text-white"><ChevronRight size={28} /></button></div>
-                  <div className="grid grid-cols-7 gap-1 text-center text-sm font-bold text-slate-300">{["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((d) => <div key={d}>{d}</div>)}</div>
+                  <div>
+                    <h2 className="text-3xl font-black text-white">Calendario interventi</h2>
+                    <p className="mt-2 text-base text-slate-400">Vista mensile con interventi pianificati e inserimento rapido.</p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <button onClick={() => changeMonth(-1)} className="rounded-2xl bg-blue-600 p-4 text-white"><ChevronLeft size={28} /></button>
+                    <div className="text-2xl font-black capitalize text-white">{monthLabel}</div>
+                    <button onClick={() => changeMonth(1)} className="rounded-2xl bg-blue-600 p-4 text-white"><ChevronRight size={28} /></button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 text-center text-sm font-bold text-slate-300">
+                    {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((d) => <div key={d}>{d}</div>)}
+                  </div>
                   <div className="grid grid-cols-7 gap-1.5">
                     {mobileCalendarCells.map((day) => {
                       const iso = day.toISOString().slice(0, 10);
                       const inMonth = day.getMonth() === calendarMonth.getMonth();
                       const hasTickets = tickets.some((t) => t.date === iso);
                       const selected = mobileSelectedDate === iso;
-                      return <button key={iso} onClick={() => setSelectedCalendarDay(iso)} className={`min-h-[70px] rounded-xl border p-1.5 text-center ${selected ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-white"} ${!inMonth ? "opacity-30" : ""}`}><div className="text-lg font-black">{day.getDate()}</div>{hasTickets && <div className="mx-auto mt-2 h-2 w-2 rounded-full bg-blue-400" />}</button>;
+                      return (
+                        <button key={iso} onClick={() => setSelectedCalendarDay(iso)} className={`min-h-[70px] rounded-xl border p-1.5 text-center ${selected ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-white"} ${!inMonth ? "opacity-30" : ""}`}>
+                          <div className="text-lg font-black">{day.getDate()}</div>
+                          {hasTickets && <div className="mx-auto mt-2 h-2 w-2 rounded-full bg-blue-400" />}
+                        </button>
+                      );
                     })}
                   </div>
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5"><div className="flex items-center gap-3"><CalendarDays className="text-slate-300" /><h3 className="text-xl font-black text-white">Interventi del {new Date(mobileSelectedDate).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}</h3></div><div className="mt-4 grid gap-3">{mobileSelectedTickets.length === 0 ? <p className="text-slate-400">Nessun intervento pianificato.</p> : mobileSelectedTickets.map((t) => <div key={t.id} className="rounded-2xl bg-slate-950/40 p-3"><p className="font-black text-white">{t.slot || "Orario n/d"} · {t.site}</p><p className="text-sm text-slate-400">{t.technician || "Tecnico n/d"}</p></div>)}</div></div>
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5">
+                    <div className="flex items-center gap-3">
+                      <CalendarDays className="text-slate-300" />
+                      <h3 className="text-xl font-black text-white">Interventi del {new Date(mobileSelectedDate).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}</h3>
+                    </div>
+                    <div className="mt-4 grid gap-3">
+                      {mobileSelectedTickets.length === 0 ? <p className="text-slate-400">Nessun intervento pianificato.</p> : mobileSelectedTickets.map((t) => (
+                        <div key={t.id} className="rounded-2xl bg-slate-950/40 p-3">
+                          <p className="font-black text-white">{t.slot || "Orario n/d"} · {t.site}</p>
+                          <p className="text-sm text-slate-400">{t.technician || "Tecnico n/d"}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                   <button onClick={() => setSelectedCalendarDay(mobileSelectedDate)} className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Nuovo intervento</button>
                 </div>
               )}
 
               {mobileView === "registro" && (
                 <div className="grid gap-4">
-                  <div className="flex items-center justify-between"><h2 className="text-3xl font-black text-white">Registro chiamate</h2><button onClick={exportCsv} className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 font-black text-white"><Download size={18} /> Esporta CSV</button></div>
-                  <div className="grid gap-3">{tickets.map((t) => <div key={t.id} className="grid grid-cols-[40px_1fr] gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4"><div className="text-xl font-black text-blue-500">{t.id}</div><div><p className="text-sm font-black uppercase text-white">{t.site}</p><p className="mt-1 text-sm text-slate-400">{t.region || "Regione n/d"} · {t.problem}</p><div className="mt-3 flex items-center justify-between gap-3"><div><p className="text-lg font-black text-white">{euro(materialCost(t.materialIds || []))}</p><p className="text-sm text-slate-300">{t.technician || "Non assegnato"}</p></div><div className="text-right"><p className="mb-2 text-sm text-slate-300"><span className="mr-1 text-emerald-400">●</span>{t.status}</p>{t.status !== "Chiuso" && <div className="flex gap-2"><button onClick={() => planTicket(String(t.id))} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white">Pianifica</button><button onClick={() => setClosingTicketId(String(t.id))} className="rounded-xl bg-slate-700 px-3 py-2 text-sm font-bold text-white">Chiudi</button></div>}</div></div></div></div>)}</div>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-3xl font-black text-white">Registro chiamate</h2>
+                    <button onClick={exportCsv} className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 font-black text-white"><Download size={18} /> Esporta CSV</button>
+                  </div>
+                  <div className="grid gap-3">
+                    {tickets.map((t) => (
+                      <div key={t.id} className="grid grid-cols-[40px_1fr] gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+                        <div className="text-xl font-black text-blue-500">{t.id}</div>
+                        <div>
+                          <p className="text-sm font-black uppercase text-white">{t.site}</p>
+                          <p className="mt-1 text-sm text-slate-400">{t.region || "Regione n/d"} · {t.problem}</p>
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-lg font-black text-white">{euro(materialCost(t.materialIds || []))}</p>
+                              <p className="text-sm text-slate-300">{t.technician || "Non assegnato"}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="mb-2 text-sm text-slate-300"><span className="mr-1 text-emerald-400">●</span>{t.status}</p>
+                              {t.status !== "Chiuso" && <div className="flex gap-2"><button onClick={() => planTicket(String(t.id))} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white">Pianifica</button><button onClick={() => setClosingTicketId(String(t.id))} className="rounded-xl bg-slate-700 px-3 py-2 text-sm font-bold text-white">Chiudi</button></div>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                   <button onClick={() => setMobileView("operativo")} className="sticky bottom-4 rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Nuova chiamata/intervento</button>
                 </div>
               )}
 
+
+
               {mobileView === "budget" && (
                 <div className="grid gap-4">
                   <h2 className="text-3xl font-black text-white">Budget</h2>
-                  {[{label:"Budget iniziale",value:euro(budget),color:"border-l-blue-500"},{label:"Costo previsto",value:euro(totalForecast),color:"border-l-amber-500"},{label:"Budget residuo",value:euro(remainingBudget),color:"border-l-emerald-500"},{label:"Ticket totali",value:String(tickets.length),color:"border-l-purple-500"}].map((x)=><div key={x.label} className={`rounded-3xl border border-white/10 border-l-4 ${x.color} bg-white/[0.06] p-5`}><p className="text-lg font-bold text-slate-300">{x.label}</p><p className="mt-2 text-3xl font-black text-white">{x.value}</p></div>)}
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5"><div className="mb-3 flex justify-between"><h3 className="text-xl font-black text-white">Avanzamento budget</h3><span className="rounded-xl bg-blue-500/20 px-3 py-1 font-black text-blue-400">{budget ? Math.round((totalForecast / budget) * 100) : 0}%</span></div><div className="h-4 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.min(100, budget ? (totalForecast / budget) * 100 : 0)}%` }} /></div><div className="mt-4 flex justify-between text-sm text-slate-300"><span>Speso<br /><b className="text-white">{euro(totalForecast)}</b></span><span className="text-right">Residuo<br /><b className="text-white">{euro(remainingBudget)}</b></span></div></div>
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5"><h3 className="mb-3 text-xl font-black text-white">Dettaglio costi previsti</h3>{[["Personale", euro(Math.round(totalForecast * 0.55))], ["Materiali", euro(totalForecast)], ["Servizi", euro(Math.round(totalForecast * 0.15))]].map(([a,b]) => <div key={a} className="flex items-center justify-between border-t border-white/10 py-3"><span className="font-bold text-slate-300">{a}</span><span className="font-black text-white">{b}</span></div>)}</div>
+                  {[
+                    { label: "Budget iniziale", value: euro(budget), color: "border-l-blue-500" },
+                    { label: "Costo previsto", value: euro(totalForecast), color: "border-l-amber-500" },
+                    { label: "Budget residuo", value: euro(remainingBudget), color: "border-l-emerald-500" },
+                    { label: "Ticket totali", value: String(tickets.length), color: "border-l-purple-500" },
+                  ].map((item) => (
+                    <div key={item.label} className={`rounded-3xl border border-white/10 bg-white/[0.06] p-5 shadow-xl shadow-black/10 border-l-4 ${item.color}`}>
+                      <p className="text-base font-black text-slate-300">{item.label}</p>
+                      <p className="mt-3 text-3xl font-black text-white">{item.value}</p>
+                    </div>
+                  ))}
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h3 className="text-xl font-black text-white">Avanzamento budget</h3>
+                      <span className="rounded-xl bg-blue-600/20 px-3 py-1 text-sm font-black text-blue-400">{budget > 0 ? Math.round((totalForecast / budget) * 100) : 0}%</span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-800">
+                      <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.min(100, budget > 0 ? (totalForecast / budget) * 100 : 0)}%` }} />
+                    </div>
+                    <div className="mt-4 flex justify-between text-sm text-slate-300">
+                      <div><p>Speso</p><p className="font-black text-white">{euro(totalForecast)}</p></div>
+                      <div className="text-right"><p>Residuo</p><p className="font-black text-white">{euro(remainingBudget)}</p></div>
+                    </div>
+                  </div>
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5">
+                    <h3 className="mb-4 text-xl font-black text-white">Dettaglio costi previsti</h3>
+                    {["Personale", "Materiali", "Servizi"].map((row) => <div key={row} className="flex items-center justify-between border-t border-white/10 py-4 text-slate-300"><span className="font-bold">{row}</span><ChevronRight size={18} /></div>)}
+                  </div>
                   <button className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Aggiorna budget</button>
                 </div>
               )}
@@ -1606,43 +1694,71 @@ return (
                   <select className={input} value={filterTechnician} onChange={(e) => setFilterTechnician(e.target.value)}><option value="">Tutti i tecnici</option>{technicians.map((t) => <option key={t} value={t}>{t}</option>)}</select>
                   <select className={input} value={filterRegion} onChange={(e) => setFilterRegion(e.target.value)}><option value="">Tutte le regioni</option>{availableRegions.map((r) => <option key={r} value={r}>{r}</option>)}</select>
                   <select className={input} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}><option value="">Tutti gli stati</option><option value="Aperto">Aperto</option><option value="Pianificato">Pianificato</option><option value="Chiuso">Chiuso</option></select>
-                  <div className="h-[520px] overflow-hidden rounded-3xl border border-white/10"><AtlasMap sites={sites} tickets={filteredTickets} /></div>
+                  <div className="h-[440px] overflow-hidden rounded-3xl border border-white/10 bg-slate-900">
+                    <AtlasMap sites={sites} tickets={filteredTickets} />
+                  </div>
                   <div className="flex flex-wrap gap-3 text-xs text-slate-300"><span><b className="text-blue-400">●</b> Tecnico</span><span><b className="text-emerald-400">●</b> Sede operativa</span><span><b className="text-yellow-400">●</b> Cliente</span><span><b className="text-red-400">●</b> Intervento</span></div>
                 </div>
               )}
 
               {mobileView === "clienti" && (
                 <div className="grid gap-4">
-                  <div className="flex items-center justify-between"><div><h2 className="text-3xl font-black text-white">Clienti / Enti</h2><p className="text-slate-400">{sites.length} sedi totali</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo cliente</button></div>
-                  <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-white/[0.03] p-1 text-center font-black"><button className="rounded-xl bg-blue-600/20 py-3 text-blue-400">Categorie</button><button className="py-3 text-slate-400">Elenco clienti</button></div>
-                  {Object.entries(clientCategories).map(([category, list]) => <button key={category} onClick={() => setOpenCategory(openCategory === category ? null : category)} className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"><span><span className="block text-xl font-black text-white">{category}</span><span className="text-sm text-slate-400">{list.length} sedi</span></span><ChevronRight className="text-slate-400" /></button>)}
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5"><h3 className="mb-3 text-lg font-black text-white">Riepilogo</h3><div className="grid grid-cols-3 text-center"><div><p className="text-2xl font-black text-white">{sites.length}</p><p className="text-xs text-slate-400">Sedi totali</p></div><div><p className="text-2xl font-black text-white">{Object.keys(clientCategories).length}</p><p className="text-xs text-slate-400">Categorie</p></div><div><p className="text-2xl font-black text-white">{contacts.length || sites.length}</p><p className="text-xs text-slate-400">Clienti</p></div></div></div>
+                  <div className="flex items-end justify-between gap-3"><div><h2 className="text-3xl font-black text-white">Clienti / Enti</h2><p className="text-base text-slate-400">{sites.length} sedi totali</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo cliente</button></div>
+                  <input className={input} placeholder="Cerca cliente, città, sede..." value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} />
+                  <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-white/10 text-center text-sm font-black"><button className="border-b-2 border-blue-500 py-3 text-blue-400">Categorie</button><button className="py-3 text-slate-400">Elenco clienti</button></div>
+                  <div className="grid gap-3">
+                    {Object.entries(clientCategories).map(([category, categorySites]) => (
+                      <button key={category} onClick={() => setOpenCategory(openCategory === category ? null : category)} className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-left">
+                        <span className="flex items-center gap-4"><span className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600/30 text-lg font-black text-white">{category.slice(0,2).toUpperCase()}</span><span><span className="block text-lg font-black text-white">{category}</span><span className="text-sm text-slate-400">{categorySites.length} sedi</span></span></span><ChevronRight className="text-slate-400" />
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-center"><div><p className="text-2xl font-black text-white">{sites.length}</p><p className="text-xs text-slate-400">Sedi totali</p></div><div><p className="text-2xl font-black text-white">{Object.keys(clientCategories).length}</p><p className="text-xs text-slate-400">Categorie</p></div><div><p className="text-2xl font-black text-white">{sites.length}</p><p className="text-xs text-slate-400">Clienti</p></div></div>
                 </div>
               )}
 
               {mobileView === "contratti" && (
                 <div className="grid gap-4">
-                  <div className="flex items-center justify-between"><div><h2 className="text-3xl font-black text-white">Contratti / Accordi commerciali</h2><p className="text-slate-400">{editableContracts.length} contratti totali</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo contratto</button></div>
-                  <div className="grid grid-cols-4 rounded-2xl border border-white/10 bg-white/[0.03] text-center text-sm font-bold text-slate-400"><button className="border-b-2 border-blue-500 py-3 text-blue-400">Tutti</button><button>Attivi</button><button>In scadenza</button><button>Scaduti</button></div>
-                  {editableContracts.map((contract) => { const status = getContractStatus(contract); return <div key={contract.name} className="rounded-3xl border border-white/10 bg-white/[0.06] p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-xl font-black text-white">{contract.name}</p><p className="text-sm text-slate-400">{contract.clientType}</p><p className="mt-3 text-sm text-slate-300"><b>Periodo:</b> {contract.period}</p></div><span className={`rounded-full px-3 py-1 text-xs font-black text-white ${status.color}`}>{status.label}</span></div><div className="mt-4 grid grid-cols-3 gap-2 border-t border-white/10 pt-4 text-xs text-slate-400"><p><b className="block text-white">{contract.warranty}</b>Garanzia</p><p><b className="block text-white">{contract.shipping}</b>Spedizione</p><p><b className="block text-white">{contract.sla}</b>SLA</p></div></div>; })}
+                  <div className="flex items-end justify-between gap-3"><div><h2 className="text-3xl font-black text-white">Contratti / Accordi commerciali</h2><p className="text-base text-slate-400">{editableContracts.length} contratti totali</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo</button></div>
+                  <div className="grid grid-cols-4 overflow-hidden rounded-2xl border border-white/10 text-center text-xs font-black"><button className="border-b-2 border-blue-500 py-3 text-blue-400">Tutti</button><button className="py-3 text-slate-400">Attivi</button><button className="py-3 text-slate-400">In scadenza</button><button className="py-3 text-slate-400">Scaduti</button></div>
+                  {editableContracts.map((contract) => { const st = getContractStatus(contract); return (
+                    <div key={contract.name} className="rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+                      <div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-white">{contract.name}</p><p className="text-sm text-slate-400">{contract.clientType}</p></div><span className={`rounded-full px-3 py-1 text-xs font-black text-white ${st.color}`}>{st.label}</span></div>
+                      <p className="mt-3 text-sm text-slate-300"><b>Periodo:</b> {contract.period}</p>
+                      <div className="mt-4 grid grid-cols-3 gap-2 border-t border-white/10 pt-4 text-xs text-slate-300"><div><p>Garanzia</p><b className="text-white">{contract.warranty}</b></div><div><p>Spedizione</p><b className="text-white">{contract.shipping}</b></div><div><p>SLA</p><b className="text-white">{contract.sla}</b></div></div>
+                    </div>
+                  ); })}
                 </div>
               )}
 
               {mobileView === "sistemi" && (
                 <div className="grid gap-4">
-                  <div className="flex items-center justify-between"><div><h2 className="text-3xl font-black text-white">Sistemi / Componenti</h2><p className="text-slate-400">Catalogo tecnico consultabile dai tecnici</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo sistema</button></div>
-                  <div className="grid grid-cols-4 gap-2 rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-center"><div><p className="text-xl font-black text-white">{systemsCatalog.length}</p><p className="text-xs text-slate-400">Sistemi</p></div><div><p className="text-xl font-black text-white">{systemsCatalog.reduce((s:any,x:any)=>s+x.components.length,0)}</p><p className="text-xs text-slate-400">Componenti</p></div><div><p className="text-xl font-black text-white">{euro(systemsCatalog.reduce((s:any,x:any)=>s+x.totalCost,0))}</p><p className="text-xs text-slate-400">Valore</p></div><div><p className="text-xl font-black text-white">12</p><p className="text-xs text-slate-400">Fornitori</p></div></div>
-                  {systemsCatalog.map((system:any) => <button key={system.name} onClick={() => setSelectedSystem(system.name)} className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left"><span><span className="block text-xl font-black text-white">{system.name}</span><span className="text-sm text-slate-400">{system.components.length} componenti · Ultimo aggiornamento</span></span><span className="text-right"><span className="block font-black text-white">{euro(system.totalCost)}</span><ChevronRight className="ml-auto mt-2 text-slate-400" /></span></button>)}
+                  <div className="flex items-end justify-between gap-3"><div><h2 className="text-3xl font-black text-white">Sistemi / Componenti</h2><p className="text-base text-slate-400">Catalogo tecnico consultabile dai tecnici</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo</button></div>
+                  <input className={input} placeholder="Cerca sistema, componente, produttore..." value={systemSearch} onChange={(e) => setSystemSearch(e.target.value)} />
+                  <div className="grid grid-cols-4 rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-center text-xs text-slate-400"><div><p className="text-xl font-black text-white">{systemsCatalog.length}</p><p>Sistemi</p></div><div><p className="text-xl font-black text-white">{systemsCatalog.reduce((sum, s:any) => sum + (s.components?.length || 0), 0)}</p><p>Componenti</p></div><div className="col-span-2"><p className="text-xl font-black text-white">{euro(systemsCatalog.reduce((sum, s:any) => sum + Number(s.totalCost || 0), 0))}</p><p>Valore totale</p></div></div>
+                  {systemsCatalog.map((system:any) => (
+                    <button key={system.name} onClick={() => setSelectedSystem(system.name)} className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-left">
+                      <span className="flex items-center gap-4"><span className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600/30 text-sm font-black text-white">{system.name.slice(0,5)}</span><span><span className="block text-xl font-black text-white">{system.name}</span><span className="text-sm text-slate-400">{system.productName || "Sistema"}</span><span className="mt-1 block text-xs text-slate-500">{system.components.length} componenti</span></span></span><span className="text-right"><span className="block font-black text-white">{euro(system.totalCost)}</span><ChevronRight className="ml-auto mt-2 text-slate-400" /></span>
+                    </button>
+                  ))}
                 </div>
               )}
 
               {mobileView === "contatti" && (
                 <div className="grid gap-4">
-                  <div className="flex items-center justify-between"><div><h2 className="text-3xl font-black text-white">Contatti</h2><p className="text-slate-400">Rubrica tecnica, personale e fornitori.</p></div><button className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo contatto</button></div>
-                  <div className="grid grid-cols-5 border-b border-white/10 text-center text-sm font-bold text-slate-400"><button className="border-b-2 border-blue-500 py-3 text-blue-400">Tutti</button><button>Personale</button><button>Fornitori</button><button>Istituzioni</button><button>Preferiti</button></div>
+                  <div className="flex items-end justify-between gap-3"><div><h2 className="text-3xl font-black text-white">Contatti</h2><p className="text-base text-slate-400">Rubrica tecnica, personale e fornitori.</p></div><button onClick={resetContactForm} className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white">+ Nuovo</button></div>
+                  <input className={input} placeholder="Cerca contatto, telefono, email, azienda..." value={contactSearch} onChange={(e) => setContactSearch(e.target.value)} />
+                  <div className="flex max-w-full gap-5 overflow-x-auto border-b border-white/10 text-sm font-black"><button className="border-b-2 border-blue-500 px-2 py-3 text-blue-400">Tutti</button><button className="px-2 py-3 text-slate-400">Personale</button><button className="px-2 py-3 text-slate-400">Fornitori</button><button className="px-2 py-3 text-slate-400">Istituzioni</button><button className="px-2 py-3 text-slate-400">Preferiti</button></div>
                   <p className="text-sm text-slate-400">{filteredContacts.length} contatti trovati</p>
-                  {(filteredContacts.length ? filteredContacts : contacts).map((contact:any) => <div key={contact.id} className="flex items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.06] p-4"><div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-blue-600 text-lg font-black text-white">{String(contact.name || "C").slice(0,2).toUpperCase()}</div><div className="min-w-0 flex-1"><p className="truncate text-lg font-black text-white">{contact.name}</p><p className="truncate text-sm text-slate-400">{contact.notes || contact.clientName || "Contatto operativo"}</p><p className="mt-2 truncate text-xs text-slate-400">☎ {contact.phone} · ✉ {contact.address || "email n/d"}</p></div><ChevronRight className="text-slate-400" /></div>)}
-                  {contacts.length === 0 && <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-slate-400">Nessun contatto salvato. Usa il tab Contatti desktop per aggiungere la rubrica.</div>}
+                  {(filteredContacts.length ? filteredContacts : [
+                    { id: "demo1", name: "Andrea Fabbri", phone: "+39 333 123 4567", notes: "Responsabile TLC", clientName: "Comando Prov. Carabinieri Roma" },
+                    { id: "demo2", name: "Marco Conti", phone: "+39 335 987 6543", notes: "Tecnico di Sistema", clientName: "SPIS S.r.l." },
+                    { id: "demo3", name: "Laura Santini", phone: "+39 347 246 8101", notes: "Project Manager", clientName: "SMARTFAD S.p.A." },
+                  ]).map((contact:any) => (
+                    <div key={contact.id} className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+                      <div className="flex min-w-0 items-center gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-600/40 text-lg font-black text-white">{String(contact.name || "?").split(" ").map((x:string)=>x[0]).slice(0,2).join("")}</span><span className="min-w-0"><span className="block truncate text-lg font-black text-white">{contact.name}</span><span className="block truncate text-sm text-slate-400">{contact.notes || contact.clientName || "Contatto"}</span><span className="mt-2 block text-xs text-slate-400">☎ {contact.phone || "Telefono n/d"}</span></span></div><ChevronRight className="shrink-0 text-slate-400" />
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -1651,7 +1767,20 @@ return (
                   <div><h2 className="text-3xl font-black text-white">Magazzino</h2><p className="text-base text-slate-400">Articoli, valori, quantità e stato scorte.</p></div>
                   <button onClick={addInventoryItem} className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">+ Nuovo articolo</button>
                   <input className={`w-full ${input}`} placeholder="Cerca articolo o ID..." value={inventorySearch} onChange={(e) => setInventorySearch(e.target.value)} />
-                  <div className="grid gap-3">{inventory.filter((item) => { const q = inventorySearch.toLowerCase(); return item.id.toLowerCase().includes(q) || item.name.toLowerCase().includes(q); }).map((item, index) => { const status = getInventoryStatus(Number(item.quantity)); return <div key={`${item.id}-${index}`} className="grid grid-cols-[1.2fr_0.65fr_0.65fr_1fr_18px] items-center gap-2 rounded-3xl border border-white/10 bg-white/[0.06] p-4"><div><p className="font-black uppercase text-white">{item.name}</p><p className="mt-1 text-xs text-slate-400">ID: {item.id}</p></div><div><p className="text-xs text-slate-400">Quantità</p><p className="font-black text-white">{item.quantity}</p></div><div><p className="text-xs text-slate-400">Minimo</p><p className="font-black text-white">0</p></div><div><p className="text-xs text-slate-400">Stato</p><span className={status.className + " inline-block rounded-xl px-2 py-1 text-xs font-black"}>{status.label}</span></div><ChevronRight className="text-slate-500" size={18} /></div>; })}</div>
+                  <div className="grid gap-3">
+                    {inventory.filter((item) => { const q = inventorySearch.toLowerCase(); return item.id.toLowerCase().includes(q) || item.name.toLowerCase().includes(q); }).map((item, index) => {
+                      const status = getInventoryStatus(Number(item.quantity));
+                      return (
+                        <div key={`${item.id}-${index}`} className="grid grid-cols-[1.2fr_0.65fr_0.65fr_1fr_18px] items-center gap-2 rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+                          <div><p className="font-black uppercase text-white">{item.name}</p><p className="mt-1 text-xs text-slate-400">ID: {item.id}</p></div>
+                          <div><p className="text-xs text-slate-400">Quantità</p><p className="font-black text-white">{item.quantity}</p></div>
+                          <div><p className="text-xs text-slate-400">Minimo</p><p className="font-black text-white">0</p></div>
+                          <div><p className="text-xs text-slate-400">Stato</p><span className={status.className + " inline-block rounded-xl px-2 py-1 text-xs font-black"}>{status.label}</span></div>
+                          <ChevronRight className="text-slate-500" size={18} />
+                        </div>
+                      );
+                    })}
+                  </div>
                   <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-slate-400"><span>ⓘ Ultimo aggiornamento: {new Date().toLocaleDateString("it-IT")} {new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}</span><span>↻</span></div>
                 </div>
               )}
@@ -3038,7 +3167,7 @@ return (
               { key: "budget", label: "Budget", icon: BarChart3 },
               { key: "mappa", label: "Mappa", icon: Map },
               { key: "clienti", label: "Clienti", icon: Users },
-              { key: "contatti", label: "Altro", icon: MoreHorizontal },
+              { key: "magazzino", label: "Altro", icon: MoreHorizontal },
             ].map(({ key, label, icon: Icon }) => (
               <button key={key} onClick={() => setMobileView(key as any)} className={`flex flex-col items-center gap-1 rounded-2xl px-2 py-1 text-[11px] font-bold ${mobileView === key ? "text-blue-500" : "text-slate-400"}`}>
                 <Icon size={22} />
