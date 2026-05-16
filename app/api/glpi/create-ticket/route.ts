@@ -17,6 +17,7 @@ type GlpiTicketPayload = {
   ticketType?: "ordinaria" | "straordinaria" | string;
   contractName?: string;
   contractEntity?: string;
+  glpiEntityId?: number | null;
 };
 
 function cleanBaseUrl(value: string) {
@@ -108,6 +109,7 @@ export async function POST(request: Request) {
         input: {
           name: ticketName,
           content: buildTicketContent(payload),
+          ...(payload.glpiEntityId ? { entities_id: Number(payload.glpiEntityId) } : {}),
           status: 1,
           urgency: payload.ticketType === "straordinaria" ? 4 : 3,
           impact: payload.ticketType === "straordinaria" ? 4 : 3,
@@ -134,6 +136,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       glpiTicketId: ticketData?.id ?? ticketData?.[0]?.id ?? null,
+      glpiEntityId: payload.glpiEntityId ?? null,
       glpiResponse: ticketData,
     });
   } catch (error: any) {
