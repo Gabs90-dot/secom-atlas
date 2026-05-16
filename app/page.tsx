@@ -619,6 +619,53 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
     }, 3000);
   }
 
+  async function syncTicketToGlpi(ticket: any) {
+    try {
+      const contract = getTicketContract(ticket);
+
+      const response = await fetch("/api/glpi/create-ticket", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          atlasTicketId: ticket.id,
+          site: ticket.site,
+          region: ticket.region,
+          entity: ticket.entity,
+          city: ticket.city,
+          problem: ticket.problem,
+          materialIds: ticket.materialIds || [],
+          materials: (ticket.materialIds || [])
+            .map((id: string) => materials.find((m) => m.id === id)?.name)
+            .filter(Boolean),
+          cost: materialCost(ticket.materialIds || []),
+          technician: ticket.technician,
+          status: ticket.status,
+          date: ticket.date,
+          slot: ticket.slot,
+          ticketType: getTicketType(ticket),
+          contractName: contract?.name || "Contratto non rilevato",
+          contractEntity: contract?.clientType || ticket.entity || "Entità non definita",
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok || !result?.ok) {
+        console.error("GLPI sync error", result);
+        showMessage("Ticket salvato in ATLAS, ma non sincronizzato con GLPI", "error");
+        return null;
+      }
+
+      return result;
+    } catch (error) {
+      console.error("GLPI sync exception", error);
+      showMessage("Ticket salvato in ATLAS, ma GLPI non è raggiungibile", "error");
+      return null;
+    }
+  }
+
   const editableContracts = contracts.map((contract) => ({
     ...contract,
     ...(contractOverrides[contract.name] || {}),
@@ -880,10 +927,12 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
     setTechnician("");
     setSelectedDate("");
     setSelectedSlot("");
+    const glpiResult = await syncTicketToGlpi(newTicket);
+
     setSelectedMaterials([]);
     setTicketType("ordinaria");
 
-    showMessage("Ticket salvato su database");
+    showMessage(glpiResult?.glpiTicketId ? `Ticket salvato e inviato a GLPI #${glpiResult.glpiTicketId}` : "Ticket salvato su ATLAS");
   }
 
   async function planTicket(id: string) {
@@ -1208,13 +1257,15 @@ async function addCalendarTicket() {
 
   setTickets([newTicket, ...tickets]);
 
+  const glpiResult = await syncTicketToGlpi(newTicket);
+
   setSelectedCalendarDay(null);
   setCalendarTechnician("");
   setCalendarSiteSearch("");
   setCalendarSite(null);
   setCalendarTime("");
 
-  showMessage("Intervento aggiunto al calendario");
+  showMessage(glpiResult?.glpiTicketId ? `Intervento aggiunto e inviato a GLPI #${glpiResult.glpiTicketId}` : "Intervento aggiunto al calendario");
 }
 const contactClientResults = sites
   .filter((s) => {
@@ -2156,21 +2207,18 @@ return (
                 <p className="text-base font-black text-white">Centrale Operativa ATLAS</p>
               </div>
 
-              {/*
-<button
-  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-  className="mb-6 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-slate-200"
->
-  <span className="flex items-center gap-3">
-    {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-    Tema {theme === "dark" ? "chiaro" : "scuro"}
-  </span>
-
-  <span className="rounded-xl bg-blue-600/20 px-3 py-1 text-xs text-blue-300">
-    {theme === "dark" ? "Dark" : "Light"}
-  </span>
-</button>
-*/}
+              <button
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                className="mb-6 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-slate-200"
+              >
+                <span className="flex items-center gap-3">
+                  {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+                  Tema {theme === "dark" ? "chiaro" : "scuro"}
+                </span>
+                <span className="rounded-xl bg-blue-600/20 px-3 py-1 text-xs text-blue-300">
+                  {theme === "dark" ? "Dark" : "Light"}
+                </span>
+              </button>
 
               <div className="grid gap-2">
                 {[
