@@ -201,12 +201,13 @@ const [mobileView, setMobileView] = useState<
   | "contatti"
   | "magazzino"
 >("home");
-const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 const [notificationsOpen, setNotificationsOpen] = useState(false);
+
 const [manualReminders, setManualReminders] = useState<any[]>(() => {
   if (typeof window !== "undefined") {
     const saved = localStorage.getItem("atlas-reminders");
+
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -1711,9 +1712,13 @@ return (
       <div className="min-w-0 flex-1 overflow-x-hidden">
         <header className="sticky top-0 z-40 border-b border-white/10 bg-[#06111f]/95 px-5 pb-4 pt-5 backdrop-blur md:hidden">
           <div className="flex items-center justify-between">
-            <button onClick={() => setMobileMenuOpen(true)} className="rounded-2xl p-2 text-white" aria-label="Apri menu mobile">
-              <Menu size={26} />
-            </button>
+            <button
+  onClick={() => setMobileMoreOpen(true)}
+  className="rounded-2xl p-2 text-white"
+  aria-label="Apri menu mobile"
+>
+  <Menu size={26} />
+</button>
 
             <div className="flex min-w-0 items-center gap-3">
               <img src="/secom-logo.png.png" alt="Secom" className="h-9 w-auto object-contain" />
@@ -1861,8 +1866,8 @@ return (
         </header>
 
         <MobileMoreMenu
-  mobileMenuOpen={mobileMenuOpen}
-  setMobileMenuOpen={setMobileMenuOpen}
+  mobileMoreOpen={mobileMoreOpen}
+  setMobileMoreOpen={setMobileMoreOpen}
   mobileView={mobileView}
   setMobileView={setMobileView}
 />

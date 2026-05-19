@@ -48,7 +48,10 @@ export default function MobileBottomNav({
         {items.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
-            onClick={() => setMobileView(key)}
+            onClick={() => {
+  setMobileView(key);
+  setMobileMoreOpen(false);
+}}
             className={`flex flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-black transition-all ${
               mobileView === key
                 ? "bg-blue-600 text-white"

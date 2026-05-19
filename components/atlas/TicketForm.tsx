@@ -1,6 +1,7 @@
 "use client";
 
 import type { AtlasTicketCategory, AtlasTicketStatus } from "@/lib/atlasTypes";
+import SiteSearchDropdown from "@/components/atlas/SiteSearchDropdown";
 
 type Props = {
   input: string;
@@ -61,46 +62,18 @@ export default function TicketForm({
         Apri nuova chiamata
       </h2>
 
-      <div className="relative">
-        <input
-          className={`w-full ${input}`}
-          placeholder="Cerca sede..."
-          value={siteSearch}
-          onChange={(e) => {
-            setSiteSearch(e.target.value);
-            setSite("");
-            setRegion("");
-            setEntity("");
-            setCity("");
-            setSiteId(null);
-          }}
-        />
-
-        {siteSearch && !site && (
-          <div className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-white/10 bg-slate-950 shadow-xl">
-            {filteredSites.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className="block w-full border-b border-white/10 p-4 text-left text-white hover:bg-white/10"
-                onClick={() => {
-                  setSite(s.name);
-                  setSiteSearch(s.name);
-                  setRegion(s.region || "");
-                  setEntity(s.entity || "");
-                  setCity(s.city || "");
-                  setSiteId(s.id || null);
-                }}
-              >
-                <div className="font-black">{s.name}</div>
-                <div className="text-sm text-slate-400">
-                  {s.city} · {s.region}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <SiteSearchDropdown
+        input={input}
+        siteSearch={siteSearch}
+        setSiteSearch={setSiteSearch}
+        site={site}
+        setSite={setSite}
+        setRegion={setRegion}
+        setEntity={setEntity}
+        setCity={setCity}
+        setSiteId={setSiteId}
+        filteredSites={filteredSites}
+      />
 
       <input
         className={input}

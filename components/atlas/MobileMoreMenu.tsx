@@ -17,25 +17,25 @@ import {
 } from "lucide-react";
 
 type Props = {
-  mobileMenuOpen: boolean;
-  setMobileMenuOpen: (value: boolean) => void;
+  mobileMoreOpen: boolean;
+  setMobileMoreOpen: (value: boolean) => void;
   mobileView: string;
   setMobileView: (value: any) => void;
 };
 
 export default function MobileMoreMenu({
-  mobileMenuOpen,
-  setMobileMenuOpen,
+  mobileMoreOpen,
+  setMobileMoreOpen,
   mobileView,
   setMobileView,
 }: Props) {
-  if (!mobileMenuOpen) return null;
+  if (!mobileMoreOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden">
       <div className="h-full w-[82%] max-w-sm border-r border-white/10 bg-[#07111f] p-6 shadow-2xl">
         <button
-          onClick={() => setMobileMenuOpen(false)}
+          onClick={() => setMobileMoreOpen(false)}
           className="mb-8 rounded-2xl p-2 text-slate-300"
         >
           <X size={26} />
@@ -70,7 +70,7 @@ export default function MobileMoreMenu({
               key={key}
               onClick={() => {
                 setMobileView(key);
-                setMobileMenuOpen(false);
+                setMobileMoreOpen(false);
               }}
               className={`flex items-center justify-between rounded-2xl px-4 py-4 text-left font-bold ${
                 mobileView === key
