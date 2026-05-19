@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import type { AtlasTicketCategory, AtlasTicketStatus } from "@/lib/atlasTypes";
 import SiteSearchDropdown from "@/components/atlas/SiteSearchDropdown";
+import CustomerSelect from "@/components/atlas/CustomerSelect";
 
 type Props = {
   input: string;
@@ -26,6 +28,9 @@ type Props = {
 
   ticketStatus: AtlasTicketStatus;
   setTicketStatus: (v: AtlasTicketStatus) => void;
+
+  expectedCloseDate: string;
+  setExpectedCloseDate: (v: string) => void;
 
   ticketCategoryOptions: any[];
   ticketStatusOptions: any[];
@@ -52,15 +57,23 @@ export default function TicketForm({
   setTicketType,
   ticketStatus,
   setTicketStatus,
+  expectedCloseDate,
+  setExpectedCloseDate,
   ticketCategoryOptions,
   ticketStatusOptions,
   addTicket,
 }: Props) {
+  const [customerId, setCustomerId] = useState("");
   return (
     <div className="grid gap-4">
       <h2 className="text-3xl font-black text-white">
         Apri nuova chiamata
       </h2>
+
+      <CustomerSelect
+        value={customerId}
+        onChange={setCustomerId}
+      />
 
       <SiteSearchDropdown
         input={input}
@@ -88,6 +101,16 @@ export default function TicketForm({
         value={problem}
         onChange={(e) => setProblem(e.target.value)}
       />
+
+      <label className="grid gap-2 text-sm font-bold text-slate-300">
+        Chiusura prevista
+        <input
+          type="date"
+          className={input}
+          value={expectedCloseDate}
+          onChange={(e) => setExpectedCloseDate(e.target.value)}
+        />
+      </label>
 
       <select
         className={input}

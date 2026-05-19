@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import TicketForm from "@/components/atlas/TicketForm";
 import MobileBottomNav from "@/components/atlas/MobileBottomNav";
 import MobileMoreMenu from "@/components/atlas/MobileMoreMenu";
+import TicketRegistry from "@/components/atlas/TicketRegistry";
 
 import {
   AlertTriangle,
@@ -96,6 +97,9 @@ export default function Home() {
   const [filterTechnician, setFilterTechnician] = useState("");
   const [filterRegion, setFilterRegion] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterSite, setFilterSite] = useState("");
+  const [urgentOnly, setUrgentOnly] = useState(false);
+  const [expectedCloseDate, setExpectedCloseDate] = useState("");
 
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
@@ -292,6 +296,10 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
           futureNeeds: t.future_needs || "",
           closingNotes: t.closing_notes || "",
           slot: t.slot || "",
+          openedAt: t.opened_at || t.created_at || "",
+          expectedCloseDate: t.expected_close_date || "",
+          closedAt: t.closed_at || "",
+          urgent: Boolean(t.urgent),
           ticketType:
             (typeof window !== "undefined"
               ? JSON.parse(localStorage.getItem("atlas-ticket-types") || "{}")?.[String(t.id)]
@@ -440,9 +448,13 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
     const matchTechnician = !filterTechnician || t.technician === filterTechnician;
     const matchRegion = !filterRegion || t.region === filterRegion;
     const matchStatus = !filterStatus || t.status === filterStatus;
+    const matchSite = !filterSite || `${t.site || ""} ${t.city || ""} ${t.entity || ""}`.toLowerCase().includes(filterSite.toLowerCase());
+    const matchUrgent = !urgentOnly || Boolean(t.urgent);
 
-    return matchTechnician && matchRegion && matchStatus;
+    return matchTechnician && matchRegion && matchStatus && matchSite && matchUrgent;
   });
+
+  const urgentTickets = tickets.filter((t) => Boolean(t.urgent) && t.status !== "Chiuso");
 
   const availableRegions = Array.from(
     new Set(tickets.map((t) => t.region).filter(Boolean))
@@ -536,6 +548,9 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
           cost,
           slot: selectedSlot,
           intervention_date: selectedDate || null,
+          opened_at: new Date().toISOString(),
+          expected_close_date: expectedCloseDate || null,
+          urgent: false,
         },
       ])
       .select()
@@ -560,6 +575,10 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
       status: dbStatus,
       date: selectedDate || "",
       slot: selectedSlot || "",
+      openedAt: data.opened_at || new Date().toISOString(),
+      expectedCloseDate: data.expected_close_date || expectedCloseDate || "",
+      closedAt: data.closed_at || "",
+      urgent: Boolean(data.urgent),
       resolved: true,
       closingNotes: "",
       futureNeeds: "",
@@ -588,6 +607,7 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
     setTechnician("");
     setSelectedDate("");
     setSelectedSlot("");
+    setExpectedCloseDate("");
     const glpiResult = await syncTicketToGlpi(newTicket);
 
     setSelectedMaterials([]);
@@ -644,6 +664,8 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
       .update({
         status: "Chiuso",
         intervention_date: today,
+        closed_at: new Date().toISOString(),
+        urgent: false,
         closing_notes: closingNotes || "",
         future_needs: futureNeeds || "",
         resolved,
@@ -663,6 +685,8 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
               ...t,
               status: "Chiuso",
               date: today,
+              closedAt: new Date().toISOString(),
+              urgent: false,
               closingNotes: closingNotes || "",
               futureNeeds: futureNeeds || "",
               resolved,
@@ -679,6 +703,31 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
     showMessage("Ticket chiuso e salvato");
   }
 
+  async function toggleTicketUrgent(ticket: any) {
+    const nextUrgent = !Boolean(ticket.urgent);
+
+    const { error } = await supabase
+      .from("tickets")
+      .update({ urgent: nextUrgent })
+      .eq("id", Number(ticket.id));
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore aggiornamento urgenza", "error");
+      return;
+    }
+
+    setTickets((prev) =>
+      prev.map((item) =>
+        String(item.id) === String(ticket.id)
+          ? { ...item, urgent: nextUrgent }
+          : item
+      )
+    );
+
+    showMessage(nextUrgent ? "Intervento marcato urgente" : "Intervento non più urgente");
+  }
+
   function exportCsv() {
     const header = [
       "ID",
@@ -693,6 +742,10 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
       "Tipo chiamata",
       "Stato",
       "Risolto",
+      "Data apertura",
+      "Data chiusura prevista",
+      "Data chiusura",
+      "Urgente",
       "Data intervento",
       "Slot",
       "Note chiusura",
@@ -714,6 +767,10 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
       getTicketType(t),
       t.status,
       t.resolved === false ? "No" : "Sì",
+      t.openedAt || "",
+      t.expectedCloseDate || "",
+      t.closedAt || "",
+      t.urgent ? "Sì" : "No",
       t.date || "",
       t.slot || "",
       t.closingNotes || "",
@@ -881,6 +938,9 @@ async function addCalendarTicket() {
         cost: 0,
         slot: calendarTime,
         intervention_date: selectedCalendarDay,
+        opened_at: new Date().toISOString(),
+        expected_close_date: selectedCalendarDay,
+        urgent: false,
       },
     ])
     .select()
@@ -904,6 +964,10 @@ async function addCalendarTicket() {
     status: "Pianificato",
     date: selectedCalendarDay,
     slot: calendarTime,
+    openedAt: data.opened_at || new Date().toISOString(),
+    expectedCloseDate: data.expected_close_date || selectedCalendarDay || "",
+    closedAt: data.closed_at || "",
+    urgent: Boolean(data.urgent),
     resolved: true,
     closingNotes: "",
     futureNeeds: "",
@@ -1147,6 +1211,7 @@ async function promptCloseTicket(id: string) {
     .update({
       status: "Chiuso",
       intervention_date: today,
+      closed_at: new Date().toISOString(),
       closing_notes: notes,
       future_needs: future,
       resolved: true,
@@ -1166,6 +1231,8 @@ async function promptCloseTicket(id: string) {
             ...t,
             status: "Chiuso",
             date: today,
+            closedAt: new Date().toISOString(),
+            urgent: false,
             closingNotes: notes,
             futureNeeds: future,
             resolved: true,
@@ -1976,6 +2043,8 @@ return (
     setTicketType={setTicketType}
     ticketStatus={ticketStatus}
     setTicketStatus={setTicketStatus}
+    expectedCloseDate={expectedCloseDate}
+    setExpectedCloseDate={setExpectedCloseDate}
     ticketCategoryOptions={ticketCategoryOptions}
     ticketStatusOptions={ticketStatusOptions}
     addTicket={addTicket}
@@ -2172,83 +2241,26 @@ return (
               )}
 
               {mobileView === "registro" && (
-                <div className="grid gap-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-3xl font-black leading-tight text-white">Registro chiamate</h2>
-                    <button
-                      onClick={exportCsv}
-                      className="shrink-0 flex items-center gap-2 rounded-2xl bg-emerald-600 px-3 py-3 text-sm font-black text-white"
-                    >
-                      <Download size={18} /> Esporta
-                    </button>
-                  </div>
-
-                  <div className="grid gap-3">
-                    {tickets.map((t) => (
-                      <div
-                        key={t.id}
-                        className="grid grid-cols-[40px_1fr] gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4"
-                      >
-                        <div className="text-xl font-black text-blue-500">{t.id}</div>
-
-                        <div>
-                          <p className="text-sm font-black uppercase text-white">{t.site}</p>
-                          <p className="mt-1 text-sm text-slate-400">
-                            {t.region || "Regione n/d"} · {t.problem}
-                          </p>
-
-                          <div className="mt-3 flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-lg font-black text-white">
-                                {euro(materialCost(t.materialIds || []))}
-                              </p>
-                              <p className="text-sm text-slate-300">{t.technician || "Non assegnato"}</p>
-                              {(t.date || t.slot) && (
-                                <p className="text-xs text-slate-500">
-                                  {t.date || "Data n/d"} · {t.slot || "Slot n/d"}
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="text-right">
-                              <p className="mb-2 text-sm text-slate-300">
-                                <span className="mr-1 text-emerald-400">●</span>
-                                {t.status}
-                              </p>
-
-                              {t.status !== "Chiuso" && (
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => promptPlanTicket(String(t.id))}
-                                    className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white"
-                                  >
-                                    Pianifica
-                                  </button>
-                                  <button
-                                    onClick={() => promptCloseTicket(String(t.id))}
-                                    className="rounded-xl bg-slate-700 px-3 py-2 text-sm font-bold text-white"
-                                  >
-                                    Chiudi
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <button
-                    onClick={() => setMobileView("operativo")}
-                    className="sticky bottom-4 rounded-3xl bg-blue-600 p-5 text-xl font-black text-white"
-                  >
-                    + Nuova chiamata/intervento
-                  </button>
-                </div>
+                <TicketRegistry
+                  variant="mobile"
+                  tickets={filteredTickets}
+                  exportCsv={exportCsv}
+                  promptCloseTicket={promptCloseTicket}
+                  setMobileView={setMobileView}
+                  filterTechnician={filterTechnician}
+                  setFilterTechnician={setFilterTechnician}
+                  filterRegion={filterRegion}
+                  setFilterRegion={setFilterRegion}
+                  filterStatus={filterStatus}
+                  setFilterStatus={setFilterStatus}
+                  filterSite={filterSite}
+                  setFilterSite={setFilterSite}
+                  urgentOnly={urgentOnly}
+                  setUrgentOnly={setUrgentOnly}
+                  availableRegions={availableRegions}
+                  onToggleUrgent={toggleTicketUrgent}
+                />
               )}
-
-
 
               {mobileView === "budget" && (
                 <div className="grid gap-4">
@@ -3064,12 +3076,19 @@ return (
                   {tickets.filter((t) => t.status !== "Chiuso").length}
                 </p>
               </div>
-              <div className={card}>
-                <p className="text-sm text-slate-400">Contratti critici</p>
-                <p className="mt-2 text-4xl font-black text-amber-300">
-                  {expiringContracts.length}
+              <button
+                type="button"
+                onClick={() => {
+                  setUrgentOnly(true);
+                  setActiveTab("registro");
+                }}
+                className={`${card} text-left transition-all hover:scale-[1.01]`}
+              >
+                <p className="text-sm text-slate-400">Interventi critici</p>
+                <p className="mt-2 text-4xl font-black text-red-300">
+                  {urgentTickets.length}
                 </p>
-              </div>
+              </button>
               <div className={card}>
                 <p className="text-sm text-slate-400">Valore magazzino</p>
                 <p className="mt-2 text-3xl font-black">{euro(inventoryValue)}</p>
@@ -4426,84 +4445,25 @@ return (
   </section>
 )}
             {activeTab === "registro" && (
-              <section className={`${card} hidden md:block`}>
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-2xl font-black">Registro chiamate</h2>
-
-                  <button
-                    onClick={exportCsv}
-                    className="rounded-xl bg-emerald-600 px-4 py-2 font-bold text-white"
-                  >
-                    Esporta CSV
-                  </button>
-                </div>
-
-                {tickets.length === 0 ? (
-                  <div className="rounded-2xl bg-white/[0.04] p-10 text-center text-slate-400">
-                    Nessuna chiamata presente
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-white/10 text-slate-400">
-                          <th className="p-3">ID</th>
-                          <th>Sede</th>
-                          <th>Regione</th>
-                          <th>Problema</th>
-                          <th>Materiali</th>
-                          <th>Costo</th>
-                          <th>Tecnico</th>
-                          <th>Stato</th>
-                          <th>Azione</th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {tickets.map((t) => (
-                          <tr key={t.id} className="border-b border-white/10">
-                            <td className="p-3 font-bold">{t.id}</td>
-                            <td>{t.site}</td>
-                            <td>{t.region}</td>
-                            <td>{t.problem}</td>
-                            <td>
-                              {(t.materialIds || [])
-                                .map(
-                                  (id: string) =>
-                                    materials.find((m) => m.id === id)?.name
-                                )
-                                .join(" + ") || "Nessuno"}
-                            </td>
-                            <td className="font-bold">
-                              {euro(materialCost(t.materialIds || []))}
-                            </td>
-                            <td>{t.technician || "Non assegnato"}</td>
-                            <td>{t.status}</td>
-                            <td>
-                              {t.status !== "Chiuso" && (
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => planTicket(String(t.id))}
-                                    className="rounded-lg bg-blue-600 px-3 py-1 text-white"
-                                  >
-                                    Pianifica
-                                  </button>
-                                  <button
-                                    onClick={() => setClosingTicketId(String(t.id))}
-                                    className="rounded-lg bg-slate-700 px-3 py-1 text-white"
-                                  >
-                                    Chiudi
-                                  </button>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
+              <TicketRegistry
+                variant="desktop"
+                tickets={filteredTickets}
+                exportCsv={exportCsv}
+                setClosingTicketId={setClosingTicketId}
+                card={card}
+                filterTechnician={filterTechnician}
+                setFilterTechnician={setFilterTechnician}
+                filterRegion={filterRegion}
+                setFilterRegion={setFilterRegion}
+                filterStatus={filterStatus}
+                setFilterStatus={setFilterStatus}
+                filterSite={filterSite}
+                setFilterSite={setFilterSite}
+                urgentOnly={urgentOnly}
+                setUrgentOnly={setUrgentOnly}
+                availableRegions={availableRegions}
+                onToggleUrgent={toggleTicketUrgent}
+              />
             )}
 
             {closingTicketId && (
