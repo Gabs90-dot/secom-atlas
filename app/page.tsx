@@ -61,6 +61,33 @@ const technicians = [
   "Leonardo Aureli",
 ];
 
+
+type AtlasTicketCategory = "ordinaria" | "straordinaria" | "garanzia" | "materiale";
+type AtlasTicketStatus = "nuova" | "pianificata" | "in lavorazione" | "chiusa" | "in sospeso";
+
+const ticketCategoryOptions: { value: AtlasTicketCategory; label: string; hint: string }[] = [
+  { value: "ordinaria", label: "Ordinaria", hint: "Non scala budget" },
+  { value: "straordinaria", label: "Straordinaria", hint: "Scala budget" },
+  { value: "garanzia", label: "In garanzia", hint: "Intervento coperto" },
+  { value: "materiale", label: "Materiale fornito/sostituito", hint: "Ricambio o fornitura" },
+];
+
+const ticketStatusOptions: { value: AtlasTicketStatus; label: string }[] = [
+  { value: "nuova", label: "Nuova" },
+  { value: "pianificata", label: "Pianificata" },
+  { value: "in lavorazione", label: "In lavorazione" },
+  { value: "chiusa", label: "Chiusa" },
+  { value: "in sospeso", label: "In sospeso" },
+];
+
+const atlasStatusToDbStatus: Record<AtlasTicketStatus, string> = {
+  nuova: "Aperto",
+  pianificata: "Pianificato",
+  "in lavorazione": "In lavorazione",
+  chiusa: "Chiuso",
+  "in sospeso": "In sospeso",
+};
+
 const contracts = [
   {
     name: "POLFER SPIS",
@@ -386,13 +413,15 @@ export default function Home() {
   const [city, setCity] = useState("");
   const [siteId, setSiteId] = useState<number | null>(null);
 
+  const [ticketTitle, setTicketTitle] = useState("");
   const [problem, setProblem] = useState("");
   const [technician, setTechnician] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
-  const [ticketType, setTicketType] = useState<"ordinaria" | "straordinaria">("ordinaria");
-  const [ticketTypesById, setTicketTypesById] = useState<Record<string, "ordinaria" | "straordinaria">>({});
+  const [ticketType, setTicketType] = useState<AtlasTicketCategory>("ordinaria");
+  const [ticketStatus, setTicketStatus] = useState<AtlasTicketStatus>("nuova");
+  const [ticketTypesById, setTicketTypesById] = useState<Record<string, AtlasTicketCategory>>({});
 
   const [closingNotes, setClosingNotes] = useState("");
   const [futureNeeds, setFutureNeeds] = useState("");
@@ -760,6 +789,9 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
         },
         body: JSON.stringify({
           atlasTicketId: ticket.id,
+          title: ticket.title,
+          ticketCategory: ticket.ticketCategory || ticket.ticketType,
+          ticketStatus: ticket.ticketStatus,
           site: ticket.site,
           region: ticket.region,
           entity: ticket.entity,
@@ -813,7 +845,7 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
     0
   ) || budget;
 
-  function getTicketType(ticket: any): "ordinaria" | "straordinaria" {
+  function getTicketType(ticket: any): AtlasTicketCategory {
     return (
       ticket?.ticketType ||
       ticketTypesById[String(ticket?.id)] ||
@@ -985,12 +1017,13 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
   }
 
   async function addTicket() {
-    if (!site || !problem) {
-      showMessage("Sede e descrizione intervento sono obbligatorie", "error");
+    if (!site || !ticketTitle || !problem) {
+      showMessage("Sede, titolo e descrizione intervento sono obbligatori", "error");
       return;
     }
 
     const cost = materialCost(selectedMaterials);
+    const dbStatus = atlasStatusToDbStatus[ticketStatus] || "Aperto";
 
     const { data, error } = await supabase
       .from("tickets")
@@ -1004,7 +1037,7 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
           problem,
           materials: selectedMaterials,
           technician,
-          status: "Aperto",
+          status: dbStatus,
           cost,
           slot: selectedSlot,
           intervention_date: selectedDate || null,
@@ -1021,6 +1054,7 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
 
     const newTicket = {
       id: data.id,
+      title: ticketTitle,
       site,
       region,
       entity,
@@ -1028,13 +1062,15 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
       problem,
       materialIds: selectedMaterials,
       technician,
-      status: "Aperto",
+      status: dbStatus,
       date: selectedDate || "",
       slot: selectedSlot || "",
       resolved: true,
       closingNotes: "",
       futureNeeds: "",
       ticketType,
+      ticketCategory: ticketType,
+      ticketStatus,
     };
 
     const updatedTicketTypes = {
@@ -1052,6 +1088,7 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
     setEntity("");
     setCity("");
     setSiteId(null);
+    setTicketTitle("");
     setProblem("");
     setTechnician("");
     setSelectedDate("");
@@ -1060,6 +1097,7 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
 
     setSelectedMaterials([]);
     setTicketType("ordinaria");
+    setTicketStatus("nuova");
 
     showMessage(glpiResult?.glpiTicketId ? `Ticket salvato e inviato a GLPI #${glpiResult.glpiTicketId}` : "Ticket salvato su ATLAS");
   }
@@ -1375,6 +1413,8 @@ async function addCalendarTicket() {
     closingNotes: "",
     futureNeeds: "",
     ticketType,
+    ticketCategory: ticketType,
+    ticketStatus: "pianificata",
   };
 
   const updatedTicketTypes = {
@@ -1651,6 +1691,7 @@ function startCalendarCreate(day?: string) {
   setCalendarSite(null);
   setCalendarTime("");
   setTicketType("ordinaria");
+  setTicketStatus("pianificata");
   setMobileCalendarFormOpen(true);
 }
 
@@ -1669,6 +1710,7 @@ function startCalendarEdit(ticket: any) {
   });
   setCalendarTime(ticket.slot || "");
   setTicketType(getTicketType(ticket));
+  setTicketStatus((ticket.ticketStatus as AtlasTicketStatus) || "pianificata");
   setMobileCalendarFormOpen(true);
 }
 
@@ -2336,18 +2378,7 @@ return (
                 <p className="text-base font-black text-white">Centrale Operativa ATLAS</p>
               </div>
 
-              <button
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className="mb-6 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-slate-200"
-              >
-                <span className="flex items-center gap-3">
-                  {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-                  Tema {theme === "dark" ? "chiaro" : "scuro"}
-                </span>
-                <span className="rounded-xl bg-blue-600/20 px-3 py-1 text-xs text-blue-300">
-                  {theme === "dark" ? "Dark" : "Light"}
-                </span>
-              </button>
+
 
               <div className="grid gap-2">
                 {[
@@ -2485,24 +2516,19 @@ return (
                       </div>
                     )}
                   </div>
+                  <input className={input} placeholder="Titolo chiamata" value={ticketTitle} onChange={(e) => setTicketTitle(e.target.value)} />
                   <textarea className={`min-h-28 ${input}`} placeholder="Descrizione intervento" value={problem} onChange={(e) => setProblem(e.target.value)} />
                   <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setTicketType("ordinaria")}
-                      className={`rounded-2xl border p-4 text-left font-black ${ticketType === "ordinaria" ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
-                    >
-                      Ordinaria
-                      <span className="mt-1 block text-xs font-bold opacity-70">Non scala budget</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTicketType("straordinaria")}
-                      className={`rounded-2xl border p-4 text-left font-black ${ticketType === "straordinaria" ? "border-amber-500 bg-amber-500/20 text-amber-200" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
-                    >
-                      Straordinaria
-                      <span className="mt-1 block text-xs font-bold opacity-70">Scala budget</span>
-                    </button>
+                    <select className={input} value={ticketType} onChange={(e) => setTicketType(e.target.value as AtlasTicketCategory)}>
+                      {ticketCategoryOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <select className={input} value={ticketStatus} onChange={(e) => setTicketStatus(e.target.value as AtlasTicketStatus)}>
+                      {ticketStatusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
                   </div>
                   {site && (
                     <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-slate-300">
@@ -2684,22 +2710,16 @@ return (
                         </select>
 
                         <div className="grid grid-cols-2 gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setTicketType("ordinaria")}
-                            className={`rounded-2xl border p-4 text-left font-black ${ticketType === "ordinaria" ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
-                          >
-                            Ordinaria
-                            <span className="mt-1 block text-xs font-bold opacity-70">Non scala budget</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTicketType("straordinaria")}
-                            className={`rounded-2xl border p-4 text-left font-black ${ticketType === "straordinaria" ? "border-amber-500 bg-amber-500/20 text-amber-200" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
-                          >
-                            Straordinaria
-                            <span className="mt-1 block text-xs font-bold opacity-70">Scala budget</span>
-                          </button>
+                          <select className={input} value={ticketType} onChange={(e) => setTicketType(e.target.value as AtlasTicketCategory)}>
+                            {ticketCategoryOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                          <select className={input} value={ticketStatus} onChange={(e) => setTicketStatus(e.target.value as AtlasTicketStatus)}>
+                            {ticketStatusOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
                         </div>
 
                         <button
@@ -3919,6 +3939,19 @@ return (
                     readOnly
                   />
 
+                  <input
+                    className={input}
+                    placeholder="Titolo chiamata"
+                    value={ticketTitle}
+                    onChange={(e) => setTicketTitle(e.target.value)}
+                  />
+
+                  <select className={input} value={ticketType} onChange={(e) => setTicketType(e.target.value as AtlasTicketCategory)}>
+                    {ticketCategoryOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+
                   <textarea
                     className={`md:col-span-2 ${input}`}
                     placeholder="Descrizione intervento"
@@ -3937,24 +3970,11 @@ return (
                     ))}
                   </select>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setTicketType("ordinaria")}
-                      className={`rounded-xl border p-3 text-left font-black ${ticketType === "ordinaria" ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-slate-950/50 text-slate-300"}`}
-                    >
-                      Ordinaria
-                      <span className="mt-1 block text-xs font-bold opacity-70">Non scala budget</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTicketType("straordinaria")}
-                      className={`rounded-xl border p-3 text-left font-black ${ticketType === "straordinaria" ? "border-amber-500 bg-amber-500/20 text-amber-200" : "border-white/10 bg-slate-950/50 text-slate-300"}`}
-                    >
-                      Straordinaria
-                      <span className="mt-1 block text-xs font-bold opacity-70">Scala budget</span>
-                    </button>
-                  </div>
+                  <select className={input} value={ticketStatus} onChange={(e) => setTicketStatus(e.target.value as AtlasTicketStatus)}>
+                    {ticketStatusOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
 
                   {renderDateInput(selectedDate, setSelectedDate)}
 

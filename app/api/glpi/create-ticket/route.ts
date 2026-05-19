@@ -6,6 +6,9 @@ type GlpiTicketPayload = {
   region?: string;
   entity?: string;
   city?: string;
+  title?: string;
+  ticketCategory?: string;
+  ticketStatus?: string;
   problem?: string;
   materialIds?: string[];
   materials?: string[];
@@ -24,6 +27,29 @@ function cleanBaseUrl(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+function mapGlpiStatus(value?: string) {
+  const key = String(value || "nuova").toLowerCase().trim();
+  const map: Record<string, number> = {
+    nuova: 1,
+    "in lavorazione": 2,
+    pianificata: 3,
+    "in sospeso": 4,
+    chiusa: 6,
+  };
+  return map[key] || 1;
+}
+
+function normalizeCategory(value?: string) {
+  const key = String(value || "ordinaria").toLowerCase().trim();
+  const map: Record<string, string> = {
+    ordinaria: "Ordinaria",
+    straordinaria: "Straordinaria",
+    garanzia: "In garanzia",
+    materiale: "Materiale fornito/sostituito",
+  };
+  return map[key] || key;
+}
+
 function buildTicketContent(payload: GlpiTicketPayload) {
   const materials = payload.materials?.length
     ? payload.materials.join(" + ")
@@ -32,13 +58,15 @@ function buildTicketContent(payload: GlpiTicketPayload) {
   return [
     `<strong>Ticket creato da ATLAS</strong>`,
     `<br><br><strong>ID ATLAS:</strong> ${payload.atlasTicketId ?? "n/d"}`,
+    `<br><strong>Titolo:</strong> ${payload.title || "n/d"}`,
     `<br><strong>Sede:</strong> ${payload.site || "n/d"}`,
     `<br><strong>Ente:</strong> ${payload.entity || "n/d"}`,
     `<br><strong>Città:</strong> ${payload.city || "n/d"}`,
     `<br><strong>Regione:</strong> ${payload.region || "n/d"}`,
     `<br><strong>Contratto rilevato:</strong> ${payload.contractName || "n/d"}`,
     `<br><strong>Macro entità:</strong> ${payload.contractEntity || "n/d"}`,
-    `<br><strong>Tipo chiamata:</strong> ${(payload.ticketType || "ordinaria").toUpperCase()}`,
+    `<br><strong>Categoria chiamata:</strong> ${(payload.ticketCategory || payload.ticketType || "ordinaria").toUpperCase()}`,
+    `<br><strong>Stato ATLAS:</strong> ${payload.ticketStatus || payload.status || "nuova"}`,
     `<br><strong>Tecnico ATLAS:</strong> ${payload.technician || "Non assegnato"}`,
     `<br><strong>Data/slot:</strong> ${payload.date || "n/d"} ${payload.slot || ""}`,
     `<br><strong>Materiali:</strong> ${materials}`,
@@ -96,7 +124,8 @@ export async function POST(request: Request) {
 
     sessionToken = sessionData.session_token;
 
-    const ticketName = `[ATLAS] ${(payload.ticketType || "ordinaria").toUpperCase()} - ${payload.site || "Nuova chiamata"}`;
+    const categoryLabel = normalizeCategory(payload.ticketCategory || payload.ticketType);
+    const ticketName = payload.title?.trim() || `[ATLAS] ${categoryLabel.toUpperCase()} - ${payload.site || "Nuova chiamata"}`;
 
     const ticketResponse = await fetch(`${baseUrl}/Ticket`, {
       method: "POST",
@@ -110,10 +139,10 @@ export async function POST(request: Request) {
           name: ticketName,
           content: buildTicketContent(payload),
           ...(payload.glpiEntityId ? { entities_id: Number(payload.glpiEntityId) } : {}),
-          status: 1,
-          urgency: payload.ticketType === "straordinaria" ? 4 : 3,
-          impact: payload.ticketType === "straordinaria" ? 4 : 3,
-          priority: payload.ticketType === "straordinaria" ? 4 : 3,
+          status: mapGlpiStatus(payload.ticketStatus || payload.status),
+          urgency: (payload.ticketCategory || payload.ticketType) === "straordinaria" ? 4 : 3,
+          impact: (payload.ticketCategory || payload.ticketType) === "straordinaria" ? 4 : 3,
+          priority: (payload.ticketCategory || payload.ticketType) === "straordinaria" ? 4 : 3,
           type: 1,
         },
       }),
