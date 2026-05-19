@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { systemsCatalog } from "@/lib/systemsCatalog";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
+import TicketForm from "@/components/atlas/TicketForm";
 
 import {
   AlertTriangle,
@@ -1991,56 +1992,30 @@ return (
               )}
 
               {mobileView === "operativo" && (
-                <div className="grid gap-4">
-                  <h2 className="text-3xl font-black text-white">Apri nuova chiamata</h2>
-                  <div className="relative">
-                    <input className={`w-full ${input}`} placeholder="Cerca sede: es. Alatri, Bari, Ferrara..." value={siteSearch} onChange={(e) => { setSiteSearch(e.target.value); setSite(""); setRegion(""); setEntity(""); setCity(""); setSiteId(null); }} />
-                    {siteSearch && !site && (
-                      <div className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-white/10 bg-slate-950 shadow-xl">
-                        {filteredSites.map((s) => (
-                          <button key={s.id} type="button" className="block w-full border-b border-white/10 p-4 text-left" onClick={() => { setSite(s.name); setSiteSearch(s.name); setRegion(s.region || ""); setEntity(s.entity || ""); setCity(s.city || ""); setSiteId(s.id || null); }}>
-                            <div className="font-black text-white">{s.name}</div>
-                            <div className="text-xs text-slate-400">{s.city || "Città n/d"} · {s.entity || "Ente n/d"}</div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <input className={input} placeholder="Titolo chiamata" value={ticketTitle} onChange={(e) => setTicketTitle(e.target.value)} />
-                  <textarea className={`min-h-28 ${input}`} placeholder="Descrizione intervento" value={problem} onChange={(e) => setProblem(e.target.value)} />
-                  <div className="grid grid-cols-2 gap-3">
-                    <select className={input} value={ticketType} onChange={(e) => setTicketType(e.target.value as AtlasTicketCategory)}>
-                      {ticketCategoryOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                    <select className={input} value={ticketStatus} onChange={(e) => setTicketStatus(e.target.value as AtlasTicketStatus)}>
-                      {ticketStatusOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {site && (
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-slate-300">
-                      <b className="text-white">Contratto rilevato:</b>{" "}
-                      {selectedContract?.name || "Nessun contratto riconosciuto"}
-                    </div>
-                  )}
-                  <select className={input} value={technician} onChange={(e) => setTechnician(e.target.value)}>
-                    <option value="">Tecnico non assegnato</option>
-                    {technicians.map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                  <div className="grid grid-cols-2 gap-3">
-                    {renderDateInput(selectedDate, setSelectedDate)}
-                    <select className={input} value={selectedSlot} onChange={(e) => setSelectedSlot(e.target.value)}>
-                      <option value="">Slot</option>
-                      <option value="Mattina">Mattina</option>
-                      <option value="Pomeriggio">Pomeriggio</option>
-                    </select>
-                  </div>
-                  <button onClick={addTicket} className="rounded-3xl bg-blue-600 p-5 text-xl font-black text-white">Salva chiamata</button>
-                </div>
-              )}
+  <TicketForm
+    input={input}
+    siteSearch={siteSearch}
+    setSiteSearch={setSiteSearch}
+    site={site}
+    setSite={setSite}
+    setRegion={setRegion}
+    setEntity={setEntity}
+    setCity={setCity}
+    setSiteId={setSiteId}
+    filteredSites={filteredSites}
+    ticketTitle={ticketTitle}
+    setTicketTitle={setTicketTitle}
+    problem={problem}
+    setProblem={setProblem}
+    ticketType={ticketType}
+    setTicketType={setTicketType}
+    ticketStatus={ticketStatus}
+    setTicketStatus={setTicketStatus}
+    ticketCategoryOptions={ticketCategoryOptions}
+    ticketStatusOptions={ticketStatusOptions}
+    addTicket={addTicket}
+  />
+)}
 
               {mobileView === "calendario" && (
                 <div className="grid gap-5">

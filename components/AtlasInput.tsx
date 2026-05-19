@@ -22,8 +22,8 @@ export function AtlasInput({ label, hint, leftIcon, rightIcon, className = "", .
         <input
           className={cx(
             "w-full rounded-xl border border-white/10 bg-slate-950/50 p-3 text-white outline-none placeholder:text-slate-500 focus:border-blue-400",
-            leftIcon && "pl-11",
-            rightIcon && "pr-11",
+            leftIcon ? "pl-11" : "",
+            rightIcon ? "pr-11" : "",
             className
           )}
           {...props}
