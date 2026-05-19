@@ -36,371 +36,33 @@ const AtlasMap = dynamic(() => import("@/components/AtlasMap"), {
   ssr: false,
 });
 
-const INITIAL_BUDGET = 49043;
-
-const materials = [
-  { id: "kit-tlc", name: "Kit TLC", cost: 931 },
-  { id: "uccs", name: "UCCS", cost: 821 },
-  { id: "monitor", name: "Monitor", cost: 199 },
-  { id: "kit-lampade", name: "Kit lampade", cost: 72 },
-  { id: "ram", name: "RAM", cost: 56 },
-  { id: "hub-usb", name: "Hub USB", cost: 52 },
-  { id: "motore-sedia", name: "Motore sedia SPIS", cost: 196 },
-  { id: "ups", name: "UPS", cost: 94 },
-  { id: "tastiera-mouse", name: "Tastiera e mouse", cost: 31 },
-  { id: "numeratore", name: "Circuito numeratore SPIS", cost: 199 },
-  { id: "ssd-500", name: "SSD 500GB", cost: 92 },
-];
-
-const technicians = [
-  "Andrea Fabbri",
-  "Ivan Canossi",
-  "Francesco Romano",
-  "Christian Appolloni",
-  "Giuseppe Marafioti",
-  "Leonardo Aureli",
-];
-
-
-type AtlasTicketCategory = "ordinaria" | "straordinaria" | "garanzia" | "materiale";
-type AtlasTicketStatus = "nuova" | "pianificata" | "in lavorazione" | "chiusa" | "in sospeso";
-
-const ticketCategoryOptions: { value: AtlasTicketCategory; label: string; hint: string }[] = [
-  { value: "ordinaria", label: "Ordinaria", hint: "Non scala budget" },
-  { value: "straordinaria", label: "Straordinaria", hint: "Scala budget" },
-  { value: "garanzia", label: "In garanzia", hint: "Intervento coperto" },
-  { value: "materiale", label: "Materiale fornito/sostituito", hint: "Ricambio o fornitura" },
-];
-
-const ticketStatusOptions: { value: AtlasTicketStatus; label: string }[] = [
-  { value: "nuova", label: "Nuova" },
-  { value: "pianificata", label: "Pianificata" },
-  { value: "in lavorazione", label: "In lavorazione" },
-  { value: "chiusa", label: "Chiusa" },
-  { value: "in sospeso", label: "In sospeso" },
-];
-
-const atlasStatusToDbStatus: Record<AtlasTicketStatus, string> = {
-  nuova: "Aperto",
-  pianificata: "Pianificato",
-  "in lavorazione": "In lavorazione",
-  chiusa: "Chiuso",
-  "in sospeso": "In sospeso",
-};
-
-const contracts = [
-  {
-    name: "POLFER SPIS",
-    match: ["POLFER", "POLIZIA FERROVIARIA"],
-    clientType: "Polizia Ferroviaria",
-    status: "Attivo",
-    period: "Fornitura SPIS",
-    startDate: "Da verificare",
-    endDate: "Da verificare",
-    renewalAlertDays: 90,
-    pdf: "",
-    warranty: "Sì",
-    shipping: "Sì, se previsto da garanzia",
-    spareParts: "Ricambi gestibili secondo contratto",
-    sla: "7 giorni bloccante / 14 giorni non bloccante",
-    notes:
-      "Assistenza su apparati SPIS Polfer. Verificare sempre se la parte richiesta è coperta da garanzia o ricambio contrattuale.",
-  },
-  {
-    name: "FRONTIERE 26 SPIS",
-    match: ["FRONTIERA", "POLIZIA DI FRONTIERA"],
-    clientType: "Polizia di Frontiera",
-    status: "Attivo",
-    period: "2024-2026",
-    startDate: "2024-01-01",
-    endDate: "2026-12-31",
-    renewalAlertDays: 120,
-    pdf: "",
-    warranty: "24 mesi",
-    shipping: "Inclusa",
-    spareParts: "Ripristino e sostituzione apparati inclusi",
-    sla: "12 ore bloccante / 24 ore non bloccante",
-    notes: "Trasporto, ritiro e sostituzione apparati inclusi nel contratto.",
-  },
-  {
-    name: "HOTSPOT ALBANIA 2024-2026",
-    match: ["ALBANIA", "HOTSPOT"],
-    clientType: "Estero",
-    status: "Attivo",
-    period: "2024-2026",
-    startDate: "2024-01-01",
-    endDate: "2026-12-31",
-    renewalAlertDays: 120,
-    pdf: "",
-    warranty: "24 mesi",
-    shipping: "Inclusa",
-    spareParts: "Riparazione o sostituzione inclusa",
-    sla: "5 giorni bloccante / 10 giorni non bloccante",
-    notes: "Ritiro apparati, trasporto e supporto tecnico inclusi.",
-  },
-  {
-    name: "CARABINIERI ASSISTENZA 2024-2026",
-    match: [
-      "CARABINIERI",
-      "COMANDO PROVINCIALE",
-      "GRUPPO CC",
-      "REPARTO TERRITORIALE CC",
-      "COMANDO GRUPPO",
-    ],
-    clientType: "Carabinieri",
-    status: "Attivo",
-    period: "2024-2026",
-    startDate: "2024-01-01",
-    endDate: "2026-12-31",
-    renewalAlertDays: 120,
-    pdf: "",
-    warranty: "Sì",
-    shipping: "Sì previa autorizzazione",
-    spareParts: "Ricambi inclusi entro limiti contrattuali",
-    sla: "7 giorni bloccante / 14 giorni non bloccante",
-    notes: "Interventi e ricambi soggetti ad autorizzazione AES.",
-  },
-  {
-    name: "CC 75 SPIS",
-    match: ["CC 75", "75 SPIS"],
-    clientType: "Carabinieri",
-    status: "Attivo",
-    period: "Fornitura 75 SPIS",
-    startDate: "Da verificare",
-    endDate: "Da verificare",
-    renewalAlertDays: 90,
-    pdf: "",
-    warranty: "Sì",
-    shipping: "Da verificare",
-    spareParts: "Gestibili secondo garanzia apparato",
-    sla: "Da contratto specifico",
-    notes: "Supporto su apparati SPIS della fornitura 75 postazioni.",
-  },
-  {
-    name: "POLIZIE LOCALI",
-    match: [
-      "POLIZIA LOCALE",
-      "POLIZIA MUNICIPALE",
-      "POLIZIA PROVINCIALE",
-      "COMUNE",
-    ],
-    clientType: "Polizia Locale / Comuni",
-    status: "Attivo se contratto sottoscritto",
-    period: "12/24/36 mesi",
-    startDate: "Da verificare",
-    endDate: "Da verificare",
-    renewalAlertDays: 60,
-    pdf: "",
-    warranty: "Secondo contratto",
-    shipping: "Se previsto",
-    spareParts: "Secondo formula commerciale",
-    sla: "5 giorni / 10 giorni",
-    notes: "Verificare sempre formula commerciale sottoscritta dal Comune.",
-  },
-  {
-    name: "RFI AULE SEPA",
-    match: ["RFI", "AULA SEPA", "SEPA"],
-    clientType: "RFI",
-    status: "Attivo",
-    period: "48 mesi",
-    startDate: "Da verificare",
-    endDate: "Da verificare",
-    renewalAlertDays: 120,
-    pdf: "",
-    warranty: "Sì",
-    shipping: "Inclusa",
-    spareParts: "Incluse salvo esclusioni",
-    sla: "2 giorni bloccante / 7 giorni non bloccante",
-    notes: "Assistenza su Aule SEPA RFI con SLA prioritari.",
-  },
-  {
-    name: "RFI WEBVIME",
-    match: ["WEBVIME"],
-    clientType: "RFI / Webvime",
-    status: "Attivo",
-    period: "12 mesi",
-    startDate: "Da verificare",
-    endDate: "Da verificare",
-    renewalAlertDays: 60,
-    pdf: "",
-    warranty: "Sì",
-    shipping: "Non applicabile",
-    spareParts: "Software",
-    sla: "Secondo allegato contratto",
-    notes: "Assistenza software Webvime.",
-  },
-  {
-    name: "SMARTFAD CARE-PACK",
-    match: ["SMARTFAD"],
-    clientType: "SmartFAD",
-    status: "Attivo se Care-Pack sottoscritto",
-    period: "12/24/36 mesi",
-    startDate: "Da verificare",
-    endDate: "Da verificare",
-    renewalAlertDays: 60,
-    pdf: "",
-    warranty: "Copertura danni accidentali",
-    shipping: "Andata cliente / ritorno Secom",
-    spareParts: "Riparazione o sostituzione",
-    sla: "5 giorni lavorativi",
-    notes: "Esclusi furto, manomissioni, danni dolosi e uso improprio.",
-  },
-  {
-    name: "SEEKS / BEESCO PORTI",
-    match: ["SEEKS", "BEESCO", "PORTI", "TERMINAL", "VESPUCCI"],
-    clientType: "Porti / EES",
-    status: "Attivo",
-    period: "12/24/36 mesi",
-    startDate: "Da verificare",
-    endDate: "Da verificare",
-    renewalAlertDays: 90,
-    pdf: "",
-    warranty: "On-center",
-    shipping: "Inclusa se in garanzia",
-    spareParts: "Riparazione o sostituzione gratuita",
-    sla: "2 giorni bloccante / 4 giorni non bloccante",
-    notes: "Fuori garanzia serve valutazione tecnica e offerta economica.",
-  },
-];
-
-const initialInventory = [
-  { id: "KIT-TLC", name: "Kit TLC", value: 931, quantity: 0 },
-  { id: "UCCS", name: "UCCS", value: 821, quantity: 0 },
-  { id: "MONITOR", name: "Monitor", value: 199, quantity: 0 },
-  { id: "KIT-LAMP", name: "Kit lampade", value: 72, quantity: 0 },
-  { id: "RAM", name: "RAM", value: 56, quantity: 0 },
-  { id: "HUB-USB", name: "Hub USB", value: 52, quantity: 0 },
-  { id: "MOTORE-SPIS", name: "Motore sedia SPIS", value: 196, quantity: 0 },
-  { id: "UPS", name: "UPS", value: 94, quantity: 0 },
-  { id: "TAST-MOUSE", name: "Tastiera e mouse", value: 31, quantity: 0 },
-  { id: "NUMERATORE", name: "Circuito numeratore SPIS", value: 199, quantity: 0 },
-  { id: "SSD-500", name: "SSD 500GB", value: 92, quantity: 0 },
-];
-
-function euro(value: number) {
-  return new Intl.NumberFormat("it-IT", {
-    style: "currency",
-    currency: "EUR",
-  }).format(value || 0);
-}
-
-function materialCost(ids: string[]) {
-  return ids.reduce((sum, id) => {
-    const item = materials.find((m) => m.id === id);
-    return sum + (item?.cost || 0);
-  }, 0);
-}
-
-function getContractInfo(site: string, entity: string, sourceContracts = contracts) {
-  const text = `${site} ${entity}`.toLowerCase();
-
-  return sourceContracts.find((contract) =>
-    contract.match.some((word) => text.includes(word.toLowerCase()))
-  );
-}
-
-function getContractStatus(contract: any) {
-  if (!contract?.endDate || contract.endDate === "Da verificare") {
-    return {
-      label: "Scadenza da verificare",
-      color: "bg-slate-600",
-      text: "text-slate-300",
-      warning: false,
-    };
-  }
-
-  const today = new Date();
-  const end = new Date(contract.endDate);
-
-  const diffDays = Math.ceil(
-    (end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-  );
-
-  if (diffDays < 0) {
-    return {
-      label: "Contratto scaduto",
-      color: "bg-red-600",
-      text: "text-red-300",
-      warning: true,
-    };
-  }
-
-  if (diffDays <= contract.renewalAlertDays) {
-    return {
-      label: `In scadenza tra ${diffDays} giorni`,
-      color: "bg-amber-500",
-      text: "text-amber-300",
-      warning: true,
-    };
-  }
-
-  return {
-    label: "Contratto attivo",
-    color: "bg-emerald-600",
-    text: "text-emerald-300",
-    warning: false,
-  };
-}
-
-function getInventoryStatus(quantity: number) {
-  if (quantity <= 0) {
-    return {
-      label: "Esaurito",
-      className: "bg-red-500/15 text-red-300 border border-red-500/30",
-    };
-  }
-
-  if (quantity < 10) {
-    return {
-      label: "Da riordinare",
-      className: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
-    };
-  }
-
-  return {
-    label: "Disponibile",
-    className: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
-  };
-}
-
-function normalizeSiteRegion(site: any) {
-  if (site.region && !String(site.region).toLowerCase().includes("n/d")) {
-    return site;
-  }
-
-  const text = `${site.name || ""} ${site.city || ""}`.toLowerCase();
-
-  const rules: [string[], string][] = [
-    [["padova", "venezia", "verona", "vicenza", "treviso", "rovigo"], "Veneto"],
-    [["parma", "rimini", "reggio emilia", "bologna", "ferrara"], "Emilia-Romagna"],
-    [["ragusa", "siracusa", "trapani", "palermo", "catania", "gela"], "Sicilia"],
-    [["salerno", "avellino", "caserta", "napoli", "aversa", "nocera"], "Campania"],
-    [["viterbo", "rieti", "roma", "ostia", "frascati", "aprilia"], "Lazio"],
-    [["trento", "bolzano", "merano"], "Trentino-Alto Adige"],
-    [["varese", "milano", "brescia", "pavia", "rho", "sondrio"], "Lombardia"],
-    [["trieste", "udine", "pordenone", "gorizia"], "Friuli-Venezia Giulia"],
-    [["taranto", "trani", "bari", "brindisi", "lecce"], "Puglia"],
-    [["reggio calabria", "vibo valentia", "cosenza", "locri", "lamezia"], "Calabria"],
-    [["olbia", "sassari", "cagliari", "sanluri"], "Sardegna"],
-    [["verbania", "torino", "vercelli", "cuneo", "asti"], "Piemonte"],
-    [["massa", "siena", "pisa", "lucca", "firenze"], "Toscana"],
-    [["ancona", "macerata", "fermo", "ascoli"], "Marche"],
-    [["perugia", "terni", "orvieto"], "Umbria"],
-    [["teramo", "pescara", "chieti", "aquila"], "Abruzzo"],
-    [["isernia", "campobasso"], "Molise"],
-    [["aosta"], "Valle d'Aosta"],
-    [["savona", "genova", "imperia", "la spezia"], "Liguria"],
-    [["potenza", "matera"], "Basilicata"],
-  ];
-
-  for (const [keywords, region] of rules) {
-    if (keywords.some((keyword) => text.includes(keyword))) {
-      return { ...site, region };
-    }
-  }
-
-  return { ...site, region: "Da verificare" };
-}
+import type { AtlasTicketCategory, AtlasTicketStatus } from "@/lib/atlasTypes";
+import {
+  INITIAL_BUDGET,
+  atlasStatusToDbStatus,
+  contracts,
+  initialInventory,
+  materials,
+  technicians,
+  ticketCategoryOptions,
+  ticketStatusOptions,
+} from "@/lib/atlasConstants";
+import {
+  euro,
+  getContractStatus,
+  getInventoryStatus,
+  materialCost,
+  normalizeSiteRegion,
+} from "@/lib/atlasUtils";
+import { syncTicketToGlpi as syncTicketToGlpiService } from "@/services/glpi";
+import {
+  getBudgetRemaining as calculateBudgetRemaining,
+  getBudgetSpent as calculateBudgetSpent,
+  getBudgetTotal as calculateBudgetTotal,
+  getTicketContract as getTicketContractFromService,
+  getTicketTypeFromMap,
+} from "@/services/budget";
+import { buildEditableContracts, getSelectedContract } from "@/services/contracts";
 
 export default function Home() {
   const [tickets, setTickets] = useState<any[]>([]);
@@ -648,197 +310,23 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
     }, 3000);
   }
 
-  function normalizeGlpiLookup(value: string) {
-    return String(value || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9]+/g, " ")
-      .trim()
-      .toLowerCase();
-  }
-
-  async function resolveGlpiEntityId(ticket: any) {
-    const normalize = (value: any) =>
-      String(value || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .toLowerCase();
-
-    const siteNorm = normalize(ticket?.site);
-    const entityNorm = normalize(ticket?.entity);
-    const regionNorm = normalize(ticket?.region);
-    const contract = getTicketContract(ticket);
-    const contractEntityNorm = normalize(contract?.clientType || "");
-
-    const { data, error } = await supabase
-      .from("atlas_glpi_entities")
-      .select("glpi_id,name,category,region");
-
-    if (error) {
-      console.warn("GLPI entity lookup failed", error);
-      return null;
-    }
-
-    const rows = (data || []).map((row: any) => ({
-      ...row,
-      cleanName: normalize(row.name),
-      cleanCategory: normalize(row.category),
-      cleanRegion: normalize(row.region),
-    }));
-
-    const exactSite = rows.find((row: any) => row.cleanName && row.cleanName === siteNorm);
-    if (exactSite?.glpi_id !== undefined && exactSite?.glpi_id !== null) {
-      console.log("GLPI MATCH EXACT:", exactSite);
-      return Number(exactSite.glpi_id);
-    }
-
-    const genericWords = new Set([
-      "carabinieri",
-      "compagnia",
-      "comando",
-      "provinciale",
-      "gruppo",
-      "reparto",
-      "territoriale",
-      "cc",
-      "di",
-      "del",
-      "della",
-      "dei",
-      "degli",
-      "com",
-      "prov",
-    ]);
-
-    const siteTokens = siteNorm
-      .split(" ")
-      .filter((token) => token.length >= 3 && !genericWords.has(token));
-
-    const scoredMatches = rows
-      .map((row: any) => {
-        const cleanName = row.cleanName || "";
-        const matchedTokens = siteTokens.filter((token) => cleanName.includes(token));
-        const fullContains = cleanName.includes(siteNorm) || siteNorm.includes(cleanName);
-
-        let score = matchedTokens.length * 100;
-        if (fullContains) score += 1000;
-        score += Math.min(cleanName.length, 200);
-
-        return {
-          ...row,
-          matchedTokens,
-          score,
-        };
-      })
-      .filter((row: any) => {
-        if (!row.cleanName || !siteNorm) return false;
-        if (row.cleanName.length < 12) return false;
-        if (row.cleanName === "carabinieri") return false;
-        return row.score > 0;
-      })
-      .sort((a: any, b: any) => b.score - a.score);
-
-    const bestSite = scoredMatches[0];
-    if (bestSite?.glpi_id !== undefined && bestSite?.glpi_id !== null) {
-      console.log("GLPI MATCH SCORED:", bestSite);
-      return Number(bestSite.glpi_id);
-    }
-
-    const categoryRegion = rows
-      .filter((row: any) => {
-        const categoryMatch =
-          row.cleanCategory &&
-          (row.cleanCategory === entityNorm ||
-            row.cleanCategory === contractEntityNorm ||
-            entityNorm.includes(row.cleanCategory) ||
-            contractEntityNorm.includes(row.cleanCategory));
-        const regionMatch = !regionNorm || !row.cleanRegion || row.cleanRegion === regionNorm;
-        return categoryMatch && regionMatch && Number(row.glpi_id) > 1;
-      })
-      .sort((a: any, b: any) => String(b.cleanName || "").length - String(a.cleanName || "").length)?.[0];
-
-    if (categoryRegion?.glpi_id !== undefined && categoryRegion?.glpi_id !== null) {
-      console.log("GLPI MATCH CATEGORY REGION:", categoryRegion);
-      return Number(categoryRegion.glpi_id);
-    }
-
-    console.warn("GLPI entity not resolved for site:", ticket?.site);
-    return null;
-  }
-
   async function syncTicketToGlpi(ticket: any) {
-    try {
-      const contract = getTicketContract(ticket);
-      const glpiEntityId = await resolveGlpiEntityId(ticket);
-      const materialIds = ticket.materialIds || ticket.materials || [];
-      const materialNames = materialIds
-        .map((id: string) => materials.find((m) => m.id === id)?.name || id)
-        .filter(Boolean);
-      const cost = materialCost(materialIds);
-
-      console.log("ATLAS SITE:", ticket.site);
-      console.log("GLPI ENTITY ID:", glpiEntityId);
-
-      const response = await fetch("/api/glpi/create-ticket", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          atlasTicketId: ticket.id,
-          title: ticket.title,
-          ticketCategory: ticket.ticketCategory || ticket.ticketType,
-          ticketStatus: ticket.ticketStatus,
-          site: ticket.site,
-          region: ticket.region,
-          entity: ticket.entity,
-          city: ticket.city,
-          problem: ticket.problem,
-          materialIds,
-          materials: materialNames,
-          cost,
-          technician: ticket.technician,
-          status: ticket.status,
-          date: ticket.date,
-          slot: ticket.slot,
-          ticketType: ticket.ticketType,
-          contractName: contract?.name,
-          contractEntity: contract?.clientType,
-          glpiEntityId,
-        }),
-      });
-
-      const result = await response.json().catch(() => null);
-
-      if (!response.ok || !result?.ok) {
-        console.error("GLPI sync error", result);
-        showMessage("Ticket salvato in ATLAS, ma non sincronizzato con GLPI", "error");
-        return null;
-      }
-
-      return result;
-    } catch (error) {
-      console.error("GLPI sync exception", error);
-      showMessage("Ticket salvato in ATLAS, ma GLPI non è raggiungibile", "error");
-      return null;
-    }
+    return syncTicketToGlpiService({
+      ticket,
+      editableContracts,
+      supabaseClient: supabase,
+      showMessage,
+    });
   }
 
-  const editableContracts = contracts.map((contract) => ({
-    ...contract,
-    ...(contractOverrides[contract.name] || {}),
-  }));
+  const editableContracts = buildEditableContracts(contracts, contractOverrides);
 
-  const selectedContractBase = getContractInfo(site, entity, editableContracts);
-  const selectedContract = selectedContractBase
-    ? {
-        ...selectedContractBase,
-        ...(contractOverrides[selectedContractBase.name] || {}),
-      }
-    : undefined;
+  const selectedContract = getSelectedContract({
+    site,
+    entity,
+    editableContracts,
+    contractOverrides,
+  });
 
   const totalBudget = budgets.reduce(
     (sum, item) => sum + Number(item.value || item.total || 0),
@@ -846,36 +334,39 @@ if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
   ) || budget;
 
   function getTicketType(ticket: any): AtlasTicketCategory {
-    return (
-      ticket?.ticketType ||
-      ticketTypesById[String(ticket?.id)] ||
-      ticket?.ticket_type ||
-      "ordinaria"
-    );
+    return getTicketTypeFromMap(ticket, ticketTypesById);
   }
 
   function getTicketContract(ticket: any) {
-    return getContractInfo(ticket?.site || "", ticket?.entity || "", editableContracts);
+    return getTicketContractFromService(ticket, editableContracts);
   }
 
   function getBudgetSpent(contractName?: string) {
-    return tickets
-      .filter((ticket) => getTicketType(ticket) === "straordinaria")
-      .filter((ticket) => {
-        if (!contractName) return true;
-        return getTicketContract(ticket)?.name === contractName;
-      })
-      .reduce((sum, ticket) => sum + materialCost(ticket.materialIds || []), 0);
+    return calculateBudgetSpent({
+      tickets,
+      ticketTypesById,
+      editableContracts,
+      contractName,
+    });
   }
 
   function getBudgetTotal(contractName?: string) {
-    if (!contractName) return totalBudget;
-    const found = budgets.find((item) => item.contractName === contractName);
-    return Number(found?.value || 0);
+    return calculateBudgetTotal({
+      budgets,
+      totalBudget,
+      contractName,
+    });
   }
 
   function getBudgetRemaining(contractName?: string) {
-    return getBudgetTotal(contractName) - getBudgetSpent(contractName);
+    return calculateBudgetRemaining({
+      tickets,
+      ticketTypesById,
+      editableContracts,
+      budgets,
+      totalBudget,
+      contractName,
+    });
   }
 
   function updateContractField(contractName: string, field: string, value: string) {
@@ -2377,7 +1868,6 @@ return (
                 <img src="/secom-logo.png.png" alt="Secom" className="h-10 w-auto object-contain" />
                 <p className="text-base font-black text-white">Centrale Operativa ATLAS</p>
               </div>
-
 
 
               <div className="grid gap-2">
