@@ -8,6 +8,7 @@ import TicketForm from "@/components/atlas/TicketForm";
 import MobileBottomNav from "@/components/atlas/MobileBottomNav";
 import MobileMoreMenu from "@/components/atlas/MobileMoreMenu";
 import TicketRegistry from "@/components/atlas/TicketRegistry";
+import TicketWorkspace from "@/components/atlas/TicketWorkspace";
 import CustomerCommandCenter from "@/components/atlas/CustomerCommandCenter";
 import CustomerPortal from "@/components/atlas/CustomerPortal";
 import UserManagementCenter from "@/components/atlas/UserManagementCenter";
@@ -26,6 +27,9 @@ import { getStoredTenantSlug, storeTenantSlug } from "@/lib/tenant";
 
 import {
   Activity,
+  Brain,
+  History,
+  CirclePlus,
   AlertTriangle,
   BarChart3,
   Box,
@@ -126,6 +130,7 @@ export default function Home() {
   const [futureNeeds, setFutureNeeds] = useState("");
   const [resolved, setResolved] = useState(true);
   const [closingTicketId, setClosingTicketId] = useState<string | null>(null);
+  const [selectedTicketWorkspace, setSelectedTicketWorkspace] = useState<any | null>(null);
 
   const [filterTechnician, setFilterTechnician] = useState("");
   const [filterRegion, setFilterRegion] = useState("");
@@ -1896,6 +1901,24 @@ site_id: t.site_id || null,
     }
   }
 
+
+  function openTicketWorkspace(ticket: any) {
+    setSelectedTicketWorkspace(ticket);
+  }
+
+  function updateTicketFromWorkspace(updatedTicket: any) {
+    if (!updatedTicket?.id) return;
+
+    setSelectedTicketWorkspace(updatedTicket);
+    setTickets((prev) =>
+      prev.map((ticket) =>
+        String(ticket.id) === String(updatedTicket.id)
+          ? { ...ticket, ...updatedTicket }
+          : ticket,
+      ),
+    );
+  }
+
   function renderNotificationsDrawer() {
     if (!notificationsOpen) return null;
 
@@ -2051,7 +2074,7 @@ site_id: t.site_id || null,
       title: "Operatività",
       items: [
         { key: "dispatch", label: "Centrale Operativa", icon: AlertTriangle },
-        { key: "operativo", label: "Apri Chiamata", icon: AlertTriangle },
+        { key: "operativo", label: "Apri Chiamata", icon: CirclePlus },
         { key: "calendario", label: "Calendario", icon: CalendarDays },
         { key: "registro", label: "Registro Ticket", icon: ListChecks },
         { key: "customerPortal", label: "Portale Clienti", icon: Users },
@@ -2061,8 +2084,8 @@ site_id: t.site_id || null,
       title: "Analisi",
       items: [
         { key: "analytics", label: "Analisi", icon: BarChart3 },
-        { key: "ai", label: "Insight AI", icon: Activity },
-        { key: "activity", label: "Timeline Operativa", icon: Activity },
+        { key: "ai", label: "Insight AI", icon: Brain },
+        { key: "activity", label: "Timeline", icon: History },
       ],
     },
     {
@@ -2141,6 +2164,12 @@ site_id: t.site_id || null,
       }`}
     >
       {renderNotificationsDrawer()}
+      <TicketWorkspace
+        ticket={selectedTicketWorkspace}
+        open={Boolean(selectedTicketWorkspace)}
+        onClose={() => setSelectedTicketWorkspace(null)}
+        onStatusUpdated={updateTicketFromWorkspace}
+      />
       <div className="flex min-h-screen">
         <aside
           className={`hidden w-72 shrink-0 border-r p-6 lg:block ${
@@ -2446,9 +2475,9 @@ site_id: t.site_id || null,
                         label: "Dispatch",
                         icon: AlertTriangle,
                       },
-                      { key: "activity", label: "Activity", icon: Activity },
-                      { key: "analytics", label: "Analytics", icon: BarChart3 },
-                      { key: "ai", label: "AI", icon: Activity },
+                      { key: "activity", label: "Timeline", icon: History },
+                      { key: "analytics", label: "Analisi", icon: BarChart3 },
+                      { key: "ai", label: "Insight AI", icon: Brain },
                       {
                         key: "customerPortal",
                         label: "Customer Portal",
@@ -2818,6 +2847,7 @@ site_id: t.site_id || null,
                   setUrgentOnly={setUrgentOnly}
                   availableRegions={availableRegions}
                   onToggleUrgent={toggleTicketUrgent}
+                  onOpenTicketDetail={openTicketWorkspace}
                 />
               )}
 
@@ -5510,6 +5540,7 @@ site_id: t.site_id || null,
                 setUrgentOnly={setUrgentOnly}
                 availableRegions={availableRegions}
                 onToggleUrgent={toggleTicketUrgent}
+                onOpenTicketDetail={openTicketWorkspace}
               />
             )}
 

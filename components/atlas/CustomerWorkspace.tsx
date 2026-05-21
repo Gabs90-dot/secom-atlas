@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  History,
   Building2,
   CalendarDays,
   Clock,
@@ -608,7 +609,7 @@ export default function CustomerWorkspace({
     { key: "tickets", label: "Tickets", icon: Ticket },
     { key: "sites", label: "Sedi", icon: Building2 },
     { key: "assets", label: "Assets", icon: Package },
-    { key: "timeline", label: "Timeline", icon: Activity },
+    { key: "timeline", label: "Timeline", icon: History },
     { key: "documents", label: "Docs", icon: FileText },
   ];
 

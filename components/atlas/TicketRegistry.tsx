@@ -25,6 +25,7 @@ type TicketRegistryProps = {
   setUrgentOnly?: (value: boolean) => void;
   availableRegions?: string[];
   onToggleUrgent?: (ticket: any) => void;
+  onOpenTicketDetail?: (ticket: any) => void;
 };
 
 function ticketMaterialsLabel(ticket: any) {
@@ -316,9 +317,10 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
 }
 
 export default function TicketRegistry(props: TicketRegistryProps) {
-  const { variant, tickets, exportCsv, setMobileView, card = "" } = props;
+  const { variant, tickets, exportCsv, setMobileView, card = "", onOpenTicketDetail } = props;
   const [boardFilter, setBoardFilter] = useState<"all" | "open" | "urgent" | "overdue" | "closed">("all");
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
+  const openTicketDetail = onOpenTicketDetail || setSelectedTicket;
 
   const openCount = tickets.filter((ticket) => !isClosed(ticket)).length;
   const urgentCount = tickets.filter((ticket) => ticket.urgent && !isClosed(ticket)).length;
@@ -472,7 +474,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
             Nessuna chiamata trovata con questi filtri.
           </div>
         ) : (
-          visibleTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} {...props} onOpenDetail={setSelectedTicket} />)
+          visibleTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} {...props} onOpenDetail={openTicketDetail} />)
         )}
       </div>
 
