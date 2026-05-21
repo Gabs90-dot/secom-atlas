@@ -35,7 +35,7 @@ type Props = {
   ticketCategoryOptions: any[];
   ticketStatusOptions: any[];
 
-  addTicket: () => void;
+  addTicket: (customerId: string) => void;
 };
 
 export default function TicketForm({
@@ -55,25 +55,28 @@ export default function TicketForm({
   setProblem,
   ticketType,
   setTicketType,
-  ticketStatus,
-  setTicketStatus,
-  expectedCloseDate,
-  setExpectedCloseDate,
   ticketCategoryOptions,
-  ticketStatusOptions,
   addTicket,
 }: Props) {
   const [customerId, setCustomerId] = useState("");
+
+  const canSubmit = Boolean(site && ticketTitle.trim() && problem.trim());
+
   return (
     <div className="grid gap-4">
-      <h2 className="text-3xl font-black text-white">
-        Apri nuova chiamata
-      </h2>
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">
+          Ticket intake
+        </p>
+        <h2 className="mt-2 text-3xl font-black text-white">
+          Apri nuova chiamata
+        </h2>
+        <p className="mt-2 text-sm font-bold text-slate-400">
+          Qui si apre solo il ticket. La pianificazione tecnica resta nel Calendario.
+        </p>
+      </div>
 
-      <CustomerSelect
-        value={customerId}
-        onChange={setCustomerId}
-      />
+      <CustomerSelect value={customerId} onChange={setCustomerId} />
 
       <SiteSearchDropdown
         input={input}
@@ -90,61 +93,51 @@ export default function TicketForm({
 
       <input
         className={input}
-        placeholder="Titolo ticket"
+        placeholder="Titolo ticket GLPI"
         value={ticketTitle}
         onChange={(e) => setTicketTitle(e.target.value)}
       />
 
       <textarea
-        className={`${input} min-h-[140px]`}
-        placeholder="Descrizione intervento"
+        className={`${input} min-h-[170px]`}
+        placeholder="Descrizione da inviare nel campo descrizione GLPI"
         value={problem}
         onChange={(e) => setProblem(e.target.value)}
       />
 
       <label className="grid gap-2 text-sm font-bold text-slate-300">
-        Chiusura prevista
-        <input
-          type="date"
+        Tipo chiamata
+        <select
           className={input}
-          value={expectedCloseDate}
-          onChange={(e) => setExpectedCloseDate(e.target.value)}
-        />
+          value={ticketType}
+          onChange={(e) => setTicketType(e.target.value as AtlasTicketCategory)}
+        >
+          {ticketCategoryOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </label>
 
-      <select
-        className={input}
-        value={ticketType}
-        onChange={(e) =>
-          setTicketType(e.target.value as AtlasTicketCategory)
-        }
-      >
-        {ticketCategoryOptions.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-
-      <select
-        className={input}
-        value={ticketStatus}
-        onChange={(e) =>
-          setTicketStatus(e.target.value as AtlasTicketStatus)
-        }
-      >
-        {ticketStatusOptions.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+        <p className="font-black text-white">Apertura ticket</p>
+        <p className="mt-1 font-bold text-slate-400">
+          Data apertura automatica. Stato iniziale automatico. Tecnico e slot si assegnano dal Calendario.
+        </p>
+      </div>
 
       <button
-        onClick={addTicket}
-        className="rounded-2xl bg-blue-600 p-4 font-black text-white"
+        type="button"
+        onClick={() => addTicket(customerId)}
+        disabled={!canSubmit}
+        className={`rounded-2xl p-4 font-black text-white transition ${
+          canSubmit
+            ? "bg-blue-600 hover:-translate-y-0.5 hover:bg-blue-500"
+            : "cursor-not-allowed bg-slate-700 text-slate-400"
+        }`}
       >
-        Apri chiamata
+        Apri ticket
       </button>
     </div>
   );

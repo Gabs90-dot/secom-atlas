@@ -47,18 +47,36 @@ export const ticketCategoryOptions: {
 ];
 
 export const ticketStatusOptions: { value: AtlasTicketStatus; label: string }[] = [
-  { value: "nuova", label: "Nuova" },
-  { value: "pianificata", label: "Pianificata" },
+  { value: "nuova", label: "Nuovo" },
+  { value: "assegnato", label: "Assegnato" },
+  { value: "preso in carico", label: "Preso in carico" },
   { value: "in lavorazione", label: "In lavorazione" },
-  { value: "chiusa", label: "Chiusa" },
+  { value: "attesa cliente", label: "Attesa cliente" },
+  { value: "attesa fornitore", label: "Attesa fornitore" },
+  { value: "bloccato", label: "Bloccato" },
+  { value: "risolto", label: "Risolto" },
+  { value: "validato", label: "Validato" },
+  { value: "chiusa", label: "Chiuso" },
+
+  // Compatibilità con le vecchie viste calendario/registro.
+  { value: "pianificata", label: "Pianificato" },
   { value: "in sospeso", label: "In sospeso" },
 ];
 
 export const atlasStatusToDbStatus: Record<AtlasTicketStatus, string> = {
-  nuova: "Aperto",
-  pianificata: "Pianificato",
+  nuova: "Nuovo",
+  assegnato: "Assegnato",
+  "preso in carico": "Preso in carico",
   "in lavorazione": "In lavorazione",
+  "attesa cliente": "Attesa cliente",
+  "attesa fornitore": "Attesa fornitore",
+  bloccato: "Bloccato",
+  risolto: "Risolto",
+  validato: "Validato",
   chiusa: "Chiuso",
+
+  // Compatibilità con le vecchie viste calendario/registro.
+  pianificata: "Pianificato",
   "in sospeso": "In sospeso",
 };
 

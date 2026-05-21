@@ -142,6 +142,7 @@ export async function syncTicketToGlpi({
       .map((id: string) => materials.find((m) => m.id === id)?.name || id)
       .filter(Boolean);
     const cost = materialCost(materialIds);
+    const openedAt = ticket.openedAt || ticket.opened_at || new Date().toISOString();
 
     console.log("ATLAS SITE:", ticket.site);
     console.log("GLPI ENTITY ID:", glpiEntityId);
@@ -154,21 +155,31 @@ export async function syncTicketToGlpi({
       body: JSON.stringify({
         atlasTicketId: ticket.id,
         title: ticket.title,
+        name: ticket.title,
+
+        // Campo descrizione GLPI: deve arrivare pulito, senza concetti di pianificazione.
+        problem: ticket.problem,
+        description: ticket.problem,
+        content: ticket.problem,
+
         ticketCategory: ticket.ticketCategory || ticket.ticketType,
         ticketStatus: ticket.ticketStatus,
+        ticketType: ticket.ticketType,
+        status: ticket.status,
+
         site: ticket.site,
         region: ticket.region,
         entity: ticket.entity,
         city: ticket.city,
-        problem: ticket.problem,
+
         materialIds,
         materials: materialNames,
         cost,
-        technician: ticket.technician,
-        status: ticket.status,
-        date: ticket.date,
-        slot: ticket.slot,
-        ticketType: ticket.ticketType,
+
+        openedAt,
+        openingDate: openedAt,
+        openedBy: ticket.openedBy || ticket.operator || ticket.technician || "ATLAS",
+
         contractName: contract?.name,
         contractEntity: contract?.clientType,
         glpiEntityId,

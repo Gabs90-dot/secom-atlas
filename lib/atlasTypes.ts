@@ -2,9 +2,16 @@ export type AtlasTicketCategory = "ordinaria" | "straordinaria" | "garanzia" | "
 
 export type AtlasTicketStatus =
   | "nuova"
-  | "pianificata"
+  | "assegnato"
+  | "preso in carico"
   | "in lavorazione"
+  | "attesa cliente"
+  | "attesa fornitore"
+  | "bloccato"
+  | "risolto"
+  | "validato"
   | "chiusa"
+  | "pianificata"
   | "in sospeso";
 
 export type AtlasMaterial = {

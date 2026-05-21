@@ -36,6 +36,17 @@ function ticketMaterialsLabel(ticket: any) {
   );
 }
 
+function ticketCustomerLabel(ticket: any) {
+  return (
+    ticket.customerName ||
+    ticket.customer_name ||
+    ticket.customer?.name ||
+    ticket.customerId ||
+    ticket.customer_id ||
+    "Cliente non assegnato"
+  );
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "—";
   try {
@@ -45,21 +56,74 @@ function formatDate(value?: string | null) {
   }
 }
 
-function normalizeStatus(status?: string) {
-  return String(status || "").toLowerCase();
+function normalizeStatus(status?: any) {
+  return String(status || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .trim();
 }
 
-function statusTone(status?: string) {
+function displayStatus(ticket: any) {
+  const value = normalizeStatus(ticket?.status || ticket?.ticket_status || ticket?.glpi_status);
+
+  if (
+    ticket?.closedAt ||
+    ticket?.closed_at ||
+    value === "5" ||
+    value === "6" ||
+    value.includes("chiuso") ||
+    value.includes("closed") ||
+    value.includes("risolto") ||
+    value.includes("solved") ||
+    value.includes("validato")
+  ) {
+    return "Chiuso";
+  }
+
+  if (value.includes("pian")) return "Pianificato";
+  if (value.includes("sosp") || value.includes("attesa")) return "In sospeso";
+  if (value.includes("lavor") || value.includes("assegn") || value.includes("carico")) return "In lavorazione";
+
+  return ticket?.status || "Aperto";
+}
+
+function statusTone(status?: any) {
   const value = normalizeStatus(status);
-  if (value.includes("chiuso")) return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+  if (value.includes("chiuso") || value.includes("risolto") || value.includes("validato")) return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
   if (value.includes("pian")) return "bg-blue-500/15 text-blue-300 border-blue-500/30";
-  if (value.includes("sosp")) return "bg-amber-500/15 text-amber-300 border-amber-500/30";
-  if (value.includes("lavor")) return "bg-violet-500/15 text-violet-300 border-violet-500/30";
+  if (value.includes("sosp") || value.includes("attesa")) return "bg-amber-500/15 text-amber-300 border-amber-500/30";
+  if (value.includes("lavor") || value.includes("assegn") || value.includes("carico")) return "bg-violet-500/15 text-violet-300 border-violet-500/30";
   return "bg-slate-500/15 text-slate-300 border-slate-500/30";
 }
 
 function isClosed(ticket: any) {
-  return normalizeStatus(ticket.status).includes("chiuso");
+  return displayStatus(ticket) === "Chiuso";
+}
+
+function ticketDescription(ticket: any) {
+  return (
+    ticket.problem ||
+    ticket.description ||
+    ticket.content ||
+    ticket.glpi_description ||
+    ticket.glpi_raw?.content ||
+    ticket.glpi_raw?.["21"] ||
+    ticket.glpi_raw?.["Commenti - Descrizione"] ||
+    ticket.glpi_raw?.["Descrizione"] ||
+    "Descrizione non disponibile"
+  );
+}
+
+function ticketTitle(ticket: any) {
+  return (
+    ticket.title ||
+    ticket.name ||
+    ticket.glpi_title ||
+    ticket.glpi_raw?.name ||
+    ticket.glpi_raw?.["1"] ||
+    `Ticket #${ticket.id}`
+  );
 }
 
 function isOverdue(ticket: any) {
@@ -164,13 +228,15 @@ function RegistryFilters({
   );
 }
 
-function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClosingTicketId }: any) {
+function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClosingTicketId, onOpenDetail }: any) {
   const overdue = isOverdue(ticket);
   const closed = isClosed(ticket);
+  const readableStatus = displayStatus(ticket);
 
   return (
     <div
-      className={`min-w-0 overflow-hidden rounded-3xl border p-4 transition-all ${
+      onClick={() => onOpenDetail?.(ticket)}
+      className={`min-w-0 cursor-pointer overflow-hidden rounded-3xl border p-4 transition-all ${
         ticket.urgent
           ? "border-red-500/60 bg-red-500/10 shadow-lg shadow-red-950/20"
           : overdue
@@ -182,14 +248,21 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-black text-white">#{ticket.id}</span>
-            <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(ticket.status)}`}>{ticket.status || "Stato n/d"}</span>
+            <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(readableStatus)}`}>{readableStatus}</span>
             {ticket.urgent && <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white"><Flame size={13} /> URGENTE</span>}
             {overdue && <span className="inline-flex items-center gap-1 rounded-full bg-amber-600 px-3 py-1 text-xs font-black text-white"><Clock size={13} /> SCADUTO</span>}
           </div>
 
           <h3 className="max-w-full truncate text-lg font-black text-white">{ticket.site || "Sede n/d"}</h3>
-          <p className="mt-1 break-words text-sm text-slate-400">{ticket.region || "Regione n/d"} · {ticket.technician || "Tecnico non assegnato"}</p>
-          <p className="mt-3 break-words text-sm text-slate-300">{ticket.problem || "Descrizione non disponibile"}</p>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-200">
+              Cliente: {ticketCustomerLabel(ticket)}
+            </span>
+          </div>
+
+          <p className="mt-2 break-words text-sm text-slate-400">{ticket.region || "Regione n/d"} · {ticket.technician || "Tecnico non assegnato"}</p>
+          <p className="mt-3 break-words text-sm text-slate-300">{ticketDescription(ticket)}</p>
 
           <div className="mt-4 grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
             <div className="rounded-2xl bg-slate-950/35 p-3"><span className="block font-black text-slate-300">Apertura</span>{formatDate(ticket.openedAt)}</div>
@@ -205,16 +278,27 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
             <p className="mt-1 break-words text-xs text-slate-500">{ticketMaterialsLabel(ticket)}</p>
           </div>
 
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenDetail?.(ticket);
+            }}
+            className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white"
+          >
+            Apri dettaglio
+          </button>
+
           {!closed ? (
             <div className="grid gap-2">
               <button
-                onClick={() => onToggleUrgent?.(ticket)}
+                onClick={(event) => { event.stopPropagation(); onToggleUrgent?.(ticket); }}
                 className={`rounded-2xl px-4 py-3 text-sm font-black text-white ${ticket.urgent ? "bg-slate-700" : "bg-red-600"}`}
               >
                 {ticket.urgent ? "Togli urgenza" : "Rendi urgente"}
               </button>
               <button
-                onClick={() => (variant === "mobile" ? promptCloseTicket?.(String(ticket.id)) : setClosingTicketId?.(String(ticket.id)))}
+                onClick={(event) => { event.stopPropagation(); variant === "mobile" ? promptCloseTicket?.(String(ticket.id)) : setClosingTicketId?.(String(ticket.id)); }}
                 className="rounded-2xl bg-emerald-700 px-4 py-3 text-sm font-black text-white"
               >
                 Chiudi intervento
@@ -234,6 +318,7 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
 export default function TicketRegistry(props: TicketRegistryProps) {
   const { variant, tickets, exportCsv, setMobileView, card = "" } = props;
   const [boardFilter, setBoardFilter] = useState<"all" | "open" | "urgent" | "overdue" | "closed">("all");
+  const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
 
   const openCount = tickets.filter((ticket) => !isClosed(ticket)).length;
   const urgentCount = tickets.filter((ticket) => ticket.urgent && !isClosed(ticket)).length;
@@ -261,6 +346,88 @@ export default function TicketRegistry(props: TicketRegistryProps) {
 
   const board = (
     <div className="grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden">
+      {selectedTicket && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#081523] p-5 shadow-2xl md:p-7">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
+                  Dettaglio ticket
+                </p>
+                <h3 className="mt-2 text-2xl font-black text-white">
+                  #{selectedTicket.id} · {selectedTicket.site || "Sede n/d"}
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(displayStatus(selectedTicket))}`}>
+                    {displayStatus(selectedTicket)}
+                  </span>
+                  {selectedTicket.urgent && (
+                    <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">
+                      URGENTE
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedTicket(null)}
+                className="rounded-2xl bg-white/10 p-3 text-white hover:bg-white/15"
+              >
+                <XCircle size={22} />
+              </button>
+            </div>
+
+            <div className="grid gap-4">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                <p className="text-sm font-black text-slate-400">Titolo</p>
+                <p className="mt-2 text-lg font-black text-white">{ticketTitle(selectedTicket)}</p>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                <p className="text-sm font-black text-slate-400">Descrizione problema GLPI / ATLAS</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-relaxed text-slate-200">
+                  {ticketDescription(selectedTicket)}
+                </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-black text-slate-400">Apertura</p>
+                  <p className="mt-1 font-black text-white">{formatDate(selectedTicket.openedAt || selectedTicket.opened_at || selectedTicket.date)}</p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-black text-slate-400">Chiusura prevista</p>
+                  <p className="mt-1 font-black text-white">{formatDate(selectedTicket.expectedCloseDate || selectedTicket.expected_close_date)}</p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-black text-slate-400">Chiusura</p>
+                  <p className="mt-1 font-black text-white">{formatDate(selectedTicket.closedAt || selectedTicket.closed_at)}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-black text-slate-400">Cliente</p>
+                  <p className="mt-1 break-words font-black text-white">{ticketCustomerLabel(selectedTicket)}</p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-black text-slate-400">Tecnico / gruppo</p>
+                  <p className="mt-1 break-words font-black text-white">{selectedTicket.technician || selectedTicket.glpi_technician_group || "Non assegnato"}</p>
+                </div>
+              </div>
+
+              {(selectedTicket.closingNotes || selectedTicket.closing_notes || selectedTicket.futureNeeds || selectedTicket.future_needs) && (
+                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-sm font-black text-slate-400">Note chiusura / necessità future</p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-relaxed text-slate-200">
+                    {selectedTicket.closingNotes || selectedTicket.closing_notes || selectedTicket.futureNeeds || selectedTicket.future_needs}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 overflow-hidden">
           <p className="break-words text-xs font-black uppercase tracking-[0.3em] text-blue-400">CRM Operations Board</p>
@@ -305,7 +472,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
             Nessuna chiamata trovata con questi filtri.
           </div>
         ) : (
-          visibleTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} {...props} />)
+          visibleTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} {...props} onOpenDetail={setSelectedTicket} />)
         )}
       </div>
 
