@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncGlpiDbToAtlas } from "@/services/glpiSyncEngine";
 
+export const runtime = "nodejs";
+
 const DEFAULT_LIMIT = 500;
+
 
 function getTenantId(request: NextRequest) {
   const fromQuery = request.nextUrl.searchParams.get("tenantId");
