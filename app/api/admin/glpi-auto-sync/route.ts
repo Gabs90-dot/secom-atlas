@@ -5,7 +5,6 @@ export const runtime = "nodejs";
 
 const DEFAULT_LIMIT = 500;
 
-
 function getTenantId(request: NextRequest) {
   const fromQuery = request.nextUrl.searchParams.get("tenantId");
   const fromEnv =
@@ -41,22 +40,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log("=================================");
-    console.log("AUTO SYNC GLPI AVVIATO");
-    console.log("tenantId:", tenantId);
-    console.log("limit:", limit);
-    console.log("offset:", offset);
-    console.log("glpiTicketId:", glpiTicketId || "batch");
-    console.log("=================================");
-
     const result = await syncGlpiDbToAtlas({
       tenantId,
       limit,
       offset,
       glpiTicketId,
     });
-
-    console.log("AUTO SYNC GLPI COMPLETATO", result);
 
     return NextResponse.json({
       success: true,

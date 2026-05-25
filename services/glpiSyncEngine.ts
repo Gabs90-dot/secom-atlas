@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-import mysql from "mysql2/promise";
 
 type GlpiSyncArgs = {
   tenantId: string;
@@ -69,17 +68,215 @@ function parseDate(value: any) {
   return parsed.toISOString();
 }
 
-async function getGlpiConnection() {
-  return mysql.createConnection({
-    host: getEnv("GLPI_DB_HOST"),
-    port: Number(process.env.GLPI_DB_PORT || 3306),
-    user: getEnv("GLPI_DB_USER"),
-    password: getEnv("GLPI_DB_PASSWORD"),
-    database: getEnv("GLPI_DB_NAME"),
-    charset: "utf8mb4",
-  });
+function normalizeGlpiArray(data: any) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
 }
 
+function extractGlpiId(row: any) {
+  return row?.id ?? row?.["2"] ?? row?.glpi_id ?? null;
+}
+
+function extractGlpiName(row: any) {
+  return row?.name ?? row?.["1"] ?? "";
+}
+
+function extractGlpiContent(row: any) {
+  return row?.content ?? row?.["21"] ?? row?.description ?? "";
+}
+
+function extractGlpiStatus(row: any) {
+  return row?.status ?? row?.["12"] ?? row?.state ?? "";
+}
+
+function extractGlpiDate(row: any) {
+  return row?.date ?? row?.["15"] ?? row?.date_creation ?? row?.created_at ?? "";
+}
+
+function extractGlpiSolvedDate(row: any) {
+  return row?.solvedate ?? row?.solvedate_mod ?? row?.["18"] ?? "";
+}
+
+function extractGlpiClosedDate(row: any) {
+  return row?.closedate ?? row?.closed_at ?? row?.["19"] ?? "";
+}
+
+function extractGlpiEntityPath(row: any) {
+  return (
+    row?.entity_path ||
+    row?.completename ||
+    row?.complete_name ||
+    row?.entities_completename ||
+    row?.["80"] ||
+    ""
+  );
+}
+
+function extractGlpiPriority(row: any) {
+  return row?.priority ?? row?.["3"] ?? null;
+}
+
+function extractGlpiUrgency(row: any) {
+  return row?.urgency ?? row?.["10"] ?? null;
+}
+
+function extractGlpiImpact(row: any) {
+  return row?.impact ?? row?.["11"] ?? null;
+}
+
+async function openGlpiSession() {
+  const baseUrl = getEnv("GLPI_API_URL").replace(/\/$/, "");
+  const appToken = getEnv("GLPI_APP_TOKEN");
+  const userToken = getEnv("GLPI_USER_TOKEN");
+
+  const response = await fetch(`${baseUrl}/initSession`, {
+    method: "GET",
+    headers: {
+      "App-Token": appToken,
+      Authorization: `user_token ${userToken}`,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok || !data?.session_token) {
+    throw new Error(
+      `GLPI initSession failed: ${response.status} ${JSON.stringify(data)}`,
+    );
+  }
+
+  return {
+    baseUrl,
+    appToken,
+    sessionToken: data.session_token as string,
+  };
+}
+
+async function closeGlpiSession(session: {
+  baseUrl: string;
+  appToken: string;
+  sessionToken: string;
+}) {
+  await fetch(`${session.baseUrl}/killSession`, {
+    method: "GET",
+    headers: {
+      "App-Token": session.appToken,
+      "Session-Token": session.sessionToken,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  }).catch(() => null);
+}
+
+async function glpiRequest(
+  session: {
+    baseUrl: string;
+    appToken: string;
+    sessionToken: string;
+  },
+  endpoint: string,
+) {
+  const response = await fetch(`${session.baseUrl}${endpoint}`, {
+    method: "GET",
+    headers: {
+      "App-Token": session.appToken,
+      "Session-Token": session.sessionToken,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(
+      `GLPI request failed ${endpoint}: ${response.status} ${JSON.stringify(data)}`,
+    );
+  }
+
+  return data;
+}
+
+async function loadGlpiTickets(
+  session: {
+    baseUrl: string;
+    appToken: string;
+    sessionToken: string;
+  },
+  {
+    limit,
+    offset,
+    glpiTicketId,
+  }: {
+    limit: number;
+    offset: number;
+    glpiTicketId?: number | string;
+  },
+) {
+  const byId =
+    glpiTicketId !== undefined &&
+    glpiTicketId !== null &&
+    String(glpiTicketId).trim() !== "";
+
+  if (byId) {
+    const ticket = await glpiRequest(session, `/Ticket/${Number(glpiTicketId)}`);
+    return normalizeGlpiArray([ticket]);
+  }
+
+  const end = offset + limit - 1;
+  const query =
+    `/search/Ticket?range=${offset}-${end}` +
+    `&forcedisplay[0]=1` +
+    `&forcedisplay[1]=2` +
+    `&forcedisplay[2]=3` +
+    `&forcedisplay[3]=10` +
+    `&forcedisplay[4]=11` +
+    `&forcedisplay[5]=12` +
+    `&forcedisplay[6]=15` +
+    `&forcedisplay[7]=21` +
+    `&forcedisplay[8]=80`;
+
+  const result = await glpiRequest(session, query);
+  return normalizeGlpiArray(result?.data || result);
+}
+
+async function loadGlpiFollowups(
+  session: {
+    baseUrl: string;
+    appToken: string;
+    sessionToken: string;
+  },
+  ticketId: number | string,
+) {
+  try {
+    const result = await glpiRequest(session, `/Ticket/${ticketId}/ITILFollowup`);
+    return normalizeGlpiArray(result);
+  } catch {
+    return [];
+  }
+}
+
+async function loadGlpiSolutions(
+  session: {
+    baseUrl: string;
+    appToken: string;
+    sessionToken: string;
+  },
+  ticketId: number | string,
+) {
+  try {
+    const result = await glpiRequest(session, `/Ticket/${ticketId}/ITILSolution`);
+    return normalizeGlpiArray(result);
+  } catch {
+    return [];
+  }
+}
+
+// Manteniamo lo stesso nome esportato per non rompere la route già collegata.
+// Ora però NON usa più MySQL: usa GLPI REST API.
 export async function syncGlpiDbToAtlas({
   tenantId,
   limit = 500,
@@ -91,61 +288,19 @@ export async function syncGlpiDbToAtlas({
     getEnv("SUPABASE_SERVICE_ROLE_KEY"),
   );
 
-  const glpi = await getGlpiConnection();
+  const session = await openGlpiSession();
 
   try {
-    const byId = glpiTicketId !== undefined && glpiTicketId !== null && String(glpiTicketId).trim() !== "";
+    const tickets = await loadGlpiTickets(session, {
+      limit,
+      offset,
+      glpiTicketId,
+    });
 
-    const [ticketRows] = await glpi.execute(
-      byId
-        ? `
-          SELECT
-            t.id,
-            t.name,
-            t.status,
-            t.date,
-            t.solvedate,
-            t.closedate,
-            t.entities_id,
-            t.itilcategories_id,
-            t.type,
-            t.urgency,
-            t.impact,
-            t.priority,
-            t.content,
-            e.name AS entity_name,
-            e.completename AS entity_path
-          FROM glpi_tickets t
-          LEFT JOIN glpi_entities e ON e.id = t.entities_id
-          WHERE t.id = ?
-          LIMIT 1
-          `
-        : `
-          SELECT
-            t.id,
-            t.name,
-            t.status,
-            t.date,
-            t.solvedate,
-            t.closedate,
-            t.entities_id,
-            t.itilcategories_id,
-            t.type,
-            t.urgency,
-            t.impact,
-            t.priority,
-            t.content,
-            e.name AS entity_name,
-            e.completename AS entity_path
-          FROM glpi_tickets t
-          LEFT JOIN glpi_entities e ON e.id = t.entities_id
-          ORDER BY t.id ASC
-          LIMIT ? OFFSET ?
-          `,
-      byId ? [Number(glpiTicketId)] : [limit, offset],
-    );
-
-    const tickets = ticketRows as any[];
+    const byId =
+      glpiTicketId !== undefined &&
+      glpiTicketId !== null &&
+      String(glpiTicketId).trim() !== "";
 
     let processed = 0;
     let updated = 0;
@@ -156,28 +311,47 @@ export async function syncGlpiDbToAtlas({
     for (const glpiTicket of tickets) {
       processed += 1;
 
-      try {
-        const status = mapStatus(glpiTicket.status);
-        const openedAt = parseDate(glpiTicket.date);
-        const solvedAt = parseDate(glpiTicket.solvedate);
-        const closedAt =
-          parseDate(glpiTicket.closedate) ||
-          (isClosedStatus(glpiTicket.status) ? solvedAt || openedAt : null);
+      const glpiId = extractGlpiId(glpiTicket);
 
-        const cleanContent = cleanHtml(glpiTicket.content);
-        const title = cleanHtml(glpiTicket.name) || `Ticket GLPI #${glpiTicket.id}`;
+      if (!glpiId) {
+        errors += 1;
+        await supabaseAdmin.from("glpi_import_errors").insert({
+          tenant_id: tenantId,
+          glpi_ticket_id: null,
+          stage: "glpi_api_sync_engine",
+          message: "GLPI ticket id mancante nella risposta API",
+          raw: { glpiTicket },
+        });
+        continue;
+      }
+
+      try {
+        const status = mapStatus(extractGlpiStatus(glpiTicket));
+        const openedAt = parseDate(extractGlpiDate(glpiTicket));
+        const solvedAt = parseDate(extractGlpiSolvedDate(glpiTicket));
+        const closedAt =
+          parseDate(extractGlpiClosedDate(glpiTicket)) ||
+          (isClosedStatus(extractGlpiStatus(glpiTicket))
+            ? solvedAt || openedAt
+            : null);
+
+        const cleanContent = cleanHtml(extractGlpiContent(glpiTicket));
+        const title =
+          cleanHtml(extractGlpiName(glpiTicket)) || `Ticket GLPI #${glpiId}`;
 
         const { data: atlasTicket } = await supabaseAdmin
           .from("tickets")
           .select("id")
           .eq("tenant_id", tenantId)
-          .eq("glpi_ticket_id", glpiTicket.id)
+          .eq("glpi_ticket_id", glpiId)
           .maybeSingle();
 
         if (!atlasTicket?.id) {
-          skipped.push(glpiTicket.id);
+          skipped.push(Number(glpiId));
           continue;
         }
+
+        const entityPath = extractGlpiEntityPath(glpiTicket);
 
         const { error: updateError } = await supabaseAdmin
           .from("tickets")
@@ -185,12 +359,12 @@ export async function syncGlpiDbToAtlas({
             status,
             opened_at: openedAt,
             closed_at: closedAt,
-            resolved: isClosedStatus(glpiTicket.status),
+            resolved: isClosedStatus(extractGlpiStatus(glpiTicket)),
             problem: cleanContent || title,
-            glpi_entity_path: glpiTicket.entity_path || null,
-            glpi_priority: glpiTicket.priority,
-            glpi_urgency: glpiTicket.urgency,
-            glpi_impact: glpiTicket.impact,
+            glpi_entity_path: entityPath || null,
+            glpi_priority: extractGlpiPriority(glpiTicket),
+            glpi_urgency: extractGlpiUrgency(glpiTicket),
+            glpi_impact: extractGlpiImpact(glpiTicket),
             glpi_raw: {
               ...glpiTicket,
               clean_name: title,
@@ -213,42 +387,30 @@ export async function syncGlpiDbToAtlas({
             created_by: "GLPI",
             created_at: openedAt || new Date().toISOString(),
             source: "glpi",
-            glpi_ticket_id: glpiTicket.id,
-            glpi_event_id: glpiTicket.id,
+            glpi_ticket_id: glpiId,
+            glpi_event_id: glpiId,
             glpi_raw: glpiTicket,
             metadata: {
               status,
               name: title,
-              entity_path: glpiTicket.entity_path,
+              entity_path: entityPath,
             },
           },
           { onConflict: "source,glpi_event_id,event_type" },
         );
 
-        const [followupRows] = await glpi.execute(
-          `
-          SELECT
-            f.id,
-            f.items_id,
-            f.users_id,
-            f.date,
-            f.content,
-            u.name,
-            u.realname,
-            u.firstname
-          FROM glpi_itilfollowups f
-          LEFT JOIN glpi_users u ON u.id = f.users_id
-          WHERE f.itemtype = 'Ticket'
-          AND f.items_id = ?
-          ORDER BY f.date ASC
-          `,
-          [glpiTicket.id],
-        );
+        const followupRows = await loadGlpiFollowups(session, glpiId);
 
-        for (const followup of followupRows as any[]) {
+        for (const followup of followupRows) {
+          const followupId = followup?.id ?? followup?.["2"];
+          if (!followupId) continue;
+
           const author =
-            [followup.firstname, followup.realname].filter(Boolean).join(" ") ||
-            followup.name ||
+            [followup?.firstname, followup?.realname]
+              .filter(Boolean)
+              .join(" ") ||
+            followup?.name ||
+            followup?.users_id ||
             "GLPI";
 
           const { error } = await supabaseAdmin.from("ticket_events").upsert(
@@ -257,15 +419,17 @@ export async function syncGlpiDbToAtlas({
               ticket_id: atlasTicket.id,
               event_type: "glpi_followup",
               title: "Follow-up GLPI",
-              description: cleanHtml(followup.content),
+              description: cleanHtml(followup?.content ?? followup?.["21"]),
               created_by: author,
-              created_at: parseDate(followup.date) || new Date().toISOString(),
+              created_at:
+                parseDate(followup?.date ?? followup?.date_creation) ||
+                new Date().toISOString(),
               source: "glpi",
-              glpi_ticket_id: glpiTicket.id,
-              glpi_event_id: followup.id,
+              glpi_ticket_id: glpiId,
+              glpi_event_id: followupId,
               glpi_raw: followup,
               metadata: {
-                users_id: followup.users_id,
+                users_id: followup?.users_id,
               },
             },
             { onConflict: "source,glpi_event_id,event_type" },
@@ -274,30 +438,18 @@ export async function syncGlpiDbToAtlas({
           if (!error) insertedEvents += 1;
         }
 
-        const [solutionRows] = await glpi.execute(
-          `
-          SELECT
-            s.id,
-            s.items_id,
-            s.users_id,
-            s.date_creation,
-            s.content,
-            u.name,
-            u.realname,
-            u.firstname
-          FROM glpi_itilsolutions s
-          LEFT JOIN glpi_users u ON u.id = s.users_id
-          WHERE s.itemtype = 'Ticket'
-          AND s.items_id = ?
-          ORDER BY s.date_creation ASC
-          `,
-          [glpiTicket.id],
-        );
+        const solutionRows = await loadGlpiSolutions(session, glpiId);
 
-        for (const solution of solutionRows as any[]) {
+        for (const solution of solutionRows) {
+          const solutionId = solution?.id ?? solution?.["2"];
+          if (!solutionId) continue;
+
           const author =
-            [solution.firstname, solution.realname].filter(Boolean).join(" ") ||
-            solution.name ||
+            [solution?.firstname, solution?.realname]
+              .filter(Boolean)
+              .join(" ") ||
+            solution?.name ||
+            solution?.users_id ||
             "GLPI";
 
           const { error } = await supabaseAdmin.from("ticket_events").upsert(
@@ -306,15 +458,17 @@ export async function syncGlpiDbToAtlas({
               ticket_id: atlasTicket.id,
               event_type: "glpi_solution",
               title: "Soluzione GLPI",
-              description: cleanHtml(solution.content),
+              description: cleanHtml(solution?.content ?? solution?.["21"]),
               created_by: author,
-              created_at: parseDate(solution.date_creation) || new Date().toISOString(),
+              created_at:
+                parseDate(solution?.date_creation ?? solution?.date) ||
+                new Date().toISOString(),
               source: "glpi",
-              glpi_ticket_id: glpiTicket.id,
-              glpi_event_id: solution.id,
+              glpi_ticket_id: glpiId,
+              glpi_event_id: solutionId,
               glpi_raw: solution,
               metadata: {
-                users_id: solution.users_id,
+                users_id: solution?.users_id,
               },
             },
             { onConflict: "source,glpi_event_id,event_type" },
@@ -326,8 +480,8 @@ export async function syncGlpiDbToAtlas({
         errors += 1;
         await supabaseAdmin.from("glpi_import_errors").insert({
           tenant_id: tenantId,
-          glpi_ticket_id: glpiTicket.id || null,
-          stage: "glpi_db_sync_engine",
+          glpi_ticket_id: glpiId || null,
+          stage: "glpi_api_sync_engine",
           message: error?.message || error?.details || JSON.stringify(error),
           raw: { error, glpiTicket },
         });
@@ -336,6 +490,7 @@ export async function syncGlpiDbToAtlas({
 
     return {
       ok: true,
+      mode: "glpi_api",
       processed,
       updated,
       insertedEvents,
@@ -345,6 +500,6 @@ export async function syncGlpiDbToAtlas({
       hasMore: byId ? false : processed >= limit,
     };
   } finally {
-    await glpi.end();
+    await closeGlpiSession(session);
   }
 }
