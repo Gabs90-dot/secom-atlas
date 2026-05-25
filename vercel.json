@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/admin/glpi-auto-sync",
-      "schedule": "* * * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }
