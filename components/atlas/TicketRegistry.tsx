@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock, Download, Filter, Flame, Search, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, Download, Filter, Flame, RefreshCw, Search, XCircle } from "lucide-react";
 import { materials, technicians } from "@/lib/atlasConstants";
 import { euro, materialCost } from "@/lib/atlasUtils";
 
@@ -24,8 +24,11 @@ type TicketRegistryProps = {
   urgentOnly?: boolean;
   setUrgentOnly?: (value: boolean) => void;
   availableRegions?: string[];
+  customerEntities?: any[];
   onToggleUrgent?: (ticket: any) => void;
   onOpenTicketDetail?: (ticket: any) => void;
+  onRefreshTickets?: () => void;
+  refreshingTickets?: boolean;
 };
 
 function ticketMaterialsLabel(ticket: any) {
@@ -155,6 +158,41 @@ function StatCard({ label, value, tone, icon: Icon, onClick, active }: any) {
   );
 }
 
+
+function entityOptionLabel(entity: any) {
+  const level = Math.max(0, Number(entity.level || 0));
+  const prefix = level > 0 ? `${"— ".repeat(Math.min(level, 5))}` : "";
+  return `${prefix}${entity.name || entity.complete_name || "Entità"}`;
+}
+
+function entityOptionValue(entity: any) {
+  return entity.complete_name || entity.name || String(entity.glpi_entity_id || "");
+}
+
+function buildEntityOptions(customerEntities: any[], availableRegions: string[]) {
+  if (customerEntities.length > 0) {
+    return customerEntities
+      .slice()
+      .sort((a, b) =>
+        String(a.complete_name || a.name || "").localeCompare(
+          String(b.complete_name || b.name || ""),
+          "it",
+        ),
+      )
+      .map((entity) => ({
+        key: String(entity.id || entity.glpi_entity_id || entity.complete_name),
+        value: entityOptionValue(entity),
+        label: entityOptionLabel(entity),
+      }));
+  }
+
+  return availableRegions.map((region) => ({
+    key: String(region),
+    value: String(region),
+    label: String(region),
+  }));
+}
+
 function RegistryFilters({
   variant,
   filterTechnician = "",
@@ -168,11 +206,14 @@ function RegistryFilters({
   urgentOnly = false,
   setUrgentOnly,
   availableRegions = [],
+  customerEntities = [],
 }: TicketRegistryProps) {
   const inputClass =
     variant === "mobile"
       ? "rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-bold text-white outline-none placeholder:text-slate-500"
       : "rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500";
+
+  const entityOptions = buildEntityOptions(customerEntities, availableRegions);
 
   return (
     <div className="min-w-0 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4">
@@ -184,16 +225,18 @@ function RegistryFilters({
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
             className={`${inputClass} w-full pl-10`}
-            placeholder="Filtra per sede"
+            placeholder="Cerca sede o descrizione"
             value={filterSite}
             onChange={(e) => setFilterSite?.(e.target.value)}
           />
         </div>
 
         <select className={inputClass} value={filterRegion} onChange={(e) => setFilterRegion?.(e.target.value)}>
-          <option value="">Tutte le regioni</option>
-          {availableRegions.map((region) => (
-            <option key={region} value={region}>{region}</option>
+          <option value="">Tutte le entità</option>
+          {entityOptions.map((entityOption) => (
+            <option key={entityOption.key} value={entityOption.value}>
+              {entityOption.label}
+            </option>
           ))}
         </select>
 
@@ -206,10 +249,12 @@ function RegistryFilters({
 
         <select className={inputClass} value={filterStatus} onChange={(e) => setFilterStatus?.(e.target.value)}>
           <option value="">Tutti gli stati</option>
-          <option value="Aperto">Aperto</option>
+          <option value="Aperto">Aperti / non chiusi</option>
+          <option value="Nuovo">Nuovo</option>
           <option value="Pianificato">Pianificato</option>
           <option value="In lavorazione">In lavorazione</option>
           <option value="In sospeso">In sospeso</option>
+          <option value="Risolto">Risolto</option>
           <option value="Chiuso">Chiuso</option>
         </select>
 
@@ -262,7 +307,7 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
             </span>
           </div>
 
-          <p className="mt-2 break-words text-sm text-slate-400">{ticket.region || "Regione n/d"} · {ticket.technician || "Tecnico non assegnato"}</p>
+          <p className="mt-2 break-words text-sm text-slate-400">{ticket.region || ticket.entity || "Area n/d"} · {ticket.technician || "Tecnico non assegnato"}</p>
           <p className="mt-3 break-words text-sm text-slate-300">{ticketDescription(ticket)}</p>
 
           <div className="mt-4 grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
@@ -317,7 +362,7 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
 }
 
 export default function TicketRegistry(props: TicketRegistryProps) {
-  const { variant, tickets, exportCsv, setMobileView, card = "", onOpenTicketDetail } = props;
+  const { variant, tickets, exportCsv, setMobileView, card = "", onOpenTicketDetail, onRefreshTickets, refreshingTickets = false } = props;
   const [boardFilter, setBoardFilter] = useState<"all" | "open" | "urgent" | "overdue" | "closed">("all");
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const openTicketDetail = onOpenTicketDetail || setSelectedTicket;
@@ -437,9 +482,21 @@ export default function TicketRegistry(props: TicketRegistryProps) {
           <p className="mt-2 break-words text-sm text-slate-400">Priorità, scadenze, filtri e chiusure operative in un’unica vista.</p>
         </div>
 
-        <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">
-          <Download size={18} /> Esporta CSV
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRefreshTickets}
+            disabled={refreshingTickets || !onRefreshTickets}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw size={18} className={refreshingTickets ? "animate-spin" : ""} />
+            {refreshingTickets ? "Aggiorno..." : "Aggiorna"}
+          </button>
+
+          <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">
+            <Download size={18} /> Esporta CSV
+          </button>
+        </div>
       </div>
 
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">

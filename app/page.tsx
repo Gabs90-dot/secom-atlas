@@ -102,6 +102,7 @@ export default function Home() {
   const [tickets, setTickets] = useState<any[]>([]);
   const [sites, setSites] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
+  const [customerEntities, setCustomerEntities] = useState<any[]>([]);
   const [tenants, setTenants] = useState<AtlasTenant[]>([]);
   const [activeTenant, setActiveTenant] = useState<AtlasTenant | null>(null);
   const [tenantLoading, setTenantLoading] = useState(true);
@@ -131,6 +132,8 @@ export default function Home() {
   const [resolved, setResolved] = useState(true);
   const [closingTicketId, setClosingTicketId] = useState<string | null>(null);
   const [selectedTicketWorkspace, setSelectedTicketWorkspace] = useState<any | null>(null);
+  const [ticketFormReturnTarget, setTicketFormReturnTarget] = useState<{ activeTab: any; mobileView: any } | null>(null);
+  const [refreshingTickets, setRefreshingTickets] = useState(false);
 
   const [filterTechnician, setFilterTechnician] = useState("");
   const [filterRegion, setFilterRegion] = useState("");
@@ -238,6 +241,7 @@ export default function Home() {
     null,
   );
   const [calendarTechnician, setCalendarTechnician] = useState("");
+  const [calendarFilterTechnician, setCalendarFilterTechnician] = useState("");
   const [calendarSiteSearch, setCalendarSiteSearch] = useState("");
   const [calendarSite, setCalendarSite] = useState<any | null>(null);
   const [calendarTime, setCalendarTime] = useState("");
@@ -399,6 +403,22 @@ export default function Home() {
       setCustomers(data || []);
     }
 
+    async function loadCustomerEntities() {
+      const { data, error } = await supabase
+        .from("customer_entities")
+        .select("*")
+        .eq("tenant_id", activeTenant?.id)
+        .order("complete_name", { ascending: true });
+
+      if (error) {
+        console.log(error);
+        setCustomerEntities([]);
+        return;
+      }
+
+      setCustomerEntities(data || []);
+    }
+
     async function loadTickets() {
       const { data, error } = await supabase
         .from("tickets")
@@ -415,7 +435,11 @@ export default function Home() {
       const formatted =
         data?.map((t) => ({
           id: t.id,
+          glpi_ticket_id: t.glpi_ticket_id || null,
+          glpiTicketId: t.glpi_ticket_id || null,
           site: t.site,
+          glpi_entity_path: t.glpi_entity_path || "",
+          glpiEntityPath: t.glpi_entity_path || "",
           region: t.region,
           entity: t.entity || "",
           city: t.city || "",
@@ -453,6 +477,7 @@ site_id: t.site_id || null,
     loadTickets();
     loadSites();
     loadCustomers();
+    loadCustomerEntities();
   }, [activeTenant?.id]);
 
   function showMessage(text: string, type: "success" | "error" = "success") {
@@ -594,20 +619,123 @@ site_id: t.site_id || null,
 
   const remainingBudget = totalBudget - totalForecast;
 
+  async function refreshTickets() {
+    if (!activeTenant?.id) {
+      showMessage("Organizzazione non configurata", "error");
+      return;
+    }
+
+    setRefreshingTickets(true);
+
+    const { data, error } = await supabase
+      .from("tickets")
+      .select("*")
+      .eq("tenant_id", activeTenant?.id)
+      .order("created_at", { ascending: false })
+      .range(0, 19999);
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore aggiornamento ticket", "error");
+      setRefreshingTickets(false);
+      return;
+    }
+
+    const formatted =
+      data?.map((t) => ({
+        id: t.id,
+        glpi_ticket_id: t.glpi_ticket_id || null,
+        glpiTicketId: t.glpi_ticket_id || null,
+        site: t.site,
+        glpi_entity_path: t.glpi_entity_path || "",
+        glpiEntityPath: t.glpi_entity_path || "",
+        region: t.region,
+        entity: t.entity || "",
+        city: t.city || "",
+        problem: t.problem,
+        materialIds: t.materials || [],
+        technician: t.technician,
+        status: t.status,
+        date: t.intervention_date || "",
+        resolved: t.resolved,
+        futureNeeds: t.future_needs || "",
+        closingNotes: t.closing_notes || "",
+        slot: t.slot || "",
+        openedAt: t.opened_at || t.created_at || "",
+        expectedCloseDate: t.expected_close_date || "",
+        closedAt: t.closed_at || "",
+        urgent: Boolean(t.urgent),
+        siteId: t.site_id || null,
+        site_id: t.site_id || null,
+        customerId: t.customer_id || null,
+        tenantId: t.tenant_id || null,
+        tenant_id: t.tenant_id || null,
+        ticketType:
+          (typeof window !== "undefined"
+            ? JSON.parse(localStorage.getItem("atlas-ticket-types") || "{}")?.[
+                String(t.id)
+              ]
+            : undefined) ||
+          t.ticket_type ||
+          "ordinaria",
+      })) || [];
+
+    setTickets(formatted);
+    setRefreshingTickets(false);
+    showMessage("Ticket aggiornati");
+  }
+
+  function normalizeFilterText(value: any) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  }
+
   const filteredTickets = tickets.filter((t) => {
     const matchTechnician =
       !filterTechnician || t.technician === filterTechnician;
-    const matchRegion = !filterRegion || t.region === filterRegion;
-    const matchStatus = !filterStatus || t.status === filterStatus;
+
+    const entityText = normalizeFilterText(`
+      ${t.region || ""}
+      ${t.entity || ""}
+      ${t.site || ""}
+      ${t.city || ""}
+      ${t.glpi_entity_path || ""}
+      ${t.glpiEntityPath || ""}
+    `);
+
+    const matchEntity =
+      !filterRegion || entityText.includes(normalizeFilterText(filterRegion));
+
+    const readableStatus = normalizeFilterText(t.status);
+    const closedStatus =
+      readableStatus.includes("chiuso") ||
+      readableStatus.includes("risolto") ||
+      readableStatus.includes("closed") ||
+      readableStatus === "5" ||
+      readableStatus === "6" ||
+      Boolean(t.closedAt || t.closed_at);
+
+    const normalizedFilterStatus = normalizeFilterText(filterStatus);
+
+    const matchStatus =
+      !filterStatus ||
+      (normalizedFilterStatus === "aperto" && !closedStatus) ||
+      (normalizedFilterStatus === "chiuso" && closedStatus) ||
+      readableStatus === normalizedFilterStatus ||
+      readableStatus.includes(normalizedFilterStatus);
+
     const matchSite =
       !filterSite ||
-      `${t.site || ""} ${t.city || ""} ${t.entity || ""}`
-        .toLowerCase()
-        .includes(filterSite.toLowerCase());
+      normalizeFilterText(`${t.site || ""} ${t.city || ""} ${t.entity || ""} ${t.problem || ""} ${t.glpi_entity_path || ""}`).includes(
+        normalizeFilterText(filterSite),
+      );
     const matchUrgent = !urgentOnly || Boolean(t.urgent);
 
     return (
-      matchTechnician && matchRegion && matchStatus && matchSite && matchUrgent
+      matchTechnician && matchEntity && matchStatus && matchSite && matchUrgent
     );
   });
 
@@ -615,9 +743,26 @@ site_id: t.site_id || null,
     (t) => Boolean(t.urgent) && t.status !== "Chiuso",
   );
 
+  function getPrimaryEntity(ticket: any) {
+    const path = String(ticket.glpi_entity_path || ticket.glpiEntityPath || "");
+    const parts = path
+      .split(">")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .filter((part) => part.toLowerCase() !== "root");
+
+    return (
+      parts[0] ||
+      ticket.entity ||
+      ticket.region ||
+      ticket.site ||
+      "Da definire"
+    );
+  }
+
   const availableRegions = Array.from(
-    new Set(tickets.map((t) => t.region).filter(Boolean)),
-  );
+    new Set(tickets.map(getPrimaryEntity).filter(Boolean)),
+  ).sort((a, b) => String(a).localeCompare(String(b), "it"));
 
   const expiringContracts = editableContracts.filter(
     (contract) => getContractStatus(contract).warning,
@@ -632,53 +777,98 @@ site_id: t.site_id || null,
     (item) => Number(item.quantity) < 10,
   );
 
-  const clientCategories = {
-    "Ministero Interni": sites.filter((s) =>
-      `${s.name} ${s.entity}`.toLowerCase().includes("minister"),
-    ),
-    Carabinieri: sites.filter((s) =>
-      `${s.name} ${s.entity}`.toLowerCase().includes("carabin"),
-    ),
-    "Polizia Locale": sites.filter((s) => {
-      const text = `${s.name} ${s.entity}`.toLowerCase();
-      return (
-        text.includes("polizia locale") ||
-        text.includes("polizia municipale") ||
-        text.includes("polizia provinciale")
-      );
-    }),
-    Questure: sites.filter((s) =>
-      `${s.name} ${s.entity}`.toLowerCase().includes("questura"),
-    ),
-    Prefetture: sites.filter((s) =>
-      `${s.name} ${s.entity}`.toLowerCase().includes("prefettura"),
-    ),
-    Tribunali: sites.filter((s) =>
-      `${s.name} ${s.entity}`.toLowerCase().includes("tribunale"),
-    ),
-    Comuni: sites.filter((s) =>
-      `${s.name} ${s.entity}`.toLowerCase().includes("comune"),
-    ),
-    RFI: sites.filter((s) =>
-      `${s.name} ${s.entity}`.toLowerCase().includes("rfi"),
-    ),
-    Altro: sites.filter((s) => {
-      const text = `${s.name} ${s.entity}`.toLowerCase();
+  const clientCategories = useMemo(() => {
+    if (customerEntities.length > 0) {
+      const grouped: Record<string, any[]> = {};
 
-      return ![
-        "minister",
-        "carabin",
-        "polizia locale",
-        "polizia municipale",
-        "polizia provinciale",
-        "questura",
-        "prefettura",
-        "tribunale",
-        "comune",
-        "rfi",
-      ].some((k) => text.includes(k));
-    }),
-  };
+      sites.forEach((site) => {
+        const rawPath =
+          site.glpi_entity_path ||
+          site.entity ||
+          "";
+
+        const parts = String(rawPath)
+          .split(">")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .filter((part) => part.toLowerCase() !== "root");
+
+        const category =
+          parts[0] ||
+          site.entity ||
+          "Altro";
+
+        if (!grouped[category]) {
+          grouped[category] = [];
+        }
+
+        grouped[category].push(site);
+      });
+
+      Object.keys(grouped).forEach((key) => {
+        grouped[key] = grouped[key].sort((a, b) =>
+          String(a.name || "").localeCompare(
+            String(b.name || ""),
+            "it"
+          )
+        );
+      });
+
+      return Object.fromEntries(
+        Object.entries(grouped).sort(([a], [b]) =>
+          a.localeCompare(b, "it")
+        )
+      );
+    }
+
+    return {
+      "Ministero Interni": sites.filter((s) =>
+        `${s.name} ${s.entity}`.toLowerCase().includes("minister"),
+      ),
+      Carabinieri: sites.filter((s) =>
+        `${s.name} ${s.entity}`.toLowerCase().includes("carabin"),
+      ),
+      "Polizia Locale": sites.filter((s) => {
+        const text = `${s.name} ${s.entity}`.toLowerCase();
+        return (
+          text.includes("polizia locale") ||
+          text.includes("polizia municipale") ||
+          text.includes("polizia provinciale")
+        );
+      }),
+      Questure: sites.filter((s) =>
+        `${s.name} ${s.entity}`.toLowerCase().includes("questura"),
+      ),
+      Prefetture: sites.filter((s) =>
+        `${s.name} ${s.entity}`.toLowerCase().includes("prefettura"),
+      ),
+      Tribunali: sites.filter((s) =>
+        `${s.name} ${s.entity}`.toLowerCase().includes("tribunale"),
+      ),
+      Comuni: sites.filter((s) =>
+        `${s.name} ${s.entity}`.toLowerCase().includes("comune"),
+      ),
+      RFI: sites.filter((s) =>
+        `${s.name} ${s.entity}`.toLowerCase().includes("rfi"),
+      ),
+      Altro: sites.filter((s) => {
+        const text = `${s.name} ${s.entity}`.toLowerCase();
+
+        return ![
+          "minister",
+          "carabin",
+          "polizia locale",
+          "polizia municipale",
+          "polizia provinciale",
+          "questura",
+          "prefettura",
+          "tribunale",
+          "comune",
+          "rfi",
+        ].some((k) => text.includes(k));
+      }),
+    };
+  }, [customerEntities, sites]);
 
   function toggleMaterial(id: string) {
     setSelectedMaterials((prev) =>
@@ -1033,7 +1223,17 @@ site_id: t.site_id || null,
 
   const mobileSelectedDate = selectedCalendarDay || formatLocalDate(new Date());
 
-  const mobileSelectedTickets = tickets.filter(
+  const calendarVisibleTickets = useMemo(
+    () =>
+      tickets.filter(
+        (ticket) =>
+          !calendarFilterTechnician ||
+          ticket.technician === calendarFilterTechnician,
+      ),
+    [tickets, calendarFilterTechnician],
+  );
+
+  const mobileSelectedTickets = calendarVisibleTickets.filter(
     (t) => t.date === mobileSelectedDate,
   );
 
@@ -1841,6 +2041,7 @@ site_id: t.site_id || null,
   ];
 
   function openTicketFromCustomer(customer: any, selectedSite?: any) {
+    setTicketFormReturnTarget({ activeTab, mobileView });
     setSiteSearch(selectedSite?.name || "");
     setSite(selectedSite?.name || "");
     setRegion(selectedSite?.region || "");
@@ -1857,6 +2058,13 @@ site_id: t.site_id || null,
     setProblem("");
     setMobileView("operativo");
     setActiveTab("operativo");
+  }
+
+  function goBackFromTicketForm() {
+    const target = ticketFormReturnTarget || { activeTab: "home", mobileView: "home" };
+    setActiveTab(target.activeTab || "home");
+    setMobileView(target.mobileView || "home");
+    setTicketFormReturnTarget(null);
   }
 
   function handleTenantChange(tenant: AtlasTenant) {
@@ -1876,6 +2084,7 @@ site_id: t.site_id || null,
     setTickets([]);
     setSites([]);
     setCustomers([]);
+    setCustomerEntities([]);
   }
 
   async function handleLogout() {
@@ -1894,6 +2103,7 @@ site_id: t.site_id || null,
     setTickets([]);
     setSites([]);
     setCustomers([]);
+    setCustomerEntities([]);
     setActiveTenant(null);
 
     if (typeof window !== "undefined") {
@@ -2527,6 +2737,7 @@ site_id: t.site_id || null,
                     customers={customers}
                     sites={sites}
                     tickets={tickets}
+                    customerEntities={customerEntities}
                     onOpenTicket={openTicketFromCustomer}
                   />
                 </div>
@@ -2552,7 +2763,17 @@ site_id: t.site_id || null,
               )}
 
               {mobileView === "operativo" && (
-                <TicketForm
+                <div className="grid gap-4">
+                  {ticketFormReturnTarget && (
+                    <button
+                      type="button"
+                      onClick={goBackFromTicketForm}
+                      className="w-fit rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-white hover:bg-white/[0.1]"
+                    >
+                      ← Torna indietro
+                    </button>
+                  )}
+                  <TicketForm
                   input={input}
                   siteSearch={siteSearch}
                   setSiteSearch={setSiteSearch}
@@ -2577,6 +2798,7 @@ site_id: t.site_id || null,
                   ticketStatusOptions={ticketStatusOptions}
                   addTicket={addTicket}
                 />
+                </div>
               )}
 
               {mobileView === "calendario" && (
@@ -2609,6 +2831,21 @@ site_id: t.site_id || null,
                     </button>
                   </div>
 
+                  <select
+                    className={input}
+                    value={calendarFilterTechnician}
+                    onChange={(event) =>
+                      setCalendarFilterTechnician(event.target.value)
+                    }
+                  >
+                    <option value="">Tutti i tecnici</option>
+                    {technicians.map((tech) => (
+                      <option key={tech} value={tech}>
+                        {tech}
+                      </option>
+                    ))}
+                  </select>
+
                   <div className="grid w-full grid-cols-7 gap-1 text-center text-xs font-bold text-slate-300">
                     {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map(
                       (d) => (
@@ -2622,13 +2859,13 @@ site_id: t.site_id || null,
                       const iso = formatLocalDate(day);
                       const inMonth =
                         day.getMonth() === calendarMonth.getMonth();
-                      const hasTickets = tickets.some((t) => t.date === iso);
+                      const hasTickets = calendarVisibleTickets.some((t) => t.date === iso);
                       const selected = mobileSelectedDate === iso;
 
                       return (
                         <button
                           key={iso}
-                          onClick={() => setSelectedCalendarDay(iso)}
+                          onClick={() => startCalendarCreate(iso)}
                           className={`aspect-square min-h-0 rounded-xl border p-1 text-center ${
                             selected
                               ? "border-blue-500 bg-blue-600 text-white"
@@ -2848,6 +3085,8 @@ site_id: t.site_id || null,
                   availableRegions={availableRegions}
                   onToggleUrgent={toggleTicketUrgent}
                   onOpenTicketDetail={openTicketWorkspace}
+                  onRefreshTickets={refreshTickets}
+                  refreshingTickets={refreshingTickets}
                 />
               )}
 
@@ -4188,6 +4427,7 @@ site_id: t.site_id || null,
                     customers={customers}
                     sites={sites}
                     tickets={tickets}
+                    customerEntities={customerEntities}
                     onOpenTicket={openTicketFromCustomer}
                   />
                 </div>
@@ -4225,9 +4465,20 @@ site_id: t.site_id || null,
 
             {activeTab === "operativo" && (
               <section className={`${card} hidden md:block`}>
-                <h2 className="mb-5 text-2xl font-black">
-                  Apri nuova chiamata manuale
-                </h2>
+                <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <h2 className="text-2xl font-black">
+                    Apri nuova chiamata manuale
+                  </h2>
+                  {ticketFormReturnTarget && (
+                    <button
+                      type="button"
+                      onClick={goBackFromTicketForm}
+                      className="w-fit rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-white hover:bg-white/[0.1]"
+                    >
+                      ← Torna indietro
+                    </button>
+                  )}
+                </div>
 
                 {site && (
                   <div className="mb-5 rounded-3xl border border-blue-400/30 bg-blue-500/10 p-5">
@@ -5031,7 +5282,22 @@ site_id: t.site_id || null,
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <select
+                      className={lightInput}
+                      value={calendarFilterTechnician}
+                      onChange={(event) =>
+                        setCalendarFilterTechnician(event.target.value)
+                      }
+                    >
+                      <option value="">Tutti i tecnici</option>
+                      {technicians.map((tech) => (
+                        <option key={tech} value={tech}>
+                          {tech}
+                        </option>
+                      ))}
+                    </select>
+
                     <button
                       onClick={() => changeMonth(-1)}
                       className="rounded-xl bg-blue-600 p-3 text-white"
@@ -5056,12 +5322,20 @@ site_id: t.site_id || null,
                   {calendarDays.map((day) => {
                     const iso = formatLocalDate(day);
 
-                    const dayTickets = tickets.filter((t) => t.date === iso);
+                    const dayTickets = calendarVisibleTickets.filter((t) => t.date === iso);
 
                     return (
-                      <button
+                      <div
                         key={iso}
-                        onClick={() => setSelectedCalendarDay(iso)}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => startCalendarCreate(iso)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            startCalendarCreate(iso);
+                          }
+                        }}
                         className={`min-h-36 rounded-2xl border p-3 text-left transition hover:scale-[1.02] ${
                           selectedCalendarDay === iso
                             ? "border-blue-500 bg-blue-600 text-white"
@@ -5082,11 +5356,14 @@ site_id: t.site_id || null,
                         </div>
 
                         <div className="space-y-2">
-                          {dayTickets.length === 0 && (
-                            <p className="text-xs opacity-60">
-                              Nessun intervento
-                            </p>
-                          )}
+                          {dayTickets.length === 0 &&
+                            !(selectedCalendarDay === iso &&
+                              mobileCalendarFormOpen &&
+                              !editingCalendarTicketId) && (
+                              <p className="text-xs opacity-60">
+                                Clicca per inserire uno slot
+                              </p>
+                            )}
 
                           {dayTickets.slice(0, 3).map((t) => {
                             const isExpanded =
@@ -5252,13 +5529,122 @@ site_id: t.site_id || null,
                               </div>
                             );
                           })}
+                          {selectedCalendarDay === iso &&
+                            mobileCalendarFormOpen &&
+                            !editingCalendarTicketId && (
+                              <div
+                                className={`mt-3 grid gap-2 rounded-xl p-3 text-xs ${
+                                  theme === "dark"
+                                    ? "bg-slate-950/70 ring-2 ring-blue-400/40"
+                                    : "border border-blue-300 bg-white ring-2 ring-blue-300"
+                                }`}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <p className="font-black uppercase tracking-[0.18em] text-blue-300">
+                                  Nuovo slot
+                                </p>
+
+                                <select
+                                  className={lightInput}
+                                  value={calendarTechnician}
+                                  onChange={(e) =>
+                                    setCalendarTechnician(e.target.value)
+                                  }
+                                >
+                                  <option value="">Seleziona tecnico</option>
+                                  {technicians.map((tech) => (
+                                    <option key={tech}>{tech}</option>
+                                  ))}
+                                </select>
+
+                                <div className="relative">
+                                  <input
+                                    className={`w-full ${lightInput}`}
+                                    placeholder="Cerca cliente / sede..."
+                                    value={calendarSiteSearch}
+                                    onChange={(e) => {
+                                      setCalendarSiteSearch(e.target.value);
+                                      setCalendarSite(null);
+                                    }}
+                                  />
+
+                                  {calendarSiteSearch && !calendarSite && (
+                                    <div
+                                      className={`absolute z-50 mt-2 max-h-56 w-full overflow-y-auto rounded-2xl border shadow-xl ${
+                                        theme === "dark"
+                                          ? "border-white/10 bg-slate-950 text-white"
+                                          : "border-slate-300 bg-white text-slate-900"
+                                      }`}
+                                    >
+                                      {calendarSiteResults.map((s) => (
+                                        <button
+                                          key={s.id}
+                                          type="button"
+                                          className={`block w-full border-b p-3 text-left text-xs ${
+                                            theme === "dark"
+                                              ? "border-white/10 hover:bg-white/10"
+                                              : "border-slate-200 hover:bg-blue-50"
+                                          }`}
+                                          onClick={() => {
+                                            setCalendarSite(s);
+                                            setCalendarSiteSearch(s.name);
+                                          }}
+                                        >
+                                          <div className="font-black">
+                                            {s.name}
+                                          </div>
+                                          <div className="opacity-70">
+                                            {s.city || "Città n/d"} · {s.region || "Regione n/d"}
+                                          </div>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <input
+                                  type="time"
+                                  className={lightInput}
+                                  value={calendarTime}
+                                  onChange={(e) => setCalendarTime(e.target.value)}
+                                />
+
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={saveMobileCalendarTicket}
+                                    className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                                  >
+                                    Inserisci
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setMobileCalendarFormOpen(false);
+                                      setSelectedCalendarDay(null);
+                                      setCalendarTechnician("");
+                                      setCalendarSiteSearch("");
+                                      setCalendarSite(null);
+                                      setCalendarTime("");
+                                    }}
+                                    className={`flex-1 rounded-xl px-3 py-2 text-xs font-black ${
+                                      theme === "dark"
+                                        ? "bg-white/10 text-white"
+                                        : "bg-slate-200 text-slate-900"
+                                    }`}
+                                  >
+                                    Annulla
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           {dayTickets.length > 3 && (
                             <p className="text-xs font-bold">
                               +{dayTickets.length - 3} altri
                             </p>
                           )}
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -5541,6 +5927,8 @@ site_id: t.site_id || null,
                 availableRegions={availableRegions}
                 onToggleUrgent={toggleTicketUrgent}
                 onOpenTicketDetail={openTicketWorkspace}
+                onRefreshTickets={refreshTickets}
+                refreshingTickets={refreshingTickets}
               />
             )}
 
