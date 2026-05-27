@@ -113,6 +113,18 @@ function resultScore(haystack: any, query: string) {
   return tokenScore + lastTokenBonus;
 }
 
+function isActiveCustomerEntity(entity: any) {
+  const status = normalize(entity?.status || entity?.state || entity?.is_active || entity?.active || "");
+
+  return (
+    entity?.is_active !== false &&
+    entity?.active !== false &&
+    entity?.is_deleted !== true &&
+    entity?.deleted !== true &&
+    !["0", "false", "inactive", "disattivo", "non attivo", "deleted", "archiviato"].includes(status)
+  );
+}
+
 function mapTicketRow(t: any) {
   return {
     id: t.id,
@@ -374,6 +386,7 @@ export default function CustomerCommandCenter({
     if (query.length < 2) return [];
 
     const entityResults = customerEntities
+      .filter(isActiveCustomerEntity)
       .map((entity) => {
         const normalizedPath =
           entity.normalized_complete_name ||

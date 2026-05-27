@@ -15,6 +15,8 @@ import UserManagementCenter from "@/components/atlas/UserManagementCenter";
 import GlpiImportCenter from "@/components/atlas/GlpiImportCenter";
 import DispatchCenter from "@/components/atlas/DispatchCenter";
 import GlobalActivityFeed from "@/components/atlas/GlobalActivityFeed";
+import WebvimeBoard from "@/components/atlas/WebvimeBoard";
+import TodoListPanel from "@/components/atlas/TodoListPanel";
 import KPIDashboard from "@/components/atlas/KPIDashboard";
 import AIInsightsPanel from "@/components/atlas/AIInsightsPanel";
 import UserSessionBadge from "@/components/atlas/UserSessionBadge";
@@ -34,6 +36,7 @@ import {
   BarChart3,
   Box,
   FileText,
+  FileSpreadsheet,
   ListChecks,
   Map,
   Monitor,
@@ -49,6 +52,8 @@ import {
   Menu,
   X,
   Download,
+  Printer,
+  Save,
   MoreHorizontal,
   Moon,
   Sun,
@@ -90,6 +95,600 @@ import {
   buildEditableContracts,
   getSelectedContract,
 } from "@/services/contracts";
+
+type AtlasSlaContractProfile = {
+  key: string;
+  category: string;
+  customerType: string;
+  durationMonths: string;
+  warrantyMonths: string;
+  phoneSupport: string;
+  preventiveOnsite: string;
+  extraordinaryOnsite: string;
+  sparePartsIncluded: string;
+  blockingResponse: string;
+  nonblockingResponse: string;
+  pickupShipping: string;
+  serviceHours: string;
+  serviceDays: string;
+  driveLink: string;
+  commercialNotes: string;
+  summary: string;
+  aliases: string;
+  keywords: string;
+  matchPriority: number;
+  parentCustomer: string;
+  childCustomers: string;
+  isActive: boolean;
+};
+
+const SLA_CONTRACT_FIELDS: Array<{ key: keyof AtlasSlaContractProfile; label: string; rows?: number; wide?: boolean }> = [
+  { key: "category", label: "Categoria Cliente" },
+  { key: "customerType", label: "Tipologia Cliente", wide: true },
+  { key: "parentCustomer", label: "Cliente padre" },
+  { key: "childCustomers", label: "Clienti / figli / sedi collegate", rows: 3, wide: true },
+  { key: "durationMonths", label: "Durata contratto (mesi)" },
+  { key: "warrantyMonths", label: "Garanzia (mesi)" },
+  { key: "phoneSupport", label: "Assistenza telefonica" },
+  { key: "preventiveOnsite", label: "Intervento preventivo on site / ordinaria manutenzione", rows: 3, wide: true },
+  { key: "extraordinaryOnsite", label: "Intervento straordinario on site / su chiamata", rows: 3, wide: true },
+  { key: "sparePartsIncluded", label: "Parti di ricambio incluse - escluso consumabili", rows: 3, wide: true },
+  { key: "blockingResponse", label: "Risposta guasto bloccante" },
+  { key: "nonblockingResponse", label: "Risposta anomalia non bloccante" },
+  { key: "pickupShipping", label: "Servizio di ritiro e spedizione" },
+  { key: "serviceHours", label: "Orario di servizio" },
+  { key: "serviceDays", label: "Giorni di servizio" },
+  { key: "driveLink", label: "Link dettaglio contratto / Drive Secom", rows: 2, wide: true },
+  { key: "commercialNotes", label: "Note commerciali", rows: 4, wide: true },
+  { key: "summary", label: "Riassunto operativo", rows: 4, wide: true },
+  { key: "aliases", label: "Alias ricerca", rows: 3, wide: true },
+  { key: "keywords", label: "Keyword match", rows: 3, wide: true },
+  { key: "matchPriority", label: "Priorità match" },
+];
+
+const SLA_BASE_CONTRACT_PROFILES: AtlasSlaContractProfile[] = [
+  {
+    key: "ministero-questure",
+    category: "MINISTERO DELL'INTERNO",
+    customerType: "QUESTURE",
+    parentCustomer: "MINISTERO DELL'INTERNO",
+    childCustomers: "Questure",
+    durationMonths: "N/D",
+    warrantyMonths: "N/D",
+    phoneSupport: "N/D",
+    preventiveOnsite: "N/D",
+    extraordinaryOnsite: "N/D",
+    sparePartsIncluded: "N/D",
+    blockingResponse: "N/D",
+    nonblockingResponse: "N/D",
+    pickupShipping: "N/D",
+    serviceHours: "N/D",
+    serviceDays: "N/D",
+    driveLink: "N/D",
+    commercialNotes: "",
+    summary: "Profilo ministeriale generico. Dati SLA da verificare su contratto specifico.",
+    aliases: "ministero, questure, questura, interno",
+    keywords: "ministero interno questure",
+    matchPriority: 50,
+    isActive: true,
+  },
+  {
+    key: "ministero-ps-lazio-umbria",
+    category: "MINISTERO DELL'INTERNO",
+    customerType: "PS LAZIO/UMBRIA",
+    parentCustomer: "MINISTERO DELL'INTERNO",
+    childCustomers: "PS Lazio; PS Umbria",
+    durationMonths: "N/D",
+    warrantyMonths: "N/D",
+    phoneSupport: "SI",
+    preventiveOnsite: "NO",
+    extraordinaryOnsite: "SI",
+    sparePartsIncluded: "SI (fino a 100,00 € per lampade, UPS, numeratore, scheda elettronica SPIS)",
+    blockingResponse: "N/D",
+    nonblockingResponse: "N/D",
+    pickupShipping: "N/D",
+    serviceHours: "N/D",
+    serviceDays: "N/D",
+    driveLink: "N/D",
+    commercialNotes: "",
+    summary: "Assistenza telefonica e straordinaria attiva; ricambi coperti fino a soglia indicata.",
+    aliases: "ps lazio, ps umbria, polizia stato lazio, polizia stato umbria",
+    keywords: "ps lazio umbria",
+    matchPriority: 70,
+    isActive: true,
+  },
+  {
+    key: "polizia-frontiera-spis-my",
+    category: "MINISTERO DELL'INTERNO",
+    customerType: "POLIZIA DI FRONTIERA Fornitura 2025 / SPIS MY",
+    parentCustomer: "MINISTERO DELL'INTERNO",
+    childCustomers: "Polizia di Frontiera",
+    durationMonths: "36",
+    warrantyMonths: "24",
+    phoneSupport: "SI",
+    preventiveOnsite: "NO",
+    extraordinaryOnsite: "SI",
+    sparePartsIncluded: "SI",
+    blockingResponse: "12 ORE",
+    nonblockingResponse: "24 ORE",
+    pickupShipping: "SI",
+    serviceHours: "9:00-18:00 e Sabato 9:00-13:00",
+    serviceDays: "Lun-Sab fino alle 13:00",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "Contratto Frontiere SPIS MY con assistenza telefonica, straordinaria, ricambi e ritiro/spedizione inclusi.",
+    aliases: "frontiere, polizia frontiera, spis my frontiere",
+    keywords: "frontiera frontiere spis my",
+    matchPriority: 85,
+    isActive: true,
+  },
+  {
+    key: "polizia-ferroviaria-spis-my",
+    category: "MINISTERO DELL'INTERNO",
+    customerType: "POLIZIA FERROVIARIA Fornitura 2026 / SPIS MY",
+    parentCustomer: "MINISTERO DELL'INTERNO",
+    childCustomers: "Polizia Ferroviaria; POLFER",
+    durationMonths: "24",
+    warrantyMonths: "24",
+    phoneSupport: "SI",
+    preventiveOnsite: "NO",
+    extraordinaryOnsite: "SI",
+    sparePartsIncluded: "SI",
+    blockingResponse: "7",
+    nonblockingResponse: "14",
+    pickupShipping: "SI",
+    serviceHours: "09:00/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "Contratto POLFER SPIS MY: ricambi, intervento straordinario e ritiro/spedizione inclusi.",
+    aliases: "polfer, polizia ferroviaria, spis my",
+    keywords: "polfer ferroviaria spis my",
+    matchPriority: 85,
+    isActive: true,
+  },
+  {
+    key: "hotspot-albania-2024-2026",
+    category: "MINISTERO DELL'INTERNO",
+    customerType: "HOTSPOT ALBANIA 2024-2026",
+    parentCustomer: "MINISTERO DELL'INTERNO",
+    childCustomers: "Hotspot Albania",
+    durationMonths: "24",
+    warrantyMonths: "SCADUTA",
+    phoneSupport: "SI",
+    preventiveOnsite: "NO",
+    extraordinaryOnsite: "SI",
+    sparePartsIncluded: "SI",
+    blockingResponse: "5",
+    nonblockingResponse: "10",
+    pickupShipping: "SI",
+    serviceHours: "09:00/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "Hotspot Albania: garanzia scaduta, assistenza telefonica e straordinaria attive.",
+    aliases: "albania, hotspot albania",
+    keywords: "hotspot albania",
+    matchPriority: 70,
+    isActive: true,
+  },
+  {
+    key: "carabinieri-provinciali-gruppo-vecchio-spis",
+    category: "CARABINIERI",
+    customerType: "CARABINIERI PROVINCIALI/GRUPPO VECCHIO SPIS contratto triennale 2024-2026",
+    parentCustomer: "CARABINIERI",
+    childCustomers: "Comandi Provinciali; Gruppi Carabinieri",
+    durationMonths: "12",
+    warrantyMonths: "—",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI, solo Comandi Provinciali e Gruppo",
+    extraordinaryOnsite: "SI, previa autorizzazione dell'uff. AES",
+    sparePartsIncluded: "Decurtabili fino a 80K € annui, per determinati componenti come da nota allegata",
+    blockingResponse: "7?",
+    nonblockingResponse: "14?",
+    pickupShipping: "SI",
+    serviceHours: "09:00/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "Vecchio SPIS per Provinciali/Gruppi: manutenzione preventiva prevista solo per Comandi Provinciali e Gruppi; straordinaria previa autorizzazione AES.",
+    aliases: "carabinieri provinciali, comando provinciale carabinieri, gruppo carabinieri, com prov cc",
+    keywords: "carabinieri provinciale gruppo vecchio spis",
+    matchPriority: 95,
+    isActive: true,
+  },
+  {
+    key: "carabinieri-compagnie-vecchio-spis",
+    category: "CARABINIERI",
+    customerType: "CARABINIERI COMPAGNIE VECCHIO SPIS contratto triennale 2024-2026",
+    parentCustomer: "CARABINIERI",
+    childCustomers: "Compagnie Carabinieri; Tenenze; Stazioni se agganciate a Compagnia",
+    durationMonths: "12",
+    warrantyMonths: "—",
+    phoneSupport: "SI",
+    preventiveOnsite: "NO",
+    extraordinaryOnsite: "SI, previa autorizzazione dell'uff. AES",
+    sparePartsIncluded: "Decurtabili fino a 80K € annui, per determinati componenti come da nota allegata",
+    blockingResponse: "7?",
+    nonblockingResponse: "14?",
+    pickupShipping: "SI",
+    serviceHours: "09:00/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "Vecchio SPIS per Compagnie: nessuna preventiva, straordinaria previa autorizzazione AES, ricambi decurtabili dal plafond.",
+    aliases: "compagnia carabinieri, comp cc, comp. cc, tenenza carabinieri, stazione carabinieri",
+    keywords: "carabinieri compagnie vecchio spis",
+    matchPriority: 100,
+    isActive: true,
+  },
+  {
+    key: "carabinieri-nuovo-spis-my",
+    category: "CARABINIERI",
+    customerType: "CARABINIERI NUOVO SPIS MY - PENISOLA ESCLUSA",
+    parentCustomer: "CARABINIERI",
+    childCustomers: "Nuovo SPIS MY Carabinieri",
+    durationMonths: "24",
+    warrantyMonths: "24",
+    phoneSupport: "SI",
+    preventiveOnsite: "NO",
+    extraordinaryOnsite: "SI",
+    sparePartsIncluded: "SI",
+    blockingResponse: "7?",
+    nonblockingResponse: "14?",
+    pickupShipping: "SI",
+    serviceHours: "08:30/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "Nuovo SPIS MY Carabinieri con 24 mesi di garanzia, ricambi e spedizione inclusi.",
+    aliases: "carabinieri nuovo spis my",
+    keywords: "carabinieri nuovo spis my",
+    matchPriority: 90,
+    isActive: true,
+  },
+  {
+    key: "comuni-polizia-locale",
+    category: "COMUNI",
+    customerType: "POLIZIA LOCALE/MUNICIPALE/PROVINCIALE",
+    parentCustomer: "COMUNI",
+    childCustomers: "Polizia Locale; Polizia Municipale; Polizia Provinciale",
+    durationMonths: "12/24/36",
+    warrantyMonths: "—",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI, nr. 2 annuali, 1 a semestre",
+    extraordinaryOnsite: "SI, nr. 1 annuale",
+    sparePartsIncluded: "SI",
+    blockingResponse: "Non definito < 5gg",
+    nonblockingResponse: "Non definito < 10gg",
+    pickupShipping: "SI",
+    serviceHours: "9:00/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "Comuni/Polizie locali: due preventive annuali, una straordinaria annuale, ricambi e spedizione inclusi.",
+    aliases: "comuni, polizia locale, polizia municipale, polizia provinciale",
+    keywords: "comuni polizia locale municipale provinciale",
+    matchPriority: 90,
+    isActive: true,
+  },
+  {
+    key: "estero-san-marino-gendarmeria",
+    category: "ESTERO",
+    customerType: "SAN MARINO - GENDARMERIA",
+    parentCustomer: "ESTERO",
+    childCustomers: "San Marino; Gendarmeria",
+    durationMonths: "12",
+    warrantyMonths: "—",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI, nr. 2 annuali, 1 a semestre",
+    extraordinaryOnsite: "SI, nr. 1 annuale",
+    sparePartsIncluded: "SI",
+    blockingResponse: "Non definito < 5gg",
+    nonblockingResponse: "Non definito < 10gg",
+    pickupShipping: "SI",
+    serviceHours: "9:00/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "Gendarmeria San Marino: preventive semestrali, straordinaria annuale, ricambi inclusi.",
+    aliases: "san marino, gendarmeria",
+    keywords: "san marino gendarmeria",
+    matchPriority: 80,
+    isActive: true,
+  },
+  {
+    key: "rfi-aula-sepa",
+    category: "RFI",
+    customerType: "AULA SEPA",
+    parentCustomer: "RFI",
+    childCustomers: "Aula SEPA",
+    durationMonths: "48",
+    warrantyMonths: "—",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI, nr. 2 annuali, 1 a semestre",
+    extraordinaryOnsite: "SI",
+    sparePartsIncluded: "SI (ad esclusione di quanto riportato nell'allegato)",
+    blockingResponse: "2",
+    nonblockingResponse: "7",
+    pickupShipping: "SI",
+    serviceHours: "09:00/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "RFI Aula SEPA: SLA stretto, preventive semestrali, ricambi secondo allegato.",
+    aliases: "rfi, aula sepa, sepa",
+    keywords: "rfi aula sepa",
+    matchPriority: 90,
+    isActive: true,
+  },
+  {
+    key: "rfi-webvime",
+    category: "RFI",
+    customerType: "WEBVIME",
+    parentCustomer: "RFI",
+    childCustomers: "Webvime",
+    durationMonths: "12",
+    warrantyMonths: "—",
+    phoneSupport: "SI",
+    preventiveOnsite: "NO",
+    extraordinaryOnsite: "SI, come da allegato contratto",
+    sparePartsIncluded: "NO",
+    blockingResponse: "—",
+    nonblockingResponse: "—",
+    pickupShipping: "—",
+    serviceHours: "8:00 - 18:00",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "WEBVIME: assistenza telefonica e straordinaria secondo allegato, ricambi esclusi.",
+    aliases: "webvime, rfi webvime",
+    keywords: "webvime rfi",
+    matchPriority: 95,
+    isActive: true,
+  },
+  {
+    key: "pa-privato-smartfad",
+    category: "PA/PRIVATO",
+    customerType: "SMARTFAD care-pack",
+    parentCustomer: "PA/PRIVATO",
+    childCustomers: "SmartFAD",
+    durationMonths: "12/24/36",
+    warrantyMonths: "—",
+    phoneSupport: "SI",
+    preventiveOnsite: "NO",
+    extraordinaryOnsite: "NO",
+    sparePartsIncluded: "SI",
+    blockingResponse: "7",
+    nonblockingResponse: "14",
+    pickupShipping: "SI",
+    serviceHours: "09:00/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "SmartFAD care-pack: ricambi e spedizione inclusi, nessun intervento on-site programmato.",
+    aliases: "smartfad, care pack, pa privato",
+    keywords: "smartfad care-pack",
+    matchPriority: 75,
+    isActive: true,
+  },
+  {
+    key: "porti-seeeks-beesco-genova",
+    category: "PORTI",
+    customerType: "SEEKS/BEESCO GENOVA",
+    parentCustomer: "PORTI",
+    childCustomers: "Genova",
+    durationMonths: "12",
+    warrantyMonths: "12",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI",
+    extraordinaryOnsite: "NON OBBLIGATORIO",
+    sparePartsIncluded: "Sostituzione delle sole componenti danneggiate",
+    blockingResponse: "2",
+    nonblockingResponse: "4",
+    pickupShipping: "SI",
+    serviceHours: "08:30/17:27",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "Parti guaste coperte da garanzia non includono l'intervento tecnico se non previsto da contratto. Costi di spedizione a carico del cliente.",
+    summary: "PORTI Genova: preventiva inclusa, straordinaria non obbligatoria, sostituzione componenti danneggiate.",
+    aliases: "porti, seeks, beesco, genova",
+    keywords: "seeks beesco genova porti",
+    matchPriority: 85,
+    isActive: true,
+  },
+  {
+    key: "porti-seeeks-beesco-trieste",
+    category: "PORTI",
+    customerType: "SEEKS/BEESCO TRIESTE",
+    parentCustomer: "PORTI",
+    childCustomers: "Trieste",
+    durationMonths: "36",
+    warrantyMonths: "36",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI",
+    extraordinaryOnsite: "NON OBBLIGATORIO",
+    sparePartsIncluded: "Sostituzione delle sole componenti danneggiate",
+    blockingResponse: "2",
+    nonblockingResponse: "4",
+    pickupShipping: "SI",
+    serviceHours: "08:30/17:28",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "Parti guaste coperte da garanzia non includono l'intervento tecnico se non previsto da contratto. Costi di spedizione a carico del cliente.",
+    summary: "PORTI Trieste: garanzia 36 mesi, preventiva inclusa, sostituzione sole componenti danneggiate.",
+    aliases: "porti, seeks, beesco, trieste",
+    keywords: "seeks beesco trieste porti",
+    matchPriority: 85,
+    isActive: true,
+  },
+  {
+    key: "porti-seeeks-beesco-savona-t2",
+    category: "PORTI",
+    customerType: "SEEKS/BEESCO SAVONA T2",
+    parentCustomer: "PORTI",
+    childCustomers: "Savona T2",
+    durationMonths: "24",
+    warrantyMonths: "24",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI",
+    extraordinaryOnsite: "NON OBBLIGATORIO",
+    sparePartsIncluded: "Sostituzione delle sole componenti danneggiate",
+    blockingResponse: "2",
+    nonblockingResponse: "4",
+    pickupShipping: "SI",
+    serviceHours: "08:30/17:29",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "Parti guaste coperte da garanzia non includono l'intervento tecnico se non previsto da contratto. Costi di spedizione a carico del cliente.",
+    summary: "PORTI Savona T2: garanzia 24 mesi, preventiva inclusa, sostituzione componenti danneggiate.",
+    aliases: "porti, seeks, beesco, savona t2",
+    keywords: "seeks beesco savona t2 porti",
+    matchPriority: 85,
+    isActive: true,
+  },
+  {
+    key: "porti-seeeks-beesco-savona-t1",
+    category: "PORTI",
+    customerType: "SEEKS/BEESCO SAVONA T1",
+    parentCustomer: "PORTI",
+    childCustomers: "Savona T1",
+    durationMonths: "24",
+    warrantyMonths: "24",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI",
+    extraordinaryOnsite: "NON OBBLIGATORIO",
+    sparePartsIncluded: "Sostituzione delle sole componenti danneggiate",
+    blockingResponse: "2",
+    nonblockingResponse: "4",
+    pickupShipping: "SI",
+    serviceHours: "08:30/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "Parti guaste coperte da garanzia non includono l'intervento tecnico se non previsto da contratto. Costi di spedizione a carico del cliente.",
+    summary: "PORTI Savona T1: garanzia 24 mesi, preventiva inclusa, sostituzione componenti danneggiate.",
+    aliases: "porti, seeks, beesco, savona t1",
+    keywords: "seeks beesco savona t1 porti",
+    matchPriority: 85,
+    isActive: true,
+  },
+  {
+    key: "porti-seeeks-beesco-civitavecchia-vespucci-arrivi",
+    category: "PORTI",
+    customerType: "SEEKS/BEESCO CIVITAVECCHIA VESPUCCI ARRIVI",
+    parentCustomer: "PORTI",
+    childCustomers: "Civitavecchia Vespucci Arrivi",
+    durationMonths: "12",
+    warrantyMonths: "12",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI",
+    extraordinaryOnsite: "NON OBBLIGATORIO",
+    sparePartsIncluded: "Sostituzione delle sole componenti danneggiate",
+    blockingResponse: "2",
+    nonblockingResponse: "4",
+    pickupShipping: "SI",
+    serviceHours: "08:30/17:31",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "Parti guaste coperte da garanzia non includono l'intervento tecnico se non previsto da contratto. Costi di spedizione a carico del cliente.",
+    summary: "PORTI Civitavecchia Vespucci Arrivi: garanzia 12 mesi, preventiva inclusa.",
+    aliases: "porti, seeks, beesco, civitavecchia, vespucci arrivi",
+    keywords: "seeks beesco civitavecchia vespucci arrivi porti",
+    matchPriority: 85,
+    isActive: true,
+  },
+  {
+    key: "porti-seeeks-beesco-civitavecchia-vespucci-partenze",
+    category: "PORTI",
+    customerType: "SEEKS/BEESCO CIVITAVECCHIA VESPUCCI PARTENZE",
+    parentCustomer: "PORTI",
+    childCustomers: "Civitavecchia Vespucci Partenze",
+    durationMonths: "12",
+    warrantyMonths: "12",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI",
+    extraordinaryOnsite: "NON OBBLIGATORIO",
+    sparePartsIncluded: "Sostituzione delle sole componenti danneggiate",
+    blockingResponse: "2",
+    nonblockingResponse: "4",
+    pickupShipping: "SI",
+    serviceHours: "08:30/17:32",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "Parti guaste coperte da garanzia non includono l'intervento tecnico se non previsto da contratto. Costi di spedizione a carico del cliente.",
+    summary: "PORTI Civitavecchia Vespucci Partenze: garanzia 12 mesi, preventiva inclusa.",
+    aliases: "porti, seeks, beesco, civitavecchia, vespucci partenze",
+    keywords: "seeks beesco civitavecchia vespucci partenze porti",
+    matchPriority: 85,
+    isActive: true,
+  },
+  {
+    key: "porti-seeeks-beesco-civitavecchia-bramante",
+    category: "PORTI",
+    customerType: "SEEKS/BEESCO CIVITAVECCHIA BRAMANTE",
+    parentCustomer: "PORTI",
+    childCustomers: "Civitavecchia Bramante",
+    durationMonths: "12",
+    warrantyMonths: "12",
+    phoneSupport: "SI",
+    preventiveOnsite: "SI",
+    extraordinaryOnsite: "NON OBBLIGATORIO",
+    sparePartsIncluded: "Sostituzione delle sole componenti danneggiate",
+    blockingResponse: "2",
+    nonblockingResponse: "4",
+    pickupShipping: "SI",
+    serviceHours: "08:30/17:33",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "Parti guaste coperte da garanzia non includono l'intervento tecnico se non previsto da contratto. Costi di spedizione a carico del cliente.",
+    summary: "PORTI Civitavecchia Bramante: garanzia 12 mesi, preventiva inclusa.",
+    aliases: "porti, seeks, beesco, civitavecchia, bramante",
+    keywords: "seeks beesco civitavecchia bramante porti",
+    matchPriority: 85,
+    isActive: true,
+  },
+];
+
+function createEmptySlaContractProfile(): AtlasSlaContractProfile {
+  return {
+    key: `custom-${Date.now()}`,
+    category: "",
+    customerType: "",
+    parentCustomer: "",
+    childCustomers: "",
+    durationMonths: "",
+    warrantyMonths: "",
+    phoneSupport: "SI",
+    preventiveOnsite: "",
+    extraordinaryOnsite: "",
+    sparePartsIncluded: "",
+    blockingResponse: "",
+    nonblockingResponse: "",
+    pickupShipping: "",
+    serviceHours: "09:00/17:30",
+    serviceDays: "Lun-Ven (festivi esclusi)",
+    driveLink: "",
+    commercialNotes: "",
+    summary: "",
+    aliases: "",
+    keywords: "",
+    matchPriority: 50,
+    isActive: true,
+  };
+}
+
+function contractCell(value: any) {
+  return String(value ?? "").replaceAll("\n", " ").trim();
+}
+
+function escapeHtml(value: any) {
+  return contractCell(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 
 export default function Home() {
   const {
@@ -150,6 +749,8 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<
     | "home"
     | "dispatch"
+    | "webvime"
+    | "todo"
     | "activity"
     | "analytics"
     | "ai"
@@ -183,6 +784,30 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("atlas-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadTodoNewCount() {
+      const { count, error } = await supabase
+        .from("todo_tasks")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "new");
+
+      if (!mounted || error) return;
+      setTodoNewCount(count || 0);
+    }
+
+    loadTodoNewCount();
+    window.addEventListener("atlas-todo-updated", loadTodoNewCount);
+    const interval = window.setInterval(loadTodoNewCount, 30000);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("atlas-todo-updated", loadTodoNewCount);
+      window.clearInterval(interval);
+    };
+  }, []);
   const [budget, setBudget] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("atlas-budget");
@@ -221,6 +846,13 @@ export default function Home() {
   const [clientSearch, setClientSearch] = useState("");
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [contractOverrides, setContractOverrides] = useState<any>({});
+  const [customSlaContracts, setCustomSlaContracts] = useState<AtlasSlaContractProfile[]>([]);
+  const [contractSearchText, setContractSearchText] = useState("");
+  const [contractCategoryFilter, setContractCategoryFilter] = useState("Tutte");
+  const [selectedSlaContractKeys, setSelectedSlaContractKeys] = useState<Record<string, boolean>>({});
+  const [contractFormOpen, setContractFormOpen] = useState(false);
+  const [editingSlaContractKey, setEditingSlaContractKey] = useState<string | null>(null);
+  const [slaContractForm, setSlaContractForm] = useState<AtlasSlaContractProfile>(() => createEmptySlaContractProfile());
   const [inventory, setInventory] = useState<any[]>(initialInventory);
   const [inventorySearch, setInventorySearch] = useState("");
   const [contacts, setContacts] = useState<any[]>([]);
@@ -254,6 +886,8 @@ export default function Home() {
   const [mobileView, setMobileView] = useState<
     | "home"
     | "dispatch"
+    | "webvime"
+    | "todo"
     | "activity"
     | "analytics"
     | "ai"
@@ -272,6 +906,7 @@ export default function Home() {
   >("home");
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [todoNewCount, setTodoNewCount] = useState(0);
 
   const [manualReminders, setManualReminders] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
@@ -368,6 +1003,15 @@ export default function Home() {
     if (savedContacts) setContacts(JSON.parse(savedContacts));
     const savedTicketTypes = localStorage.getItem("atlas-ticket-types");
     if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
+
+    const savedCustomSlaContracts = localStorage.getItem("atlas-custom-sla-contracts");
+    if (savedCustomSlaContracts) {
+      try {
+        setCustomSlaContracts(JSON.parse(savedCustomSlaContracts));
+      } catch {
+        setCustomSlaContracts([]);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -424,6 +1068,7 @@ export default function Home() {
         .from("tickets")
         .select("*")
         .eq("tenant_id", activeTenant?.id)
+        .not("glpi_entity_path", "ilike", "%webvime%")
         .order("opened_at", { ascending: false, nullsFirst: false })
         .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
         .range(0, 49999);
@@ -505,6 +1150,65 @@ site_id: t.site_id || null,
     contractOverrides,
   );
 
+  const slaContractProfiles = useMemo(() => {
+    const merged = [...SLA_BASE_CONTRACT_PROFILES, ...customSlaContracts];
+
+    return merged.map((profile) => ({
+      ...profile,
+      ...(contractOverrides?.[profile.key] || {}),
+    }));
+  }, [contractOverrides, customSlaContracts]);
+
+  const slaContractCategories = useMemo(
+    () => [
+      "Tutte",
+      ...Array.from(new Set(slaContractProfiles.map((contract) => contract.category).filter(Boolean))).sort(),
+    ],
+    [slaContractProfiles],
+  );
+
+  const filteredSlaContracts = useMemo(() => {
+    const q = contractSearchText.toLowerCase().trim();
+
+    return slaContractProfiles.filter((contract) => {
+      const matchesCategory =
+        contractCategoryFilter === "Tutte" ||
+        contract.category === contractCategoryFilter;
+
+      const text = [
+        contract.category,
+        contract.customerType,
+        contract.parentCustomer,
+        contract.childCustomers,
+        contract.durationMonths,
+        contract.warrantyMonths,
+        contract.phoneSupport,
+        contract.preventiveOnsite,
+        contract.extraordinaryOnsite,
+        contract.sparePartsIncluded,
+        contract.blockingResponse,
+        contract.nonblockingResponse,
+        contract.pickupShipping,
+        contract.serviceHours,
+        contract.serviceDays,
+        contract.driveLink,
+        contract.commercialNotes,
+        contract.summary,
+        contract.aliases,
+        contract.keywords,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return matchesCategory && (!q || text.includes(q));
+    });
+  }, [slaContractProfiles, contractSearchText, contractCategoryFilter]);
+
+  const selectedSlaContractsForExport = useMemo(() => {
+    const selected = filteredSlaContracts.filter((contract) => selectedSlaContractKeys[contract.key]);
+    return selected.length > 0 ? selected : filteredSlaContracts;
+  }, [filteredSlaContracts, selectedSlaContractKeys]);
+
   const selectedContract = getSelectedContract({
     site,
     entity,
@@ -572,6 +1276,202 @@ site_id: t.site_id || null,
     showMessage("Contratto aggiornato");
   }
 
+  function updateSlaContractField(
+    contractKey: string,
+    field: keyof AtlasSlaContractProfile,
+    value: string | number | boolean,
+  ) {
+    const updated = {
+      ...contractOverrides,
+      [contractKey]: {
+        ...(contractOverrides[contractKey] || {}),
+        [field]: value,
+      },
+    };
+
+    setContractOverrides(updated);
+    localStorage.setItem("atlas-contract-overrides", JSON.stringify(updated));
+    showMessage("Contratto aggiornato");
+  }
+
+  function toggleSlaContractSelection(contractKey: string) {
+    setSelectedSlaContractKeys((prev) => ({
+      ...prev,
+      [contractKey]: !prev[contractKey],
+    }));
+  }
+
+  function toggleAllVisibleSlaContracts() {
+    const allSelected =
+      filteredSlaContracts.length > 0 &&
+      filteredSlaContracts.every((contract) => selectedSlaContractKeys[contract.key]);
+
+    if (allSelected) {
+      const next = { ...selectedSlaContractKeys };
+      filteredSlaContracts.forEach((contract) => {
+        delete next[contract.key];
+      });
+      setSelectedSlaContractKeys(next);
+      return;
+    }
+
+    setSelectedSlaContractKeys((prev) => {
+      const next = { ...prev };
+      filteredSlaContracts.forEach((contract) => {
+        next[contract.key] = true;
+      });
+      return next;
+    });
+  }
+
+  function openNewSlaContractForm() {
+    setEditingSlaContractKey(null);
+    setSlaContractForm(createEmptySlaContractProfile());
+    setContractFormOpen(true);
+  }
+
+  function openEditSlaContractForm(contract: AtlasSlaContractProfile) {
+    setEditingSlaContractKey(contract.key);
+    setSlaContractForm({ ...contract });
+    setContractFormOpen(true);
+  }
+
+  function saveSlaContractForm() {
+    const cleanForm: AtlasSlaContractProfile = {
+      ...slaContractForm,
+      key:
+        slaContractForm.key ||
+        `custom-${Date.now()}`,
+      matchPriority: Number(slaContractForm.matchPriority || 0),
+      isActive: true,
+    };
+
+    const isBaseContract = SLA_BASE_CONTRACT_PROFILES.some(
+      (contract) => contract.key === cleanForm.key,
+    );
+
+    if (editingSlaContractKey && isBaseContract) {
+      const updated = {
+        ...contractOverrides,
+        [cleanForm.key]: cleanForm,
+      };
+
+      setContractOverrides(updated);
+      localStorage.setItem("atlas-contract-overrides", JSON.stringify(updated));
+    } else {
+      const next = customSlaContracts.some((contract) => contract.key === cleanForm.key)
+        ? customSlaContracts.map((contract) =>
+            contract.key === cleanForm.key ? cleanForm : contract,
+          )
+        : [cleanForm, ...customSlaContracts];
+
+      setCustomSlaContracts(next);
+      localStorage.setItem("atlas-custom-sla-contracts", JSON.stringify(next));
+    }
+
+    setContractFormOpen(false);
+    showMessage("Contratto salvato");
+  }
+
+  function buildSlaContractExportRows(contractsToExport: AtlasSlaContractProfile[]) {
+    const headers = SLA_CONTRACT_FIELDS.map((field) => field.label);
+
+    const rows = contractsToExport.map((contract) =>
+      SLA_CONTRACT_FIELDS.map((field) => contractCell(contract[field.key])),
+    );
+
+    return { headers, rows };
+  }
+
+  function exportSlaContractsXls() {
+    const { headers, rows } = buildSlaContractExportRows(selectedSlaContractsForExport);
+
+    const html = `
+      <html>
+        <head><meta charset="utf-8" /></head>
+        <body>
+          <table border="1">
+            <thead>
+              <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+            </thead>
+            <tbody>
+              ${rows
+                .map(
+                  (row) =>
+                    `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`,
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob([html], {
+      type: "application/vnd.ms-excel;charset=utf-8",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `atlas-contratti-sla-${new Date().toISOString().slice(0, 10)}.xls`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportSlaContractsPdf() {
+    const { headers, rows } = buildSlaContractExportRows(selectedSlaContractsForExport);
+    const win = window.open("", "_blank", "width=1400,height=900");
+
+    if (!win) {
+      showMessage("Popup bloccato dal browser", "error");
+      return;
+    }
+
+    win.document.open();
+    win.document.write(`
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Prospetto contratti SLA ATLAS</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; color: #111827; }
+            h1 { margin: 0 0 8px; font-size: 22px; }
+            p { margin: 0 0 18px; color: #4b5563; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; font-size: 9px; }
+            th { background: #0f172a; color: white; padding: 7px; border: 1px solid #cbd5e1; text-align: left; }
+            td { padding: 6px; border: 1px solid #cbd5e1; vertical-align: top; white-space: pre-wrap; }
+            tr:nth-child(even) td { background: #f8fafc; }
+            @page { size: A3 landscape; margin: 10mm; }
+          </style>
+        </head>
+        <body>
+          <h1>SERVIZIO DI ASSISTENZA - SLA CONTRATTUALI</h1>
+          <p>Esportazione ATLAS · ${new Date().toLocaleString("it-IT")} · ${selectedSlaContractsForExport.length} contratti</p>
+          <table>
+            <thead>
+              <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+            </thead>
+            <tbody>
+              ${rows
+                .map(
+                  (row) =>
+                    `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`,
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    win.document.close();
+
+    setTimeout(() => {
+      win.focus();
+      win.print();
+    }, 500);
+  }
+
   function updateInventoryItem(index: number, field: string, value: string) {
     const updated = inventory.map((item, i) => {
       if (i !== index) return item;
@@ -633,6 +1533,7 @@ site_id: t.site_id || null,
       .from("tickets")
       .select("*")
       .eq("tenant_id", activeTenant?.id)
+      .not("glpi_entity_path", "ilike", "%webvime%")
       .order("opened_at", { ascending: false, nullsFirst: false })
       .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
       .range(0, 49999);
@@ -2007,6 +2908,18 @@ site_id: t.site_id || null,
         tone: "blue",
         action: () => toggleReminderDone(reminder.id),
       })),
+    ...(todoNewCount > 0
+      ? [
+          {
+            id: "todo-new-requests",
+            type: "TO DO",
+            title: `${todoNewCount} nuove richieste aziendali`,
+            detail: "Richieste non ancora prese in carico",
+            tone: "amber",
+            action: () => setActiveTab("todo" as any),
+          },
+        ]
+      : []),
     ...todayTickets.map((ticket) => ({
       id: `today-${ticket.id}`,
       type: "Oggi",
@@ -2137,8 +3050,9 @@ site_id: t.site_id || null,
     if (!notificationsOpen) return null;
 
     return (
-      <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm">
+      <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm" onMouseDown={() => setNotificationsOpen(false)}>
         <div
+          onMouseDown={(event) => event.stopPropagation()}
           className={`ml-auto flex h-full w-full max-w-md flex-col border-l p-5 shadow-2xl ${
             theme === "dark"
               ? "border-white/10 bg-[#07111f] text-white"
@@ -2287,8 +3201,10 @@ site_id: t.site_id || null,
     {
       title: "Operatività",
       items: [
+        { key: "webvime", label: "Webvime", icon: Monitor },
         { key: "dispatch", label: "Centrale Operativa", icon: AlertTriangle },
         { key: "operativo", label: "Apri Chiamata", icon: CirclePlus },
+        { key: "todo", label: "To Do List", icon: CheckCircle2, badge: todoNewCount },
         { key: "calendario", label: "Calendario", icon: CalendarDays },
         { key: "registro", label: "Registro Ticket", icon: ListChecks },
         { key: "customerPortal", label: "Portale Clienti", icon: Users },
@@ -2321,6 +3237,13 @@ site_id: t.site_id || null,
     },
   ];
 
+  function canAccessTab(key: string) {
+    if (!currentUser) return false;
+    if (key === "utenti") return currentUser.role === "admin";
+    if (key === "webvime" || key === "todo") return currentUser.role !== "cliente";
+    return canViewModule(currentUser, key);
+  }
+
   const tabs = tabGroups.flatMap((group) => group.items);
 
   const card =
@@ -2351,6 +3274,284 @@ site_id: t.site_id || null,
   const mutedText = theme === "dark" ? "text-slate-400" : "text-slate-600";
 
   const strongText = theme === "dark" ? "text-white" : "text-slate-950";
+
+  function renderSlaContractsManager(isMobile = false) {
+    const selectedCount = Object.values(selectedSlaContractKeys).filter(Boolean).length;
+    const exportCount = selectedCount || filteredSlaContracts.length;
+
+    return (
+      <section className={card}>
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">
+              SLA / ASSISTENZE
+            </p>
+            <h2 className="mt-2 text-2xl font-black">
+              Contratti e accordi commerciali
+            </h2>
+            <p className={`mt-1 text-sm ${mutedText}`}>
+              Vista generale tipo file SLA, esportazione XLS/PDF, selezione multipla e modifica completa dei campi.
+            </p>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            <button
+              onClick={exportSlaContractsXls}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white"
+            >
+              <Download size={17} />
+              Esporta XLS
+            </button>
+
+            <button
+              onClick={exportSlaContractsPdf}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-black text-white"
+            >
+              <Printer size={17} />
+              Esporta PDF
+            </button>
+
+            <button
+              onClick={openNewSlaContractForm}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white"
+            >
+              + Nuovo contratto
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-5 grid gap-3 lg:grid-cols-[1fr_240px_180px]">
+          <input
+            className={input}
+            value={contractSearchText}
+            onChange={(event) => setContractSearchText(event.target.value)}
+            placeholder="Cerca cliente, categoria, SLA, garanzia, ricambi, figli..."
+          />
+
+          <select
+            className={input}
+            value={contractCategoryFilter}
+            onChange={(event) => setContractCategoryFilter(event.target.value)}
+          >
+            {slaContractCategories.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </select>
+
+          <button
+            onClick={toggleAllVisibleSlaContracts}
+            className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-sm font-black"
+          >
+            {filteredSlaContracts.every((contract) => selectedSlaContractKeys[contract.key])
+              ? "Deseleziona"
+              : "Seleziona"}{" "}
+            visibili
+          </button>
+        </div>
+
+        <div className={`mb-5 grid gap-3 ${isMobile ? "grid-cols-2" : "md:grid-cols-4"}`}>
+          <div className={`rounded-3xl border p-4 ${panel}`}>
+            <p className={`text-xs font-black uppercase tracking-[0.18em] ${mutedText}`}>Contratti</p>
+            <p className="mt-1 text-3xl font-black">{filteredSlaContracts.length}</p>
+          </div>
+          <div className={`rounded-3xl border p-4 ${panel}`}>
+            <p className={`text-xs font-black uppercase tracking-[0.18em] ${mutedText}`}>Selezionati</p>
+            <p className="mt-1 text-3xl font-black">{selectedCount}</p>
+          </div>
+          <div className={`rounded-3xl border p-4 ${panel}`}>
+            <p className={`text-xs font-black uppercase tracking-[0.18em] ${mutedText}`}>Export</p>
+            <p className="mt-1 text-3xl font-black">{exportCount}</p>
+          </div>
+          <div className={`rounded-3xl border p-4 ${panel}`}>
+            <p className={`text-xs font-black uppercase tracking-[0.18em] ${mutedText}`}>Categorie</p>
+            <p className="mt-1 text-3xl font-black">{slaContractCategories.length - 1}</p>
+          </div>
+        </div>
+
+        <div className="grid gap-3">
+          {filteredSlaContracts.map((contract) => (
+            <div
+              key={contract.key}
+              className="rounded-3xl border border-white/20 bg-slate-950/25 p-4 shadow-lg shadow-black/10"
+            >
+              <div className="grid gap-4 xl:grid-cols-[auto_1.1fr_1.4fr_1fr_1fr_auto] xl:items-start">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 shrink-0"
+                    checked={Boolean(selectedSlaContractKeys[contract.key])}
+                    onChange={() => toggleSlaContractSelection(contract.key)}
+                  />
+
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                      Categoria
+                    </p>
+                    <p className="mt-1 break-words text-sm font-black leading-snug">
+                      {contract.category || "—"}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                    Tipologia cliente
+                  </p>
+                  <p className="mt-1 break-words text-base font-black leading-snug text-white">
+                    {contract.customerType || "—"}
+                  </p>
+                  <p className="mt-2 break-words text-xs font-bold text-slate-400">
+                    Padre: {contract.parentCustomer || "—"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                    Figli / sedi collegate
+                  </p>
+                  <p className="mt-1 break-words text-sm font-bold leading-relaxed text-slate-200">
+                    {contract.childCustomers || "—"}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <MiniContractValue label="Durata" value={contract.durationMonths || "—"} />
+                  <MiniContractValue label="Garanzia" value={contract.warrantyMonths || "—"} />
+                  <MiniContractValue label="Bloccante" value={contract.blockingResponse || "—"} />
+                  <MiniContractValue label="Non bloccante" value={contract.nonblockingResponse || "—"} />
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                    Ricambi / copertura
+                  </p>
+                  <p className="mt-1 line-clamp-5 break-words text-sm font-bold leading-relaxed text-slate-200">
+                    {contract.sparePartsIncluded || "—"}
+                  </p>
+                  <p className="mt-2 text-xs font-bold text-slate-400">
+                    Ritiro/sped.: {contract.pickupShipping || "—"} · Orari: {contract.serviceHours || "—"}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => openEditSlaContractForm(contract)}
+                  className="w-full rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/30 transition hover:-translate-y-0.5 xl:w-[150px]"
+                >
+                  Apri / modifica
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {contractFormOpen && (
+          <div
+            className="fixed inset-0 z-[130] flex items-start justify-center overflow-y-auto bg-black/75 p-4 pt-8 backdrop-blur-sm"
+            onMouseDown={() => setContractFormOpen(false)}
+          >
+            <div
+              className="max-h-[88vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] border border-white/20 bg-[#081523] p-5 text-white shadow-2xl"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.28em] text-blue-300">
+                    {editingSlaContractKey ? "Modifica contratto" : "Nuovo contratto"}
+                  </p>
+                  <h3 className="mt-2 text-2xl font-black">
+                    {slaContractForm.customerType || "Compila profilo SLA"}
+                  </h3>
+                  <p className="mt-1 text-sm font-bold text-slate-400">
+                    Tutti i campi del file SLA sono modificabili. Usa padre/figli per associare categorie, enti e sedi.
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onMouseDown={() => setContractFormOpen(false)}
+                    className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    onClick={saveSlaContractForm}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white"
+                  >
+                    <Save size={17} />
+                    Salva contratto
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {SLA_CONTRACT_FIELDS.map((field) => (
+                  <label key={String(field.key)} className={field.wide ? "md:col-span-2" : ""}>
+                    <p className="mb-1 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+                      {field.label}
+                    </p>
+
+                    {field.key === "category" ? (
+                      <select
+                        className="w-full rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold text-white outline-none focus:border-blue-500"
+                        value={String(slaContractForm[field.key] || "")}
+                        onChange={(event) =>
+                          setSlaContractForm((prev) => ({
+                            ...prev,
+                            category: event.target.value,
+                            parentCustomer: prev.parentCustomer || event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Seleziona categoria...</option>
+                        {slaContractCategories
+                          .filter((category) => category !== "Tutte")
+                          .map((category) => (
+                            <option key={category} value={category}>
+                              {category}
+                            </option>
+                          ))}
+                        <option value="NUOVA CATEGORIA">NUOVA CATEGORIA</option>
+                      </select>
+                    ) : (
+                      <textarea
+                        value={String(slaContractForm[field.key] ?? "")}
+                        onChange={(event) =>
+                          setSlaContractForm((prev) => ({
+                            ...prev,
+                            [field.key]:
+                              field.key === "matchPriority"
+                                ? Number(event.target.value || 0)
+                                : event.target.value,
+                          }))
+                        }
+                        rows={field.rows || 2}
+                        className="w-full rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold text-white outline-none focus:border-blue-500"
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function MiniContractValue({ label, value }: { label: string; value: any }) {
+    return (
+      <div className="rounded-2xl border border-white/15 bg-white/[0.045] p-3">
+        <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+          {label}
+        </p>
+        <p className="mt-1 break-words text-sm font-black leading-snug text-white">
+          {value}
+        </p>
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (
@@ -2410,9 +3611,7 @@ site_id: t.site_id || null,
           <nav className="space-y-5">
             {tabGroups.map((group) => {
               const visibleItems = group.items.filter((tab) =>
-                tab.key === "utenti"
-                  ? currentUser?.role === "admin"
-                  : canViewModule(currentUser, tab.key),
+                canAccessTab(tab.key),
               );
 
               if (visibleItems.length === 0) return null;
@@ -2423,7 +3622,7 @@ site_id: t.site_id || null,
                     {group.title}
                   </p>
 
-                  {visibleItems.map(({ key, label, icon: Icon }) => (
+                  {visibleItems.map(({ key, label, icon: Icon, badge }: any) => (
                     <button
                       key={key}
                       onClick={() => setActiveTab(key as any)}
@@ -2436,7 +3635,12 @@ site_id: t.site_id || null,
                       }`}
                     >
                       <Icon size={18} />
-                      {label}
+                      <span className="min-w-0 flex-1">{label}</span>
+                      {badge > 0 && (
+                        <span className="ml-auto min-w-5 rounded-full bg-red-600 px-2 py-0.5 text-center text-[10px] font-black text-white">
+                          {badge}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -2599,11 +3803,9 @@ site_id: t.site_id || null,
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {tabs
                   .filter((tab) =>
-                    tab.key === "utenti"
-                      ? currentUser?.role === "admin"
-                      : canViewModule(currentUser, tab.key),
+                    canAccessTab(tab.key),
                   )
-                  .map(({ key, label, icon: Icon }) => (
+                  .map(({ key, label, icon: Icon, badge }: any) => (
                     <button
                       key={key}
                       onClick={() => setActiveTab(key as any)}
@@ -2617,6 +3819,11 @@ site_id: t.site_id || null,
                     >
                       <Icon size={15} />
                       {label}
+                      {badge > 0 && (
+                        <span className="ml-1 min-w-4 rounded-full bg-red-600 px-1.5 py-0.5 text-center text-[9px] font-black text-white">
+                          {badge}
+                        </span>
+                      )}
                     </button>
                   ))}
               </div>
@@ -2628,6 +3835,7 @@ site_id: t.site_id || null,
             setMobileMoreOpen={setMobileMoreOpen}
             mobileView={mobileView}
             setMobileView={setMobileView}
+            todoNewCount={todoNewCount}
           />
 
           <main className="w-full max-w-full overflow-x-hidden space-y-6 p-5 pb-24 md:p-8">
@@ -2684,6 +3892,7 @@ site_id: t.site_id || null,
                   </button>
                   <div className="mb-5 flex w-full max-w-full min-w-0 gap-2 overflow-x-auto overscroll-x-contain border-b border-white/10 pb-4 [-ms-overflow-style:none] [scrollbar-width:none]">
                     {[
+                      { key: "webvime", label: "Webvime", icon: Monitor, badge: 0 },
                       {
                         key: "dispatch",
                         label: "Dispatch",
@@ -2702,6 +3911,7 @@ site_id: t.site_id || null,
                         label: "Operativo",
                         icon: AlertTriangle,
                       },
+                      { key: "todo", label: "To Do", icon: CheckCircle2, badge: todoNewCount },
                       {
                         key: "calendario",
                         label: "Calendario",
@@ -2721,7 +3931,7 @@ site_id: t.site_id || null,
                         label: "Import GLPI",
                         icon: Download,
                       },
-                    ].map(({ key, label, icon: Icon }) => (
+                    ].map(({ key, label, icon: Icon, badge }: any) => (
                       <button
                         key={key}
                         onClick={() => setMobileView(key as any)}
@@ -2729,6 +3939,11 @@ site_id: t.site_id || null,
                       >
                         <Icon size={15} />
                         {label}
+                        {badge > 0 && (
+                          <span className="ml-1 min-w-4 rounded-full bg-red-600 px-1.5 py-0.5 text-center text-[9px] font-black text-white">
+                            {badge}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -2747,9 +3962,13 @@ site_id: t.site_id || null,
                 </div>
               )}
 
+              {mobileView === "webvime" && <WebvimeBoard />}
+
               {mobileView === "dispatch" && (
                 <DispatchCenter tickets={tickets} technicians={technicians} />
               )}
+
+              {mobileView === "todo" && <TodoListPanel />}
 
               {mobileView === "activity" && <GlobalActivityFeed />}
 
@@ -3527,104 +4746,7 @@ site_id: t.site_id || null,
                 </div>
               )}
 
-              {mobileView === "contratti" && (
-                <div className="grid gap-4">
-                  <div className="flex items-end justify-between gap-3">
-                    <div>
-                      <h2 className="text-3xl font-black text-white">
-                        Contratti / Accordi commerciali
-                      </h2>
-                      <p className="text-base text-slate-400">
-                        {editableContracts.length} contratti totali
-                      </p>
-                    </div>
-                    <button
-                      onClick={() =>
-                        showMessage(
-                          "Aggiunta nuovo contratto non ancora collegata a database",
-                          "error",
-                        )
-                      }
-                      className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
-                    >
-                      + Nuovo
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-4 overflow-hidden rounded-2xl border border-white/10 text-center text-xs font-black">
-                    <button className="border-b-2 border-blue-500 py-3 text-blue-400">
-                      Tutti
-                    </button>
-                    <button className="py-3 text-slate-400">Attivi</button>
-                    <button className="py-3 text-slate-400">In scadenza</button>
-                    <button className="py-3 text-slate-400">Scaduti</button>
-                  </div>
-
-                  {editableContracts.map((contract) => {
-                    const st = getContractStatus(contract);
-                    return (
-                      <div
-                        key={contract.name}
-                        className="rounded-3xl border border-white/10 bg-white/[0.06] p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-lg font-black text-white">
-                              {contract.name}
-                            </p>
-                            <p className="text-sm text-slate-400">
-                              {contract.clientType}
-                            </p>
-                          </div>
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-black text-white ${st.color}`}
-                          >
-                            {st.label}
-                          </span>
-                        </div>
-
-                        <p className="mt-3 text-sm text-slate-300">
-                          <b>Periodo:</b> {contract.period}
-                        </p>
-
-                        <div className="mt-4 grid grid-cols-3 gap-2 border-t border-white/10 pt-4 text-xs text-slate-300">
-                          <div>
-                            <p>Garanzia</p>
-                            <b className="text-white">{contract.warranty}</b>
-                          </div>
-                          <div>
-                            <p>Spedizione</p>
-                            <b className="text-white">{contract.shipping}</b>
-                          </div>
-                          <div>
-                            <p>SLA</p>
-                            <b className="text-white">{contract.sla}</b>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 flex gap-2">
-                          <button
-                            onClick={() => editMobileContract(contract)}
-                            className="flex-1 rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
-                          >
-                            Modifica
-                          </button>
-
-                          {contract.pdf && (
-                            <a
-                              href={contract.pdf}
-                              target="_blank"
-                              className="rounded-2xl bg-white/10 px-4 py-3 font-black text-white"
-                            >
-                              PDF
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {mobileView === "contratti" && renderSlaContractsManager(true)}
 
               {mobileView === "sistemi" && (
                 <div className="grid gap-4">
@@ -4438,9 +5560,13 @@ site_id: t.site_id || null,
               </section>
             )}
 
+            {activeTab === "webvime" && <WebvimeBoard />}
+
             {activeTab === "dispatch" && (
               <DispatchCenter tickets={tickets} technicians={technicians} />
             )}
+
+            {activeTab === "todo" && <TodoListPanel />}
 
             {activeTab === "activity" && <GlobalActivityFeed />}
 
@@ -4901,137 +6027,7 @@ site_id: t.site_id || null,
               </section>
             )}
 
-            {activeTab === "contratti" && (
-              <section className={card}>
-                <h2 className="mb-6 text-2xl font-black">
-                  Contratti / Accordi commerciali
-                </h2>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  {editableContracts.map((contract) => {
-                    const status = getContractStatus(contract);
-
-                    return (
-                      <div
-                        key={contract.name}
-                        className="rounded-3xl border border-white/10 bg-white/[0.04] p-5"
-                      >
-                        <div className="mb-4 flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-lg font-black">
-                              {contract.name}
-                            </p>
-                            <p className="text-sm text-slate-400">
-                              {contract.clientType}
-                            </p>
-                          </div>
-
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-bold text-white ${status.color}`}
-                          >
-                            {status.label}
-                          </span>
-                        </div>
-
-                        <div className="grid gap-3 text-sm">
-                          <p>
-                            <b>Stato:</b> {contract.status}
-                          </p>
-                          <p>
-                            <b>Periodo:</b> {contract.period}
-                          </p>
-
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <label>
-                              <b>Inizio contratto</b>
-                              {renderDateInput(
-                                contract.startDate !== "Da verificare"
-                                  ? contract.startDate
-                                  : "",
-                                (value) =>
-                                  updateContractField(
-                                    contract.name,
-                                    "startDate",
-                                    value,
-                                  ),
-                                `mt-1 w-full ${lightInput}`,
-                              )}
-                            </label>
-
-                            <label>
-                              <b>Scadenza contratto</b>
-                              {renderDateInput(
-                                contract.endDate !== "Da verificare"
-                                  ? contract.endDate
-                                  : "",
-                                (value) =>
-                                  updateContractField(
-                                    contract.name,
-                                    "endDate",
-                                    value,
-                                  ),
-                                `mt-1 w-full ${lightInput}`,
-                              )}
-                            </label>
-                          </div>
-
-                          <p>
-                            <b>Garanzia:</b> {contract.warranty}
-                          </p>
-                          <p>
-                            <b>Spedizione:</b> {contract.shipping}
-                          </p>
-                          <p>
-                            <b>Ricambi:</b> {contract.spareParts}
-                          </p>
-                          <p>
-                            <b>SLA:</b> {contract.sla}
-                          </p>
-                        </div>
-
-                        <div className="mt-4 rounded-2xl bg-slate-950/50 p-3 text-sm">
-                          {contract.notes}
-                        </div>
-
-                        <div className="mt-4 rounded-2xl bg-slate-950/40 p-4">
-                          <label className="text-sm font-bold">
-                            Link PDF contratto
-                            <input
-                              className={`mt-2 w-full ${lightInput}`}
-                              placeholder="/contracts/nome-file.pdf"
-                              value={contract.pdf || ""}
-                              onChange={(e) =>
-                                updateContractField(
-                                  contract.name,
-                                  "pdf",
-                                  e.target.value,
-                                )
-                              }
-                            />
-                          </label>
-
-                          <div className="mt-3">
-                            {contract.pdf ? (
-                              <a
-                                href={contract.pdf}
-                                target="_blank"
-                                className="inline-block rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white"
-                              >
-                                Apri / scarica PDF
-                              </a>
-                            ) : (
-                              <div className="rounded-xl bg-amber-500/15 px-4 py-2 text-sm font-bold text-amber-300">
-                                PDF contratto non ancora collegato
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
+            {activeTab === "contratti" && renderSlaContractsManager(false)}
 
             {activeTab === "clienti" && (
               <section className={card}>
@@ -5992,6 +6988,7 @@ site_id: t.site_id || null,
               mobileView={mobileView}
               setMobileView={setMobileView}
               setMobileMoreOpen={setMobileMoreOpen}
+              todoNewCount={todoNewCount}
             />
           </main>
         </div>

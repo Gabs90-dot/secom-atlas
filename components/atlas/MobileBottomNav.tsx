@@ -3,8 +3,9 @@
 import {
   Home as HomeIcon,
   Briefcase,
-  CalendarDays,
   ListChecks,
+  CheckCircle2,
+  Monitor,
   MoreHorizontal,
 } from "lucide-react";
 
@@ -12,12 +13,14 @@ type Props = {
   mobileView: string;
   setMobileView: (value: any) => void;
   setMobileMoreOpen: (value: boolean) => void;
+  todoNewCount?: number;
 };
 
 export default function MobileBottomNav({
   mobileView,
   setMobileView,
   setMobileMoreOpen,
+  todoNewCount = 0,
 }: Props) {
   const items = [
     {
@@ -26,26 +29,27 @@ export default function MobileBottomNav({
       icon: HomeIcon,
     },
     {
+      key: "webvime",
+      label: "Webvime",
+      icon: Monitor,
+    },
+    {
       key: "operativo",
       label: "Operativa",
       icon: Briefcase,
     },
     {
-      key: "calendario",
-      label: "Calendario",
-      icon: CalendarDays,
-    },
-    {
-      key: "registro",
-      label: "Registro",
-      icon: ListChecks,
+      key: "todo",
+      label: "To Do",
+      icon: CheckCircle2,
+      badge: todoNewCount,
     },
   ];
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#07111f]/95 px-3 py-2 backdrop-blur md:hidden">
       <div className="flex items-center justify-between">
-        {items.map(({ key, label, icon: Icon }) => (
+        {items.map(({ key, label, icon: Icon, badge }: any) => (
           <button
             key={key}
             onClick={() => {
@@ -58,7 +62,14 @@ export default function MobileBottomNav({
                 : "text-slate-400"
             }`}
           >
-            <Icon size={18} />
+            <span className="relative">
+              <Icon size={18} />
+              {badge > 0 && (
+                <span className="absolute -right-3 -top-2 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-black text-white">
+                  {badge}
+                </span>
+              )}
+            </span>
             {label}
           </button>
         ))}

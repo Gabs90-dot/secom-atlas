@@ -3,6 +3,7 @@
 import {
   CalendarDays,
   ListChecks,
+  CheckCircle2,
   Map,
   Monitor,
   Phone,
@@ -18,6 +19,7 @@ type Props = {
   setMobileMoreOpen: (value: boolean) => void;
   mobileView: string;
   setMobileView: (value: any) => void;
+  todoNewCount?: number;
 };
 
 export default function MobileMoreMenu({
@@ -25,6 +27,7 @@ export default function MobileMoreMenu({
   setMobileMoreOpen,
   mobileView,
   setMobileView,
+  todoNewCount = 0,
 }: Props) {
   if (!mobileMoreOpen) return null;
 
@@ -52,14 +55,16 @@ export default function MobileMoreMenu({
         <div className="grid gap-2">
           {[
             { key: "home", label: "Home", icon: HomeIcon },
+            { key: "webvime", label: "Webvime", icon: Monitor },
             { key: "operativo", label: "Operativa", icon: Briefcase },
+            { key: "todo", label: "To Do List", icon: CheckCircle2, badge: todoNewCount },
             { key: "calendario", label: "Calendario", icon: CalendarDays },
             { key: "registro", label: "Registro Ticket", icon: ListChecks },
             { key: "clienti", label: "Clienti", icon: Users },
             { key: "contatti", label: "Contatti", icon: Phone },
             { key: "mappa", label: "Mappa", icon: Map },
             { key: "sistemi", label: "Asset & Sistemi", icon: Monitor },
-          ].map(({ key, label, icon: Icon }) => (
+          ].map(({ key, label, icon: Icon, badge }: any) => (
             <button
               key={key}
               onClick={() => {
@@ -73,7 +78,14 @@ export default function MobileMoreMenu({
               }`}
             >
               <span className="flex items-center gap-4">
-                <Icon size={22} />
+                <span className="relative">
+                  <Icon size={22} />
+                  {badge > 0 && (
+                    <span className="absolute -right-3 -top-2 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-black text-white">
+                      {badge}
+                    </span>
+                  )}
+                </span>
                 {label}
               </span>
 
