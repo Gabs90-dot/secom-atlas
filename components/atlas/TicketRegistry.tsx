@@ -365,6 +365,8 @@ export default function TicketRegistry(props: TicketRegistryProps) {
   const { variant, tickets, exportCsv, setMobileView, card = "", onOpenTicketDetail, onRefreshTickets, refreshingTickets = false } = props;
   const [boardFilter, setBoardFilter] = useState<"all" | "open" | "urgent" | "overdue" | "closed">("all");
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
+  const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
+  const [dateFilter, setDateFilter] = useState("");
   const openTicketDetail = onOpenTicketDetail || setSelectedTicket;
 
   const openCount = tickets.filter((ticket) => !isClosed(ticket)).length;
@@ -373,12 +375,45 @@ export default function TicketRegistry(props: TicketRegistryProps) {
   const closedCount = tickets.filter(isClosed).length;
 
   const visibleTickets = useMemo(() => {
-    if (boardFilter === "open") return tickets.filter((ticket) => !isClosed(ticket));
-    if (boardFilter === "urgent") return tickets.filter((ticket) => ticket.urgent && !isClosed(ticket));
-    if (boardFilter === "overdue") return tickets.filter(isOverdue);
-    if (boardFilter === "closed") return tickets.filter(isClosed);
-    return tickets;
-  }, [tickets, boardFilter]);
+    let filtered = tickets;
+
+    if (boardFilter === "open") {
+      filtered = filtered.filter((ticket) => !isClosed(ticket));
+    }
+
+    if (boardFilter === "urgent") {
+      filtered = filtered.filter((ticket) => ticket.urgent && !isClosed(ticket));
+    }
+
+    if (boardFilter === "overdue") {
+      filtered = filtered.filter(isOverdue);
+    }
+
+    if (boardFilter === "closed") {
+      filtered = filtered.filter(isClosed);
+    }
+
+    if (dateFilter) {
+      filtered = filtered.filter((ticket) => {
+        const rawDate =
+          ticket.openedAt ||
+          ticket.opened_at ||
+          ticket.created_at ||
+          ticket.date;
+
+        if (!rawDate) return false;
+
+        try {
+          const ticketDate = new Date(rawDate).toISOString().slice(0, 10);
+          return ticketDate === dateFilter;
+        } catch {
+          return false;
+        }
+      });
+    }
+
+    return filtered;
+  }, [tickets, boardFilter, dateFilter]);
 
   const boardFilterLabel =
     boardFilter === "open"
@@ -485,7 +520,18 @@ export default function TicketRegistry(props: TicketRegistryProps) {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={onRefreshTickets}
+            onClick={async () => {
+              try {
+                await onRefreshTickets?.();
+                setLastRefreshAt(new Date());
+
+                setTimeout(() => {
+                  setLastRefreshAt(null);
+                }, 2500);
+              } catch (error) {
+                console.error(error);
+              }
+            }}
             disabled={refreshingTickets || !onRefreshTickets}
             className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -498,6 +544,22 @@ export default function TicketRegistry(props: TicketRegistryProps) {
           </button>
         </div>
       </div>
+
+      {lastRefreshAt && (
+        <div className="fixed bottom-6 right-6 z-[120] rounded-2xl border border-emerald-500/30 bg-emerald-500/15 px-5 py-4 shadow-2xl backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="text-emerald-300" size={22} />
+            <div>
+              <p className="text-sm font-black text-emerald-200">
+                Registro aggiornato
+              </p>
+              <p className="text-xs text-emerald-300/80">
+                Dati ricaricati
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Aperti" value={openCount} icon={Clock} tone="border-blue-500/30 bg-blue-500/10 text-blue-200" active={boardFilter === "open"} onClick={() => setBoardFilter(boardFilter === "open" ? "all" : "open")} />
@@ -522,7 +584,34 @@ export default function TicketRegistry(props: TicketRegistryProps) {
         </div>
       )}
 
-      <RegistryFilters {...props} />
+      <div className="grid gap-3">
+        <RegistryFilters {...props} />
+
+        <div className="flex flex-wrap items-end gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+          <div className="flex min-w-[220px] flex-col gap-1">
+            <label className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+              Filtro data apertura
+            </label>
+
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={(event) => setDateFilter(event.target.value)}
+              className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white outline-none"
+            />
+          </div>
+
+          {dateFilter && (
+            <button
+              type="button"
+              onClick={() => setDateFilter("")}
+              className="rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white"
+            >
+              Reset data
+            </button>
+          )}
+        </div>
+      </div>
 
       <div className="grid min-w-0 gap-3">
         {visibleTickets.length === 0 ? (

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity,
   History,
   Building2,
   CalendarDays,
@@ -18,6 +17,7 @@ import {
 import { systemsCatalog } from "@/lib/systemsCatalog";
 import { supabase } from "@/lib/supabase";
 import CustomerSitesPanel from "@/components/atlas/CustomerSitesPanel";
+import ContractProfilePanel from "@/components/atlas/ContractProfilePanel";
 
 type CustomerWorkspaceProps = {
   currentCustomer: any | null;
@@ -369,34 +369,15 @@ export default function CustomerWorkspace({
           </div>
 
           {modal === "contract" && (
-            <div className="grid gap-3">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                <p className="text-sm font-black text-slate-400">Cliente / posizione</p>
-                <p className="mt-1 text-xl font-black text-white">{currentLabel}</p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                  <p className="text-sm font-black text-slate-400">Contratto</p>
-                  <p className="mt-1 text-lg font-black text-white">{currentCustomer?.contract_type || selectedSite?.entity || "Da collegare"}</p>
-                </div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                  <p className="text-sm font-black text-slate-400">SLA</p>
-                  <p className="mt-1 text-lg font-black text-white">{currentCustomer?.sla_hours || 48} ore</p>
-                </div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                  <p className="text-sm font-black text-slate-400">Referente</p>
-                  <p className="mt-1 text-lg font-black text-white">{currentCustomer?.referent || "Non inserito"}</p>
-                </div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                  <p className="text-sm font-black text-slate-400">Contatti</p>
-                  <p className="mt-1 text-lg font-black text-white">{currentCustomer?.phone || currentCustomer?.email || "Non inseriti"}</p>
-                </div>
-              </div>
-            </div>
+            <ContractProfilePanel
+              currentCustomer={currentCustomer}
+              selectedSite={selectedSite}
+              currentLabel={currentLabel}
+            />
           )}
 
           {modal === "ticket" && selectedTicket && (
-            <div className="grid gap-3">
+            <div className="grid min-w-0 gap-3">
               <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
                 <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">#{selectedTicket.id}</p>
                 <h4 className="mt-2 text-xl font-black text-white">{selectedTicket.site || "Sede n/d"}</h4>
@@ -421,7 +402,7 @@ export default function CustomerWorkspace({
                 </label>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid min-w-0 gap-3 md:grid-cols-3">
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4"><p className="text-xs font-black text-slate-400">Aperto</p><p className="mt-1 font-black text-white">{formatDate(selectedTicket.openedAt || selectedTicket.date)}</p></div>
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4"><p className="text-xs font-black text-slate-400">Previsto</p><p className="mt-1 font-black text-white">{formatDate(selectedTicket.expectedCloseDate)}</p></div>
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4"><p className="text-xs font-black text-slate-400">Chiuso</p><p className="mt-1 font-black text-white">{formatDate(selectedTicket.closedAt)}</p></div>
@@ -455,15 +436,15 @@ export default function CustomerWorkspace({
     }
 
     return (
-      <div className="grid gap-3">
+      <div className="grid min-w-0 gap-3">
         {list.map((ticket) => (
-          <button key={ticket.id} onClick={() => openTicketModal(ticket)} className="flex flex-col gap-2 rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-blue-500/10 md:flex-row md:items-center md:justify-between">
+          <button key={ticket.id} onClick={() => openTicketModal(ticket)} className="flex min-w-0 flex-col gap-3 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-blue-500/10 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
               <p className="truncate text-sm font-black text-white">#{ticket.id} · {ticket.site || "Sede n/d"}</p>
               <p className="truncate text-xs font-bold text-slate-500">{ticket.problem || "Descrizione non disponibile"}</p>
             </div>
-            <div className="flex flex-wrap gap-2 text-xs font-black">
-              <span className={`w-fit rounded-full border px-3 py-1 ${getStatusTone(ticketStatus(ticket))}`}>{ticketStatus(ticket) || "Stato n/d"}</span>
+            <div className="flex shrink-0 flex-wrap items-end justify-end gap-2 text-xs font-black md:max-w-[180px]">
+              <span className={`max-w-full break-words rounded-full border px-3 py-1 text-center ${getStatusTone(ticketStatus(ticket))}`}>{ticketStatus(ticket) || "Stato n/d"}</span>
               <span className="w-fit rounded-full bg-blue-500/15 px-3 py-1 text-blue-200"><CalendarDays size={12} className="mr-1 inline" />{formatDate(ticketDateValue(ticket))}</span>
               {ticket.urgent && <span className="w-fit rounded-full bg-red-600 px-3 py-1 text-white">URGENTE</span>}
             </div>
@@ -494,7 +475,7 @@ export default function CustomerWorkspace({
 
   function renderAssetsTab() {
     return (
-      <div className="grid gap-4">
+      <div className="grid min-w-0 gap-4">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <select
             value={assetDraft}
@@ -521,7 +502,7 @@ export default function CustomerWorkspace({
             Nessun asset collegato. Seleziona un sistema dal menu per iniziare.
           </div>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid min-w-0 gap-3">
             {currentAssets.map((asset, index) => (
               <div key={`${asset}-${index}`} className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.05] p-4">
                 <div>
@@ -614,15 +595,21 @@ export default function CustomerWorkspace({
   ];
 
   return (
-    <div className="grid gap-5 rounded-[2rem] border border-blue-500/30 bg-blue-500/10 p-5 animate-in fade-in slide-in-from-bottom-3">
+    <div className="grid w-full min-w-0 overflow-x-hidden gap-5 rounded-[2rem] border border-blue-500/30 bg-blue-500/10 p-5 animate-in fade-in slide-in-from-bottom-3">
       {renderModal()}
 
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">Customer workspace</p>
           <h2 className="mt-2 break-words text-2xl font-black text-white md:text-4xl">{currentLabel}</h2>
           <p className="mt-2 text-sm font-bold text-slate-400">
-            {selectedSite ? [selectedSite.city, selectedSite.region, selectedSite.entity].filter(Boolean).join(" · ") : currentCustomer?.contract_type || "Cliente selezionato"}
+            {selectedSite
+              ? [selectedSite.city, selectedSite.region, selectedSite.entity]
+                  .filter(Boolean)
+                  .join(" · ")
+              : currentCustomer?.linked_contract_name
+                ? `Contratto collegato · ${currentCustomer.linked_contract_name}`
+                : currentCustomer?.contract_type || "Cliente selezionato"}
           </p>
         </div>
 
@@ -636,11 +623,16 @@ export default function CustomerWorkspace({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-5">
+      <div className="grid min-w-0 gap-3 md:grid-cols-5">
         <button onClick={() => setModal("contract")} className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-blue-500/50">
           <FileText className="mb-3 text-blue-300" size={22} />
           <p className="text-sm font-black text-slate-400">Contratto</p>
-          <p className="mt-1 break-words text-lg font-black text-white">{currentCustomer?.contract_type || selectedSite?.entity || "Da collegare"}</p>
+          <p className="mt-1 break-words text-lg font-black text-white">
+            {currentCustomer?.linked_contract_name ||
+              currentCustomer?.contract_type ||
+              selectedSite?.entity ||
+              "Da collegare"}
+          </p>
         </button>
 
         <button onClick={() => { setTicketSort("open"); setActiveTab("tickets"); }} className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-emerald-500/50">
@@ -668,7 +660,7 @@ export default function CustomerWorkspace({
         </button>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto border-b border-white/10 pb-3">
+      <div className="flex w-full min-w-0 gap-2 overflow-x-auto border-b border-white/10 pb-3">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -686,9 +678,9 @@ export default function CustomerWorkspace({
       </div>
 
       {activeTab === "overview" && (
-        <div className="grid gap-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+        <div className="grid min-w-0 gap-4">
+          <div className="grid min-w-0 gap-3 md:grid-cols-3">
+            <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <ShieldCheck className={healthTone} size={22} />
                 <span className={`rounded-full border px-3 py-1 text-[11px] font-black ${healthRiskTone}`}>
@@ -703,19 +695,19 @@ export default function CustomerWorkspace({
                 ))}
               </div>
             </div>
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
               <Clock className="mb-3 text-blue-300" size={22} />
-              <p className="text-2xl font-black text-white">{currentCustomer?.sla_hours || 48}h</p>
+              <p className="text-2xl font-black text-white">{currentCustomer?.sla_hours ? `${currentCustomer.sla_hours}h` : "N/D"}</p>
               <p className="text-sm font-bold text-slate-400">SLA operativo</p>
             </div>
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
               <CalendarDays className="mb-3 text-violet-300" size={22} />
               <p className="text-2xl font-black text-white">{formatDate(lastActivity)}</p>
               <p className="text-sm font-bold text-slate-400">Ultima attività</p>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+          <div className="min-w-0 rounded-3xl border border-white/10 bg-slate-950/35 p-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">Customer risk analysis</p>
@@ -725,9 +717,9 @@ export default function CustomerWorkspace({
                 Score {healthScore}/100
               </p>
             </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <div className="mt-3 grid min-w-0 gap-2 md:grid-cols-2">
               {healthReasons.map((reason: any) => (
-                <div key={reason} className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-bold text-slate-300">
+                <div key={reason} className="min-w-0 break-words rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-bold text-slate-300">
                   {reason}
                 </div>
               ))}
@@ -735,12 +727,12 @@ export default function CustomerWorkspace({
           </div>
 
           {renderTicketToolbar()}
-          {renderTicketList(4)}
+          {renderTicketList()}
         </div>
       )}
 
       {activeTab === "tickets" && (
-        <div className="grid gap-4">
+        <div className="grid min-w-0 gap-4">
           {renderTicketToolbar()}
           {renderTicketList()}
         </div>

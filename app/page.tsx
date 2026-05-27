@@ -422,10 +422,11 @@ export default function Home() {
     async function loadTickets() {
       const { data, error } = await supabase
         .from("tickets")
-.select("*")
-.eq("tenant_id", activeTenant?.id)
-.order("created_at", { ascending: false })
-.range(0, 19999);
+        .select("*")
+        .eq("tenant_id", activeTenant?.id)
+        .order("opened_at", { ascending: false, nullsFirst: false })
+        .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
+        .range(0, 49999);
 
       if (error) {
         console.log(error);
@@ -453,6 +454,7 @@ export default function Home() {
           closingNotes: t.closing_notes || "",
           slot: t.slot || "",
           openedAt: t.opened_at || t.created_at || "",
+          importedAt: t.imported_at || "",
           expectedCloseDate: t.expected_close_date || "",
           closedAt: t.closed_at || "",
           urgent: Boolean(t.urgent),
@@ -631,8 +633,9 @@ site_id: t.site_id || null,
       .from("tickets")
       .select("*")
       .eq("tenant_id", activeTenant?.id)
-      .order("created_at", { ascending: false })
-      .range(0, 19999);
+      .order("opened_at", { ascending: false, nullsFirst: false })
+      .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
+      .range(0, 49999);
 
     if (error) {
       console.log(error);
@@ -662,6 +665,7 @@ site_id: t.site_id || null,
         closingNotes: t.closing_notes || "",
         slot: t.slot || "",
         openedAt: t.opened_at || t.created_at || "",
+        importedAt: t.imported_at || "",
         expectedCloseDate: t.expected_close_date || "",
         closedAt: t.closed_at || "",
         urgent: Boolean(t.urgent),
@@ -682,7 +686,7 @@ site_id: t.site_id || null,
 
     setTickets(formatted);
     setRefreshingTickets(false);
-    showMessage("Ticket aggiornati");
+    // refresh silenzioso: il toast piccolo lo gestisce TicketRegistry
   }
 
   function normalizeFilterText(value: any) {

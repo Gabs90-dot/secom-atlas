@@ -1,9 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { syncGlpiDbToAtlas } from "@/services/glpiSyncEngine";
+import * as glpiSyncEngine from "@/services/glpiSyncEngine";
 
 export const runtime = "nodejs";
 
 const DEFAULT_LIMIT = 500;
+
+function getSyncFunction() {
+  const syncFn = (glpiSyncEngine as any).syncGlpiDbToAtlas;
+
+  if (typeof syncFn !== "function") {
+    throw new Error(
+      "Export syncGlpiDbToAtlas mancante in services/glpiSyncEngine.ts. Sostituisci quel file con glpiSyncEngine_FIXED.ts.",
+    );
+  }
+
+  return syncFn;
+}
 
 function getTenantId(request: NextRequest) {
   const fromQuery = request.nextUrl.searchParams.get("tenantId");
@@ -24,10 +36,13 @@ function getNumberParam(request: NextRequest, name: string, fallback: number) {
 
 export async function GET(request: NextRequest) {
   try {
+    const syncGlpiDbToAtlas = getSyncFunction();
+
     const tenantId = getTenantId(request);
     const limit = getNumberParam(request, "limit", DEFAULT_LIMIT);
     const offset = getNumberParam(request, "offset", 0);
-    const glpiTicketId = request.nextUrl.searchParams.get("glpiTicketId") || undefined;
+    const glpiTicketId =
+      request.nextUrl.searchParams.get("glpiTicketId") || undefined;
 
     if (!tenantId) {
       return NextResponse.json(
@@ -68,17 +83,20 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const syncGlpiDbToAtlas = getSyncFunction();
+
     const body = await request.json().catch(() => ({}));
 
     const tenantId =
       body?.tenantId ||
+      body?.tenant_id ||
       process.env.ATLAS_DEFAULT_TENANT_ID ||
       process.env.NEXT_PUBLIC_ATLAS_DEFAULT_TENANT_ID ||
       "";
 
     const limit = Number(body?.limit || DEFAULT_LIMIT);
     const offset = Number(body?.offset || 0);
-    const glpiTicketId = body?.glpiTicketId;
+    const glpiTicketId = body?.glpiTicketId || body?.glpi_ticket_id || body?.id;
 
     if (!tenantId) {
       return NextResponse.json(

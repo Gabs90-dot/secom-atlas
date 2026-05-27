@@ -1,14 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { syncGlpiDbToAtlas } from "@/services/glpiSyncEngine";
+import * as glpiSyncEngine from "@/services/glpiSyncEngine";
+
+export const runtime = "nodejs";
+
+function getSyncFunction() {
+  const syncFn = (glpiSyncEngine as any).syncGlpiDbToAtlas;
+
+  if (typeof syncFn !== "function") {
+    throw new Error(
+      "Export syncGlpiDbToAtlas mancante in services/glpiSyncEngine.ts. Sostituisci quel file con glpiSyncEngine_FIXED.ts.",
+    );
+  }
+
+  return syncFn;
+}
 
 export async function POST(request: NextRequest) {
   try {
+    const syncGlpiDbToAtlas = getSyncFunction();
+
     const body = await request.json().catch(() => ({}));
 
     const tenantId =
       body?.tenantId ||
       body?.tenant_id ||
-      process.env.ATLAS_DEFAULT_TENANT_ID;
+      process.env.ATLAS_DEFAULT_TENANT_ID ||
+      process.env.NEXT_PUBLIC_ATLAS_DEFAULT_TENANT_ID;
 
     if (!tenantId) {
       return NextResponse.json(

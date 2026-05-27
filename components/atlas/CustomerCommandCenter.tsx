@@ -41,6 +41,26 @@ function expandSearchText(value: any) {
   return normalize(`${base} ${expanded}`);
 }
 
+function normalizeGlpiHierarchy(value: any) {
+  return String(value || "")
+    .split(">")
+    .map((part) =>
+      expandSearchText(part)
+        .replace(/\bcom prov cc\b/g, "comando provinciale carabinieri")
+        .replace(/\bcomando prov carabinieri\b/g, "comando provinciale carabinieri")
+        .replace(/\bcomp cc\b/g, "compagnia carabinieri")
+        .replace(/\bcomp carabinieri\b/g, "compagnia carabinieri")
+        .replace(/\bprov\b/g, "provinciale")
+        .replace(/\bcom\b/g, "comando")
+        .replace(/\bcomp\b/g, "compagnia")
+        .replace(/\bcc\b/g, "carabinieri")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join(" > ");
+}
+
 function hasExactToken(text: string, token: string) {
   return ` ${text} `.includes(` ${token} `);
 }
@@ -148,15 +168,190 @@ function findCustomerForSite(site: any, customers: any[]) {
 function entityAsCustomer(entity: any) {
   if (!entity) return null;
 
+  const normalizedPath =
+    entity.normalized_complete_name ||
+    entity.complete_name ||
+    "";
+
+  const parts = String(normalizedPath)
+    .split(">")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const text = expandSearchText(normalizedPath || entity.name || "");
+
+  const inferredContract = text.includes("carabinieri")
+    ? "Carabinieri"
+    : text.includes("polizia")
+    ? "Polizia"
+    : text.includes("rfi")
+    ? "RFI"
+    : entity.contract_type || "Entità GLPI";
+
   return {
     id: `entity-${entity.id}`,
-    name: entity.name,
+    name: parts[parts.length - 1] || entity.name,
     entity_type: entity.entity_type,
     glpi_entity_id: entity.glpi_entity_id,
-    complete_name: entity.complete_name,
-    contract_type: "Entità GLPI",
-    sla_hours: 48,
+    complete_name: normalizedPath,
+    raw_complete_name: entity.raw_complete_name || entity.complete_name,
+    normalized_complete_name: normalizedPath,
+    contract_type: inferredContract,
+    sla_hours: entity.sla_hours || 48,
+    is_glpi_entity: true,
   };
+}
+
+
+
+function normalizePath(value: any) {
+  return normalizeGlpiHierarchy(value);
+}
+
+function pathStartsWith(ticketPath: any, entityPath: any) {
+  const cleanTicketPath = normalizePath(ticketPath);
+  const cleanEntityPath = normalizePath(entityPath);
+
+  if (!cleanTicketPath || !cleanEntityPath) return false;
+
+  return (
+    cleanTicketPath === cleanEntityPath ||
+    cleanTicketPath.startsWith(`${cleanEntityPath} > `)
+  );
+}
+
+function compactEntityKey(value: any) {
+  return expandSearchText(value)
+    .replace(/\broot\b/g, "")
+    .replace(/\bcomando\b/g, "")
+    .replace(/\bcom\b/g, "")
+    .replace(/\bprovincia\b/g, "")
+    .replace(/\bprovinciale\b/g, "")
+    .replace(/\bprov\b/g, "")
+    .replace(/\bcompagnia\b/g, "")
+    .replace(/\bcomp\b/g, "")
+    .replace(/\bcc\b/g, "")
+    .replace(/\bcarabinieri\b/g, "")
+    .replace(/\bcampania\b/g, "")
+    .replace(/\blazio\b/g, "")
+    .replace(/\bsicilia\b/g, "")
+    .replace(/\blombardia\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resultDedupeKey(item: any) {
+  const preferredPath =
+    item.entity?.normalized_complete_name ||
+    item.entity?.complete_name ||
+    item.site?.normalized_complete_name ||
+    item.site?.glpi_entity_path ||
+    item.subtitle ||
+    item.label ||
+    "";
+
+  const parts = String(preferredPath)
+    .split(">")
+    .map((part) => compactEntityKey(part))
+    .filter(Boolean);
+
+  return parts[parts.length - 1] || compactEntityKey(item.label || preferredPath);
+}
+
+function sameId(a: any, b: any) {
+  if (a === undefined || a === null || b === undefined || b === null) {
+    return false;
+  }
+
+  return String(a) === String(b);
+}
+
+function ticketMatchesSelectedSite(ticket: any, selectedSite: any) {
+  if (!ticket || !selectedSite) return false;
+
+  if (
+    sameId(ticket.siteId, selectedSite.id) ||
+    sameId(ticket.site_id, selectedSite.id)
+  ) {
+    return true;
+  }
+
+  const selectedPath = selectedSite.glpi_entity_path || selectedSite.complete_name || "";
+  const ticketPath = ticket.glpi_entity_path || ticket.glpiEntityPath || "";
+
+  if (selectedPath && ticketPath && pathStartsWith(ticketPath, selectedPath)) {
+    return true;
+  }
+
+  const selectedSiteName = expandSearchText(selectedSite.name || "");
+  const ticketSiteName = expandSearchText(ticket.site || "");
+
+  return Boolean(selectedSiteName && ticketSiteName && selectedSiteName === ticketSiteName);
+}
+
+function ticketMatchesSelectedEntity(ticket: any, selectedEntity: any) {
+  if (!ticket || !selectedEntity) return false;
+
+  const ticketPath = normalizeGlpiHierarchy(
+    ticket.normalized_glpi_entity_path ||
+      ticket.glpi_entity_path ||
+      ticket.glpiEntityPath ||
+      "",
+  );
+
+  const selectedPath = normalizeGlpiHierarchy(
+    selectedEntity.normalized_complete_name ||
+      selectedEntity.complete_name ||
+      "",
+  );
+
+  if (!ticketPath || !selectedPath) return false;
+
+  return ticketPath === selectedPath || ticketPath.startsWith(`${selectedPath} > `);
+}
+
+function siteMatchesSelectedEntity(site: any, selectedEntity: any) {
+  if (!site || !selectedEntity) return false;
+
+  const selectedPath = normalizeGlpiHierarchy(
+    selectedEntity.normalized_complete_name ||
+      selectedEntity.complete_name ||
+      "",
+  );
+
+  const sitePath = normalizeGlpiHierarchy(
+    site.normalized_glpi_entity_path ||
+      site.normalized_complete_name ||
+      site.glpi_entity_path ||
+      site.complete_name ||
+      "",
+  );
+
+  if (!selectedPath || !sitePath) return false;
+
+  return sitePath === selectedPath || sitePath.startsWith(`${selectedPath} > `);
+}
+
+function ticketMatchesSelectedCustomer(ticket: any, customer: any) {
+  if (!ticket || !customer) return false;
+
+  if (
+    sameId(ticket.customerId, customer.id) ||
+    sameId(ticket.customer_id, customer.id)
+  ) {
+    return true;
+  }
+
+  const customerName = expandSearchText(customer.name || "");
+  const ticketText = expandSearchText(`
+    ${ticket.site || ""}
+    ${ticket.entity || ""}
+    ${ticket.city || ""}
+    ${ticket.region || ""}
+    ${ticket.glpi_entity_path || ""}
+  `);
+
+  return Boolean(customerName && hasExactPhrase(ticketText, customerName));
 }
 
 export default function CustomerCommandCenter({
@@ -171,145 +366,127 @@ export default function CustomerCommandCenter({
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<any | null>(null);
   const [siteTickets, setSiteTickets] = useState<any[]>([]);
+  const [entityTickets, setEntityTickets] = useState<any[]>([]);
 
   const query = normalize(search);
 
   const results = useMemo(() => {
     if (query.length < 2) return [];
 
-    const siteResults = sites
-      .filter((site) =>
-        includesSmart(
-          `${site.name} ${site.entity} ${site.city} ${site.region} ${site.address || ""} ${site.glpi_entity_path || ""}`,
-          query,
-        )
-      )
-      .slice(0, 8)
-      .map((site) => ({
-        type: "site" as const,
-        id: `site-${site.id || site.name}`,
-        label: site.name,
-        subtitle: [site.city, site.region, site.entity].filter(Boolean).join(" · "),
-        site,
-        customer: findCustomerForSite(site, customers),
-        entity: null,
-      }));
-
-    const customerResults = customers
-      .filter((customer) => includesSmart(`${customer.name} ${customer.contract_type || ""} ${customer.referent || ""}`, query))
-      .slice(0, 6)
-      .map((customer) => ({
-        type: "customer" as const,
-        id: `customer-${customer.id}`,
-        label: customer.name,
-        subtitle: [customer.contract_type || "Contratto n/d", `SLA ${customer.sla_hours || 48}h`].join(" · "),
-        site: null,
-        customer,
-        entity: null,
-      }));
-
     const entityResults = customerEntities
-      .map((entity) => ({
-        entity,
-        searchText: `${entity.name || ""} ${entity.complete_name || ""} ${(entity.path_parts || []).join(" ")}`,
-      }))
+      .map((entity) => {
+        const normalizedPath =
+          entity.normalized_complete_name ||
+          entity.complete_name ||
+          "";
+
+        const normalizedParts = String(normalizedPath)
+          .split(">")
+          .map((part) => part.trim())
+          .filter(Boolean);
+
+        const label =
+          normalizedParts[normalizedParts.length - 1] ||
+          entity.name ||
+          entity.complete_name ||
+          "Entità GLPI";
+
+        return {
+          type: "entity" as const,
+          id: `entity-${entity.id || entity.glpi_entity_id}`,
+          label,
+          subtitle: normalizedPath || "Entità GLPI",
+          site: null,
+          customer: entityAsCustomer({
+            ...entity,
+            name: label,
+            complete_name: normalizedPath || entity.complete_name,
+          }),
+          entity: {
+            ...entity,
+            name: label,
+            raw_complete_name: entity.complete_name,
+            complete_name: normalizedPath || entity.complete_name,
+            normalized_complete_name: normalizedPath || entity.normalized_complete_name || entity.complete_name,
+          },
+          searchText: `${label} ${normalizedPath} ${entity.name || ""} ${entity.complete_name || ""}`,
+        };
+      })
       .filter((item) => includesSmart(item.searchText, query))
       .sort((a, b) => {
         const aScore = resultScore(a.searchText, query);
         const bScore = resultScore(b.searchText, query);
-
-        const normalizedQuery = expandSearchText(query);
-        const aExact = hasExactPhrase(expandSearchText(a.searchText), normalizedQuery);
-        const bExact = hasExactPhrase(expandSearchText(b.searchText), normalizedQuery);
-
-        if (aExact && !bExact) return -1;
-        if (!aExact && bExact) return 1;
-
         return bScore - aScore;
-      })
-      .slice(0, 20)
-      .map(({ entity }) => ({
-        type: "entity" as const,
-        id: `entity-${entity.id || entity.glpi_entity_id}`,
-        label: entity.name || entity.complete_name || "Entità GLPI",
-        subtitle: entity.complete_name || "Entità GLPI",
-        site: null,
-        customer: entityAsCustomer(entity),
-        entity,
-      }));
+      });
 
-    const ticketPathResults = tickets
-      .map((ticket) => {
-        const path = ticket.glpi_entity_path || ticket.glpiEntityPath || "";
-        const parts = String(path)
-          .split(">")
-          .map((part) => part.trim())
-          .filter(Boolean)
-          .filter((part) => part.toLowerCase() !== "root");
-
-        return {
-          ticket,
-          path,
-          label: parts[parts.length - 1] || ticket.site || "Nodo GLPI",
-          searchText: `${path} ${ticket.site || ""} ${ticket.entity || ""} ${ticket.city || ""} ${ticket.region || ""}`,
-        };
-      })
-      .filter((item) => item.path && includesSmart(item.searchText, query))
-      .sort((a, b) => {
-        const aScore = resultScore(a.searchText, query);
-        const bScore = resultScore(b.searchText, query);
-
-        const normalizedQuery = expandSearchText(query);
-        const aExact = hasExactPhrase(expandSearchText(a.searchText), normalizedQuery);
-        const bExact = hasExactPhrase(expandSearchText(b.searchText), normalizedQuery);
-
-        if (aExact && !bExact) return -1;
-        if (!aExact && bExact) return 1;
-
-        return bScore - aScore;
-      })
-      .slice(0, 10)
-      .map((item) => ({
-        type: "entity" as const,
-        id: `ticket-path-${item.ticket.id}`,
-        label: item.label,
-        subtitle: item.path,
-        site: null,
-        customer: entityAsCustomer({
-          id: `path-${item.ticket.id}`,
-          name: item.label,
-          complete_name: item.path,
-          entity_type: "glpi_path",
-          glpi_entity_id: null,
-        }),
-        entity: {
-          id: `path-${item.ticket.id}`,
-          name: item.label,
-          complete_name: item.path,
-          entity_type: "glpi_path",
-        },
-      }));
-
-    const merged = [
-  ...entityResults,
-  ...ticketPathResults,
-  ...customerResults,
-  ...siteResults,
-];
     const seen = new Set<string>();
 
-    return merged
+    return entityResults
       .filter((item) => {
-        const key = `${item.type}-${item.label}-${item.subtitle}`;
+        const key = resultDedupeKey(item);
+        if (!key) return true;
+
         if (seen.has(key)) return false;
         seen.add(key);
+
         return true;
       })
       .slice(0, 20);
-  }, [query, sites, customers, customerEntities, tickets]);
+  }, [query, customerEntities]);
 
   const currentCustomer = selectedCustomer || entityAsCustomer(selectedEntity) || findCustomerForSite(selectedSite, customers);
-  const currentLabel = selectedSite?.name || selectedEntity?.name || currentCustomer?.name || "";
+  const currentLabel =
+    selectedSite?.name ||
+    selectedEntity?.name ||
+    currentCustomer?.name ||
+    "";
+
+  useEffect(() => {
+    async function loadEntityTickets() {
+      if (!selectedEntity) {
+        setEntityTickets([]);
+        return;
+      }
+
+      const rawPath =
+        selectedEntity.raw_complete_name ||
+        selectedEntity.complete_name ||
+        selectedEntity.normalized_complete_name ||
+        "";
+
+      const normalizedPath =
+        selectedEntity.normalized_complete_name ||
+        selectedEntity.complete_name ||
+        "";
+
+      const queryPath = rawPath || normalizedPath;
+
+      if (!queryPath) {
+        setEntityTickets([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("source", "glpi")
+        .ilike("glpi_entity_path", `${queryPath}%`)
+        .order("opened_at", { ascending: false, nullsFirst: false })
+        .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
+        .range(0, 999);
+
+      if (error) {
+        console.log("Errore caricamento ticket entità GLPI:", error);
+        setEntityTickets([]);
+        return;
+      }
+
+      setEntityTickets((data || []).map(mapTicketRow));
+    }
+
+    loadEntityTickets();
+  }, [selectedEntity?.id, selectedEntity?.complete_name, selectedEntity?.normalized_complete_name]);
+
 
   useEffect(() => {
     async function loadSiteTickets() {
@@ -341,24 +518,29 @@ export default function CustomerCommandCenter({
     if (selectedSite) return [selectedSite];
 
     if (selectedEntity) {
-      const entityText = expandSearchText(`${selectedEntity.name || ""} ${selectedEntity.complete_name || ""}`);
-      return sites.filter((site) =>
-        includesSmart(
-          `${site.name} ${site.entity} ${site.city} ${site.region} ${site.glpi_entity_path || ""}`,
-          entityText,
-        ),
-      );
+      return sites.filter((site) => siteMatchesSelectedEntity(site, selectedEntity));
     }
 
     if (!currentCustomer) return [];
 
     return sites.filter((site) => {
-      const sameCustomer = String(site.customer_id || site.customerId || "") === String(currentCustomer.id || "");
-      if (sameCustomer) return true;
+      if (
+        sameId(site.customer_id, currentCustomer.id) ||
+        sameId(site.customerId, currentCustomer.id)
+      ) {
+        return true;
+      }
 
-      const siteText = expandSearchText(`${site.name} ${site.entity} ${site.city} ${site.region} ${site.glpi_entity_path || ""}`);
-      const customerName = expandSearchText(currentCustomer.name);
-      return Boolean(customerName && siteText.includes(customerName));
+      const customerName = expandSearchText(currentCustomer.name || "");
+      const siteText = expandSearchText(`
+        ${site.name || ""}
+        ${site.entity || ""}
+        ${site.city || ""}
+        ${site.region || ""}
+        ${site.glpi_entity_path || ""}
+      `);
+
+      return Boolean(customerName && hasExactPhrase(siteText, customerName));
     });
   }, [sites, selectedSite, selectedEntity, currentCustomer]);
 
@@ -366,35 +548,20 @@ export default function CustomerCommandCenter({
     if (!currentCustomer && !selectedSite && !selectedEntity) return [];
 
     if (selectedSite) {
-      return siteTickets;
+      return tickets.filter((ticket) => ticketMatchesSelectedSite(ticket, selectedSite));
     }
 
-    return tickets.filter((ticket) => {
-      const ticketText = `${ticket.site || ""} ${ticket.entity || ""} ${ticket.city || ""} ${ticket.region || ""} ${ticket.glpi_entity_path || ""}`;
+    if (selectedEntity) {
+      if (entityTickets.length > 0) return entityTickets;
+      return tickets.filter((ticket) => ticketMatchesSelectedEntity(ticket, selectedEntity));
+    }
 
-      if (selectedEntity) {
-        const entityName = selectedEntity.name || "";
-        const entityPath = selectedEntity.complete_name || "";
-        return (
-          includesSmart(ticketText, entityName) ||
-          (entityPath && includesSmart(ticketText, entityPath))
-        );
-      }
+    if (currentCustomer) {
+      return tickets.filter((ticket) => ticketMatchesSelectedCustomer(ticket, currentCustomer));
+    }
 
-      const sameCustomer =
-        currentCustomer &&
-        (
-          String(ticket.customerId || "") === String(currentCustomer.id) ||
-          String(ticket.customer_id || "") === String(currentCustomer.id)
-        );
-
-      const sameText =
-        currentCustomer &&
-        includesSmart(ticketText, currentCustomer.name);
-
-      return Boolean(sameCustomer || sameText);
-    });
-  }, [tickets, currentCustomer, selectedSite, selectedEntity, siteTickets]);
+    return [];
+  }, [tickets, currentCustomer, selectedSite, selectedEntity, entityTickets]);
 
   function selectResult(result: any) {
     setSelectedSite(result.site || null);
@@ -409,6 +576,7 @@ export default function CustomerCommandCenter({
     setSelectedCustomer(null);
     setSelectedEntity(null);
     setSiteTickets([]);
+    setEntityTickets([]);
   }
 
   function selectSiteFromWorkspace(site: any) {
@@ -416,6 +584,7 @@ export default function CustomerCommandCenter({
     setSelectedSite(site || null);
     setSelectedCustomer(customer);
     setSelectedEntity(null);
+    setEntityTickets([]);
     setSearch(site?.name || customer?.name || "");
   }
 
@@ -439,6 +608,7 @@ export default function CustomerCommandCenter({
             setSelectedCustomer(null);
             setSelectedEntity(null);
             setSiteTickets([]);
+            setEntityTickets([]);
           }}
           placeholder="Scrivi sede, città, ente, cliente o nodo GLPI..."
           className="w-full rounded-3xl border border-white/10 bg-slate-950/70 py-5 pl-14 pr-5 text-base font-bold text-white outline-none placeholder:text-slate-500 focus:border-blue-500 md:text-lg"
@@ -452,7 +622,7 @@ export default function CustomerCommandCenter({
               results.map((result) => (
                 <button key={result.id} onClick={() => selectResult(result)} className="flex w-full items-center gap-4 border-b border-white/10 p-4 text-left transition hover:bg-blue-500/10 last:border-b-0">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-600/20 text-blue-300">
-                    {result.type === "site" ? <MapPin size={21} /> : <Building2 size={21} />}
+                    <Building2 size={21} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-black text-white md:text-base">{result.label}</p>
