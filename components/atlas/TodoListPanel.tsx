@@ -362,6 +362,7 @@ export default function TodoListPanel() {
         </div>
       </div>
 
+      <div className="max-h-[58vh] min-h-[430px] overflow-y-auto overscroll-contain pr-2">
       {loading ? (
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-sm font-bold text-slate-400">Caricamento TO DO LIST...</div>
       ) : filteredTasks.length === 0 ? (
@@ -400,6 +401,8 @@ export default function TodoListPanel() {
           ))}
         </div>
       )}
+
+      </div>
 
       {closingTask && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onMouseDown={() => setClosingTask(null)}>

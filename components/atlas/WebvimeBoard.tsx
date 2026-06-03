@@ -129,6 +129,8 @@ export default function WebvimeBoard() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "closed" | "old">("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
+  const [currentPage, setCurrentPage] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<WebvimeTicket | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -204,6 +206,10 @@ export default function WebvimeBoard() {
     loadWebvime();
   }, []);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query, statusFilter, sortOrder, pageSize]);
+
   const filteredTickets = useMemo(() => {
     const q = normalize(query);
 
@@ -247,6 +253,12 @@ export default function WebvimeBoard() {
   }, [tickets, query, statusFilter, sortOrder]);
 
   const activeHelp = helpSections.find((section) => section.id === activeHelpId) || helpSections[0];
+
+  const totalPages = Math.max(1, Math.ceil(filteredTickets.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedTickets = filteredTickets.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize);
+  const pageStart = filteredTickets.length === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, filteredTickets.length);
 
   function updateHelpSection(id: string, patch: Partial<WebvimeHelpSection>) {
     setHelpSections((prev) => prev.map((section) => (section.id === id ? { ...section, ...patch } : section)));
@@ -325,6 +337,7 @@ export default function WebvimeBoard() {
 
   return (
     <section className="grid gap-5 rounded-[2rem] border border-white/10 bg-white/[0.055] p-5 shadow-2xl">
+      <div className="sticky top-0 z-40 -mx-5 -mt-5 grid gap-4 border-b border-white/10 bg-[#0b1524]/95 p-5 shadow-2xl backdrop-blur-xl">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">PROGETTO WEBVIME</p>
@@ -389,6 +402,25 @@ export default function WebvimeBoard() {
         </div>
       </div>
 
+      <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-slate-950/35 p-3 text-xs font-black text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+        <div>Visualizzati {pageStart}-{pageEnd} di {filteredTickets.length} ticket filtrati</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-500">Per pagina</span>
+          {[25, 50, 100].map((size) => (
+            <button
+              key={size}
+              type="button"
+              onClick={() => setPageSize(size as 25 | 50 | 100)}
+              className={`rounded-2xl px-3 py-2 ${pageSize === size ? "bg-blue-600 text-white" : "bg-white/5 text-slate-400 hover:bg-white/10"}`}
+            >
+              {size}
+            </button>
+          ))}
+        </div>
+      </div>
+      </div>
+
+      <div className="max-h-[58vh] min-h-[430px] overflow-y-auto overscroll-contain pr-2">
       {loading ? (
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-sm font-bold text-slate-400">Caricamento registro Webvime...</div>
       ) : loadError ? (
@@ -397,7 +429,7 @@ export default function WebvimeBoard() {
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-sm font-bold text-slate-400">Nessun ticket Webvime trovato con questi filtri.</div>
       ) : (
         <div className="grid gap-3">
-          {filteredTickets.map((ticket) => {
+          {paginatedTickets.map((ticket) => {
             const closed = isClosed(ticket);
             const age = daysSince(ticket.opened_at || ticket.created_at);
             const old = !closed && age !== null && age >= 7;
@@ -428,6 +460,21 @@ export default function WebvimeBoard() {
               </article>
             );
           })}
+        </div>
+      )}
+      </div>
+
+      {!loading && !loadError && filteredTickets.length > 0 && (
+        <div className="sticky bottom-4 z-30 flex flex-col gap-3 rounded-3xl border border-white/10 bg-[#0b1524]/95 p-3 shadow-2xl backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-black text-slate-400">
+            Pagina {safeCurrentPage} di {totalPages} · {pageStart}-{pageEnd} di {filteredTickets.length}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={safeCurrentPage <= 1} onClick={() => setCurrentPage(1)} className="rounded-2xl bg-white/5 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">Prima</button>
+            <button type="button" disabled={safeCurrentPage <= 1} onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))} className="rounded-2xl bg-white/5 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">Indietro</button>
+            <button type="button" disabled={safeCurrentPage >= totalPages} onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))} className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">Avanti</button>
+            <button type="button" disabled={safeCurrentPage >= totalPages} onClick={() => setCurrentPage(totalPages)} className="rounded-2xl bg-white/5 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">Ultima</button>
+          </div>
         </div>
       )}
 

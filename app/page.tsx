@@ -3587,7 +3587,7 @@ site_id: t.site_id || null,
       />
       <div className="flex min-h-screen">
         <aside
-          className={`hidden w-72 shrink-0 border-r p-6 lg:block ${
+          className={`hidden h-screen w-72 shrink-0 border-r p-6 lg:block ${
             theme === "dark"
               ? "border-white/10 bg-[#081523]"
               : "border-slate-300 bg-white shadow-xl shadow-slate-300/30"

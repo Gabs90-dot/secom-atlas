@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownUp, CheckCircle2, Clock, Download, Filter, Flame, RefreshCw, Search, XCircle } from "lucide-react";
 import { materials, technicians } from "@/lib/atlasConstants";
 import { euro, materialCost } from "@/lib/atlasUtils";
@@ -392,6 +392,8 @@ export default function TicketRegistry(props: TicketRegistryProps) {
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
   const [dateFilter, setDateFilter] = useState("");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
+  const [currentPage, setCurrentPage] = useState(1);
   const openTicketDetail = onOpenTicketDetail || setSelectedTicket;
 
   const openCount = tickets.filter((ticket) => !isClosed(ticket)).length;
@@ -450,6 +452,16 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       return bTime - aTime;
     });
   }, [tickets, boardFilter, dateFilter, sortOrder]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [boardFilter, dateFilter, sortOrder, pageSize, props.filterTechnician, props.filterRegion, props.filterStatus, props.filterSite, props.urgentOnly]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleTickets.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedTickets = visibleTickets.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize);
+  const pageStart = visibleTickets.length === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, visibleTickets.length);
 
   const boardFilterLabel =
     boardFilter === "open"
@@ -546,6 +558,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
           </div>
         </div>
       )}
+      <div className="sticky top-0 z-40 -mx-1 grid gap-4 border-b border-white/10 bg-[#0b1524]/95 p-4 shadow-2xl backdrop-blur-xl">
       <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 overflow-hidden">
           <p className="break-words text-xs font-black uppercase tracking-[0.3em] text-blue-400">CRM Operations Board</p>
@@ -582,7 +595,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
             title="Cambia ordinamento cronologico"
           >
             <ArrowDownUp size={18} />
-            Ordine: {sortOrder === "newest" ? "Recenti" : "Vecchi"}
+            {sortOrder === "newest" ? "Più recenti" : "Più vecchi"}
           </button>
 
           <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">
@@ -669,16 +682,50 @@ export default function TicketRegistry(props: TicketRegistryProps) {
         </div>
       </div>
 
-      <div className="grid min-w-0 gap-3">
+      <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-slate-950/35 p-3 text-xs font-black text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+        <div>Visualizzati {pageStart}-{pageEnd} di {visibleTickets.length} interventi filtrati</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-500">Per pagina</span>
+          {[25, 50, 100].map((size) => (
+            <button
+              key={size}
+              type="button"
+              onClick={() => setPageSize(size as 25 | 50 | 100)}
+              className={`rounded-2xl px-3 py-2 ${pageSize === size ? "bg-blue-600 text-white" : "bg-white/5 text-slate-400 hover:bg-white/10"}`}
+            >
+              {size}
+            </button>
+          ))}
+        </div>
+      </div>
+      </div>
+
+      <div className="max-h-[58vh] min-h-[430px] overflow-y-auto overscroll-contain pr-2">
+        <div className="grid min-w-0 gap-3">
         {visibleTickets.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-10 text-center text-slate-400">
             <XCircle className="mx-auto mb-3" size={30} />
             Nessuna chiamata trovata con questi filtri.
           </div>
         ) : (
-          visibleTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} {...props} onOpenDetail={openTicketDetail} />)
+          paginatedTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} {...props} onOpenDetail={openTicketDetail} />)
         )}
+        </div>
       </div>
+
+      {visibleTickets.length > 0 && (
+        <div className="sticky bottom-4 z-30 flex flex-col gap-3 rounded-3xl border border-white/10 bg-[#0b1524]/95 p-3 shadow-2xl backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-black text-slate-400">
+            Pagina {safeCurrentPage} di {totalPages} · {pageStart}-{pageEnd} di {visibleTickets.length}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={safeCurrentPage <= 1} onClick={() => setCurrentPage(1)} className="rounded-2xl bg-white/5 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">Prima</button>
+            <button type="button" disabled={safeCurrentPage <= 1} onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))} className="rounded-2xl bg-white/5 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">Indietro</button>
+            <button type="button" disabled={safeCurrentPage >= totalPages} onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))} className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">Avanti</button>
+            <button type="button" disabled={safeCurrentPage >= totalPages} onClick={() => setCurrentPage(totalPages)} className="rounded-2xl bg-white/5 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">Ultima</button>
+          </div>
+        </div>
+      )}
 
       {variant === "mobile" && (
         <button onClick={() => setMobileView?.("operativo")} className="sticky bottom-4 w-full max-w-full rounded-3xl bg-blue-600 p-5 text-xl font-black text-white shadow-lg shadow-blue-950/40">
