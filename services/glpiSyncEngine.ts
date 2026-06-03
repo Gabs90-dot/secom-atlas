@@ -125,6 +125,32 @@ function extractGlpiImpact(row: any) {
   return row?.impact ?? row?.["11"] ?? null;
 }
 
+function parseGlpiEntityPath(value: any) {
+  const entityPath = cleanHtml(value || "");
+  const parts = entityPath
+    .split(">")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => part.toLowerCase() !== "root");
+
+  const entity = parts[0] || "Storico GLPI";
+  const region = parts[1] || "Da definire";
+  const site = parts[parts.length - 1] || entity || "Storico GLPI";
+
+  let city = "";
+  const cityMatch = site.match(/\bDI\s+(.+)$/i);
+  if (cityMatch?.[1]) {
+    city = cityMatch[1].replace(/\s+/g, " ").trim().toUpperCase();
+  }
+
+  return { entityPath, entity, region, site, city };
+}
+
+function isUrgent(value: any) {
+  const raw = String(value || "").toLowerCase();
+  return raw === "alta" || raw === "high" || raw === "5" || raw === "4" || raw.includes("urgent");
+}
+
 async function openGlpiSession() {
   const baseUrl = getEnv("GLPI_API_URL").replace(/\/$/, "");
   const appToken = getEnv("GLPI_APP_TOKEN");
@@ -229,6 +255,8 @@ async function loadGlpiTickets(
   const end = offset + limit - 1;
   const query =
     `/search/Ticket?range=${offset}-${end}` +
+    `&sort=2` +
+    `&order=DESC` +
     `&forcedisplay[0]=1` +
     `&forcedisplay[1]=2` +
     `&forcedisplay[2]=3` +
@@ -304,6 +332,7 @@ export async function syncGlpiDbToAtlas({
 
     let processed = 0;
     let updated = 0;
+    let inserted = 0;
     let insertedEvents = 0;
     let errors = 0;
     const skipped: number[] = [];
@@ -346,41 +375,74 @@ export async function syncGlpiDbToAtlas({
           .eq("glpi_ticket_id", glpiId)
           .maybeSingle();
 
-        if (!atlasTicket?.id) {
-          skipped.push(Number(glpiId));
-          continue;
+        const entityPath = extractGlpiEntityPath(glpiTicket);
+        const entityData = parseGlpiEntityPath(entityPath);
+
+        const ticketPayload = {
+          tenant_id: tenantId,
+          site: entityData.site || "Storico GLPI",
+          entity: entityData.entity || "Storico GLPI",
+          city: entityData.city || "",
+          region: entityData.region || "Da definire",
+          status,
+          opened_at: openedAt,
+          closed_at: closedAt,
+          resolved: isClosedStatus(extractGlpiStatus(glpiTicket)),
+          problem: cleanContent || title,
+          urgent: isUrgent(extractGlpiUrgency(glpiTicket)),
+          source: "glpi",
+          glpi_ticket_id: Number(glpiId),
+          glpi_entity_path: entityPath || null,
+          glpi_priority: extractGlpiPriority(glpiTicket),
+          glpi_urgency: extractGlpiUrgency(glpiTicket),
+          glpi_impact: extractGlpiImpact(glpiTicket),
+          glpi_raw: {
+            ...glpiTicket,
+            clean_name: title,
+            clean_content: cleanContent,
+          },
+          imported_at: new Date().toISOString(),
+        };
+
+        let atlasTicketId = atlasTicket?.id || null;
+
+        if (atlasTicketId) {
+          const { error: updateError } = await supabaseAdmin
+            .from("tickets")
+            .update(ticketPayload)
+            .eq("id", atlasTicketId);
+
+          if (updateError) throw updateError;
+          updated += 1;
+        } else {
+          const { data: insertedTicket, error: insertError } = await supabaseAdmin
+            .from("tickets")
+            .insert(ticketPayload)
+            .select("id")
+            .single();
+
+          if (insertError) throw insertError;
+          atlasTicketId = insertedTicket.id;
+          inserted += 1;
         }
 
-        const entityPath = extractGlpiEntityPath(glpiTicket);
-
-        const { error: updateError } = await supabaseAdmin
-          .from("tickets")
-          .update({
-            status,
-            opened_at: openedAt,
-            closed_at: closedAt,
-            resolved: isClosedStatus(extractGlpiStatus(glpiTicket)),
-            problem: cleanContent || title,
-            glpi_entity_path: entityPath || null,
-            glpi_priority: extractGlpiPriority(glpiTicket),
-            glpi_urgency: extractGlpiUrgency(glpiTicket),
-            glpi_impact: extractGlpiImpact(glpiTicket),
-            glpi_raw: {
-              ...glpiTicket,
-              clean_name: title,
-              clean_content: cleanContent,
-            },
-            imported_at: new Date().toISOString(),
-          })
-          .eq("id", atlasTicket.id);
-
-        if (updateError) throw updateError;
-        updated += 1;
+        await supabaseAdmin.from("glpi_ticket_mappings").upsert({
+          tenant_id: tenantId,
+          glpi_ticket_id: Number(glpiId),
+          atlas_ticket_id: atlasTicketId,
+          glpi_status: status,
+          glpi_priority: extractGlpiPriority(glpiTicket),
+          glpi_urgency: extractGlpiUrgency(glpiTicket),
+          glpi_impact: extractGlpiImpact(glpiTicket),
+          glpi_entity_path: entityPath || null,
+          raw: glpiTicket,
+          updated_at: new Date().toISOString(),
+        });
 
         await supabaseAdmin.from("ticket_events").upsert(
           {
             tenant_id: tenantId,
-            ticket_id: atlasTicket.id,
+            ticket_id: atlasTicketId,
             event_type: "glpi_ticket_content",
             title: "Contenuto ticket GLPI",
             description: cleanContent || title,
@@ -416,7 +478,7 @@ export async function syncGlpiDbToAtlas({
           const { error } = await supabaseAdmin.from("ticket_events").upsert(
             {
               tenant_id: tenantId,
-              ticket_id: atlasTicket.id,
+              ticket_id: atlasTicketId,
               event_type: "glpi_followup",
               title: "Follow-up GLPI",
               description: cleanHtml(followup?.content ?? followup?.["21"]),
@@ -455,7 +517,7 @@ export async function syncGlpiDbToAtlas({
           const { error } = await supabaseAdmin.from("ticket_events").upsert(
             {
               tenant_id: tenantId,
-              ticket_id: atlasTicket.id,
+              ticket_id: atlasTicketId,
               event_type: "glpi_solution",
               title: "Soluzione GLPI",
               description: cleanHtml(solution?.content ?? solution?.["21"]),
@@ -493,6 +555,7 @@ export async function syncGlpiDbToAtlas({
       mode: "glpi_api",
       processed,
       updated,
+      inserted,
       insertedEvents,
       errors,
       skipped,
