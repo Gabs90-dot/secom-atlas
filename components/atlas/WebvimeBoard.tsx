@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowDownUp,
   CheckCircle2,
   Clock,
   Download,
+  RefreshCw,
   FileSpreadsheet,
   Search,
   Ticket,
@@ -61,7 +63,16 @@ function normalize(value: any) {
 }
 
 function isClosed(ticket: WebvimeTicket) {
-  return Boolean(ticket.closed_at);
+  const status = normalize(ticket.status);
+  return (
+    Boolean(ticket.closed_at) ||
+    status.includes("chiuso") ||
+    status.includes("closed") ||
+    status.includes("risolto") ||
+    status.includes("validato") ||
+    status === "5" ||
+    status === "6"
+  );
 }
 
 function formatDate(value?: string | null) {
@@ -76,6 +87,27 @@ function daysSince(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
+}
+
+function parseWebvimeDate(ticket: WebvimeTicket) {
+  const rawDate =
+    ticket.imported_at ||
+    ticket.opened_at ||
+    ticket.created_at ||
+    ticket.expected_close_date;
+
+  if (!rawDate) return 0;
+
+  const parsed = new Date(rawDate).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function looksLikeFutureWebvimeTicket(ticket: WebvimeTicket) {
+  const value = parseWebvimeDate(ticket);
+  if (!value) return false;
+  const limit = new Date();
+  limit.setFullYear(limit.getFullYear() + 1);
+  return value > limit.getTime();
 }
 
 function shortText(value: any, limit = 220) {
@@ -96,6 +128,8 @@ export default function WebvimeBoard() {
   const [loadError, setLoadError] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "closed" | "old">("all");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<WebvimeTicket | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpSections, setHelpSections] = useState<WebvimeHelpSection[]>(() => {
@@ -115,64 +149,59 @@ export default function WebvimeBoard() {
     }
   }, [helpSections]);
 
-  useEffect(() => {
-    let mounted = true;
+  async function countQuery(extra?: (query: any) => any) {
+    let q = supabase
+      .from("tickets")
+      .select("id", { count: "exact", head: true })
+      .eq("source", "glpi")
+      .or(WEBVIME_OR);
 
-    async function countQuery(extra?: (query: any) => any) {
-      let q = supabase
-        .from("tickets")
-        .select("id", { count: "exact", head: true })
-        .eq("source", "glpi")
-        .or(WEBVIME_OR);
+    if (extra) q = extra(q);
+    const { count, error } = await q;
+    if (error) throw error;
+    return count || 0;
+  }
 
-      if (extra) q = extra(q);
-      const { count, error } = await q;
+  async function loadWebvime() {
+    setRefreshing(true);
+    setLoading(true);
+    setLoadError("");
+
+    try {
+      const [{ data, error }, total, open, closed, old] = await Promise.all([
+        supabase
+          .from("tickets")
+          .select(
+            "id, glpi_ticket_id, site, entity, city, glpi_entity_path, problem, status, urgent, opened_at, closed_at, created_at, imported_at, expected_close_date, technician, source, customer_id, tenant_id",
+          )
+          .eq("source", "glpi")
+          .or(WEBVIME_OR)
+          .order("imported_at", { ascending: false, nullsFirst: false })
+          .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
+          .limit(1000),
+        countQuery(),
+        countQuery((q) => q.is("closed_at", null)),
+        countQuery((q) => q.not("closed_at", "is", null)),
+        countQuery((q) => q.is("closed_at", null).lt("opened_at", new Date(Date.now() - 7 * 86400000).toISOString())),
+      ]);
+
       if (error) throw error;
-      return count || 0;
+
+      setTickets(data || []);
+      setMetrics({ total, open, closed, old });
+    } catch (error: any) {
+      console.error("Webvime load error", error);
+      setLoadError(error?.message || "Errore caricamento ticket Webvime.");
+      setTickets([]);
+      setMetrics({ total: 0, open: 0, closed: 0, old: 0 });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  }
 
-    async function loadWebvime() {
-      setLoading(true);
-      setLoadError("");
-
-      try {
-        const [{ data, error }, total, open, closed, old] = await Promise.all([
-          supabase
-            .from("tickets")
-            .select(
-              "id, glpi_ticket_id, site, entity, city, glpi_entity_path, problem, urgent, opened_at, closed_at, created_at, imported_at, expected_close_date, technician, source, customer_id, tenant_id",
-            )
-            .eq("source", "glpi")
-            .or(WEBVIME_OR)
-            .order("created_at", { ascending: false })
-            .limit(800),
-          countQuery(),
-          countQuery((q) => q.is("closed_at", null)),
-          countQuery((q) => q.not("closed_at", "is", null)),
-          countQuery((q) => q.is("closed_at", null).lt("opened_at", new Date(Date.now() - 7 * 86400000).toISOString())),
-        ]);
-
-        if (error) throw error;
-        if (!mounted) return;
-
-        setTickets(data || []);
-        setMetrics({ total, open, closed, old });
-      } catch (error: any) {
-        console.error("Webvime load error", error);
-        if (!mounted) return;
-        setLoadError(error?.message || "Errore caricamento ticket Webvime.");
-        setTickets([]);
-        setMetrics({ total: 0, open: 0, closed: 0, old: 0 });
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
+  useEffect(() => {
     loadWebvime();
-
-    return () => {
-      mounted = false;
-    };
   }, []);
 
   const filteredTickets = useMemo(() => {
@@ -195,6 +224,7 @@ export default function WebvimeBoard() {
         ${ticket.id}
         ${ticket.glpi_ticket_id}
         ${ticket.problem}
+        ${ticket.status}
         ${ticket.technician}
         ${ticket.site}
         ${ticket.entity}
@@ -202,8 +232,19 @@ export default function WebvimeBoard() {
       `);
 
       return text.includes(q);
+    }).slice().sort((a, b) => {
+      const aFuture = looksLikeFutureWebvimeTicket(a);
+      const bFuture = looksLikeFutureWebvimeTicket(b);
+
+      if (aFuture !== bFuture) return aFuture ? 1 : -1;
+
+      const aTime = parseWebvimeDate(a);
+      const bTime = parseWebvimeDate(b);
+
+      if (sortOrder === "oldest") return aTime - bTime;
+      return bTime - aTime;
     });
-  }, [tickets, query, statusFilter]);
+  }, [tickets, query, statusFilter, sortOrder]);
 
   const activeHelp = helpSections.find((section) => section.id === activeHelpId) || helpSections[0];
 
@@ -255,7 +296,7 @@ export default function WebvimeBoard() {
     const rows = filteredTickets.map((ticket) => [
       ticket.id,
       ticket.glpi_ticket_id,
-      isClosed(ticket) ? "Chiuso" : "Aperto",
+      ticket.status,
       isClosed(ticket) ? "Chiuso" : "Aperto",
       ticket.site,
       ticket.entity,
@@ -290,11 +331,31 @@ export default function WebvimeBoard() {
           <h2 className="mt-2 text-3xl font-black text-white">Registro separato Webvime</h2>
           <p className="mt-1 max-w-4xl text-sm font-bold text-slate-400">
             Archivio operativo separato: ticket Webvime, help interno, query, procedure e note ramificate.
-            La lista sotto mostra gli ultimi 800 ticket, le metriche sono calcolate sul totale.
+            La lista sotto mostra gli ultimi 1000 ticket sincronizzati, le metriche sono calcolate sul totale.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={loadWebvime}
+            disabled={refreshing}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-700 px-4 py-3 text-sm font-black text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw size={18} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "Aggiorno..." : "Aggiorna"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/30 hover:bg-blue-500"
+            title="Cambia ordinamento cronologico"
+          >
+            <ArrowDownUp size={18} />
+            Ordine: {sortOrder === "newest" ? "recenti" : "vecchi"}
+          </button>
+
           <button onClick={() => setHelpOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/30">
             <HelpCircle size={18} />
             Help Webvime
@@ -316,7 +377,7 @@ export default function WebvimeBoard() {
       <div className="grid gap-3 xl:grid-cols-[1fr_auto]">
         <div className="relative">
           <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cerca negli ultimi 800 ticket Webvime caricati..." className="w-full rounded-2xl border border-white/10 bg-slate-950/70 py-4 pl-12 pr-4 text-sm font-bold text-white outline-none focus:border-blue-500" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cerca negli ultimi 1000 ticket Webvime sincronizzati..." className="w-full rounded-2xl border border-white/10 bg-slate-950/70 py-4 pl-12 pr-4 text-sm font-bold text-white outline-none focus:border-blue-500" />
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -355,10 +416,11 @@ export default function WebvimeBoard() {
                     <h3 className="mt-3 break-words text-lg font-black text-white">{shortText(ticket.problem, 120)}</h3>
                     <p className="mt-2 text-sm font-bold text-slate-400">{ticket.glpi_entity_path || ticket.entity || "Root > Webvime"}</p>
                     <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black uppercase tracking-wide text-slate-500">
-                      <span className="inline-flex items-center gap-1"><Clock size={13} />Apertura: {formatDate(ticket.opened_at || ticket.created_at)}</span>
+                      <span className="inline-flex items-center gap-1"><Clock size={13} />Sync: {formatDate(ticket.imported_at)}</span>
+                      <span>Apertura: {formatDate(ticket.opened_at || ticket.created_at)}</span>
                       <span>Chiusura: {formatDate(ticket.closed_at)}</span>
                       <span>Tecnico: {ticket.technician || "N/D"}</span>
-                      <span>Stato: {closed ? "Chiuso" : "Aperto"}</span>
+                      <span>Stato: {ticket.status || "N/D"}</span>
                     </div>
                   </div>
                   <button onClick={() => setSelectedTicket(ticket)} className="rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black text-white">Apri dettaglio</button>
@@ -380,8 +442,9 @@ export default function WebvimeBoard() {
               <button onClick={() => setSelectedTicket(null)} className="rounded-2xl bg-white/10 p-3 text-white"><XCircle size={20} /></button>
             </div>
             <div className="mt-5 grid gap-3 md:grid-cols-4">
-              <Detail label="Stato" value={isClosed(selectedTicket) ? "Chiuso" : "Aperto"} />
+              <Detail label="Stato" value={selectedTicket.status || "N/D"} />
               <Detail label="Tecnico" value={selectedTicket.technician || "N/D"} />
+              <Detail label="Sync ATLAS" value={formatDate(selectedTicket.imported_at)} />
               <Detail label="Apertura" value={formatDate(selectedTicket.opened_at || selectedTicket.created_at)} />
               <Detail label="Chiusura" value={formatDate(selectedTicket.closed_at)} />
             </div>

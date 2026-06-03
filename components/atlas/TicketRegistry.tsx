@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock, Download, Filter, Flame, RefreshCw, Search, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowDownUp, CheckCircle2, Clock, Download, Filter, Flame, RefreshCw, Search, XCircle } from "lucide-react";
 import { materials, technicians } from "@/lib/atlasConstants";
 import { euro, materialCost } from "@/lib/atlasUtils";
 
@@ -59,6 +59,30 @@ function formatDate(value?: string | null) {
     return String(value);
   }
 }
+
+function parseTicketDate(ticket: any) {
+  const rawDate =
+    ticket.openedAt ||
+    ticket.opened_at ||
+    ticket.created_at ||
+    ticket.importedAt ||
+    ticket.imported_at ||
+    ticket.date;
+
+  if (!rawDate) return 0;
+
+  const parsed = new Date(rawDate).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function looksLikeFutureTicket(ticket: any) {
+  const value = parseTicketDate(ticket);
+  if (!value) return false;
+  const limit = new Date();
+  limit.setFullYear(limit.getFullYear() + 1);
+  return value > limit.getTime();
+}
+
 
 function normalizeStatus(status?: any) {
   return String(status || "")
@@ -367,6 +391,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
   const [dateFilter, setDateFilter] = useState("");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const openTicketDetail = onOpenTicketDetail || setSelectedTicket;
 
   const openCount = tickets.filter((ticket) => !isClosed(ticket)).length;
@@ -412,8 +437,19 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       });
     }
 
-    return filtered;
-  }, [tickets, boardFilter, dateFilter]);
+    return filtered.slice().sort((a, b) => {
+      const aFuture = looksLikeFutureTicket(a);
+      const bFuture = looksLikeFutureTicket(b);
+
+      if (aFuture !== bFuture) return aFuture ? 1 : -1;
+
+      const aTime = parseTicketDate(a);
+      const bTime = parseTicketDate(b);
+
+      if (sortOrder === "oldest") return aTime - bTime;
+      return bTime - aTime;
+    });
+  }, [tickets, boardFilter, dateFilter, sortOrder]);
 
   const boardFilterLabel =
     boardFilter === "open"
@@ -539,6 +575,16 @@ export default function TicketRegistry(props: TicketRegistryProps) {
             {refreshingTickets ? "Aggiorno..." : "Aggiorna"}
           </button>
 
+          <button
+            type="button"
+            onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-700 px-4 py-3 text-sm font-black text-white hover:bg-slate-600"
+            title="Cambia ordinamento cronologico"
+          >
+            <ArrowDownUp size={18} />
+            Ordine: {sortOrder === "newest" ? "Recenti" : "Vecchi"}
+          </button>
+
           <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">
             <Download size={18} /> Esporta CSV
           </button>
@@ -610,6 +656,16 @@ export default function TicketRegistry(props: TicketRegistryProps) {
               Reset data
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-blue-500/30 bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/20 hover:bg-blue-500"
+            title="Cambia ordinamento cronologico"
+          >
+            <ArrowDownUp size={18} />
+            Ordine: {sortOrder === "newest" ? "più recenti prima" : "più vecchi prima"}
+          </button>
         </div>
       </div>
 

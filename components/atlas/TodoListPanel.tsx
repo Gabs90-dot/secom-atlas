@@ -314,14 +314,20 @@ export default function TodoListPanel() {
       {error && <div className="rounded-3xl border border-red-500/30 bg-red-500/10 p-4 text-sm font-bold text-red-100">{error}</div>}
 
       <div className="grid gap-3 rounded-3xl border border-white/10 bg-slate-950/35 p-4">
-        <div className="grid gap-3 xl:grid-cols-[1fr_220px_auto]">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto_auto] xl:items-center">
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Titolo cosa da fare, es. Pulire scrivania primo piano" className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-bold text-white outline-none placeholder:text-slate-500" />
-          <select value={urgency} onChange={(e) => setUrgency(e.target.value as TodoUrgency)} className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-bold text-white outline-none">
-            <option value="low">Bassa</option>
-            <option value="normal">Normale</option>
-            <option value="urgent">Urgente</option>
-          </select>
-          <button onClick={createTask} disabled={saving || !title.trim()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white disabled:opacity-50">
+          <div className="flex min-w-[310px] flex-nowrap items-center gap-2">
+            <button type="button" onClick={() => setUrgency("low")} className={`whitespace-nowrap rounded-2xl px-4 py-3 text-sm font-black transition-all ${urgency === "low" ? "bg-emerald-600 text-white" : "bg-white/5 text-slate-400"}`}>
+              Bassa
+            </button>
+            <button type="button" onClick={() => setUrgency("normal")} className={`whitespace-nowrap rounded-2xl px-4 py-3 text-sm font-black transition-all ${urgency === "normal" ? "bg-blue-600 text-white" : "bg-white/5 text-slate-400"}`}>
+              Normale
+            </button>
+            <button type="button" onClick={() => setUrgency("urgent")} className={`whitespace-nowrap rounded-2xl px-4 py-3 text-sm font-black transition-all ${urgency === "urgent" ? "bg-red-600 text-white" : "bg-white/5 text-slate-400"}`}>
+              Urgente
+            </button>
+          </div>
+          <button onClick={createTask} disabled={saving || !title.trim()} className="inline-flex min-w-[140px] items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white disabled:opacity-50">
             <Plus size={18} /> {saving ? "Inserisco..." : "Inserisci"}
           </button>
         </div>
