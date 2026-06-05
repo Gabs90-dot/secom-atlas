@@ -3,7 +3,7 @@ import * as glpiSyncEngine from "@/services/glpiSyncEngine";
 
 export const runtime = "nodejs";
 
-const DEFAULT_LIMIT = 500;
+const DEFAULT_LIMIT = 25;
 
 function getSyncFunction() {
   const syncFn = (glpiSyncEngine as any).syncGlpiDbToAtlas;
@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     const offset = getNumberParam(request, "offset", 0);
     const glpiTicketId =
       request.nextUrl.searchParams.get("glpiTicketId") || undefined;
+    const incremental = request.nextUrl.searchParams.get("full") !== "1";
 
     if (!tenantId) {
       return NextResponse.json(
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
       limit,
       offset,
       glpiTicketId,
+      incremental,
     });
 
     return NextResponse.json({
@@ -94,9 +96,15 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_ATLAS_DEFAULT_TENANT_ID ||
       "";
 
-    const limit = Number(body?.limit || DEFAULT_LIMIT);
-    const offset = Number(body?.offset || 0);
-    const glpiTicketId = body?.glpiTicketId || body?.glpi_ticket_id || body?.id;
+    const queryLimit = request.nextUrl.searchParams.get("limit");
+    const queryOffset = request.nextUrl.searchParams.get("offset");
+    const queryFull = request.nextUrl.searchParams.get("full");
+    const queryGlpiTicketId = request.nextUrl.searchParams.get("glpiTicketId");
+
+    const limit = Number(body?.limit ?? queryLimit ?? DEFAULT_LIMIT);
+    const offset = Number(body?.offset ?? queryOffset ?? 0);
+    const glpiTicketId = body?.glpiTicketId || body?.glpi_ticket_id || body?.id || queryGlpiTicketId || undefined;
+    const incremental = body?.full === true || queryFull === "1" ? false : true;
 
     if (!tenantId) {
       return NextResponse.json(
@@ -114,6 +122,7 @@ export async function POST(request: NextRequest) {
       limit: Number.isFinite(limit) ? limit : DEFAULT_LIMIT,
       offset: Number.isFinite(offset) ? offset : 0,
       glpiTicketId,
+      incremental,
     });
 
     return NextResponse.json({

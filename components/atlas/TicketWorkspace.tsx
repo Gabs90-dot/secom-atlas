@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import TicketAttachmentsPanel from "@/components/atlas/TicketAttachmentsPanel";
 
 export type TicketWorkspaceProps = {
   ticket: any | null;
@@ -25,7 +26,7 @@ export type TicketWorkspaceProps = {
   onStatusUpdated?: (ticket: any) => void;
 };
 
-type WorkspaceTab = "overview" | "timeline" | "operativita" | "materiali" | "ai";
+type WorkspaceTab = "overview" | "timeline" | "operativita" | "materiali" | "allegati" | "ai";
 
 function normalize(value: any) {
   return String(value || "")
@@ -474,6 +475,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
     { key: "timeline", label: "Timeline", icon: History },
     { key: "operativita", label: "Operatività", icon: PenLine },
     { key: "materiali", label: "Materiali", icon: Package },
+    { key: "allegati", label: "Allegati", icon: FileText },
     { key: "ai", label: "Insight AI", icon: Sparkles },
   ];
 
@@ -770,6 +772,16 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                   ? (normalizedTicket.materialIds || []).join(" + ")
                   : "Nessun materiale collegato al ticket."}
               </p>
+            </div>
+          )}
+
+
+          {activeTab === "allegati" && (
+            <div className="grid gap-4">
+              <TicketAttachmentsPanel
+                ticketId={normalizedTicket.id}
+                title="Allegati ticket"
+              />
             </div>
           )}
 

@@ -481,12 +481,39 @@ export default function CustomerCommandCenter({
 
       const { data, error } = await supabase
         .from("tickets")
-        .select("*")
+        .select(`
+          id,
+          glpi_ticket_id,
+          site,
+          region,
+          entity,
+          city,
+          problem,
+          materials,
+          technician,
+          status,
+          intervention_date,
+          resolved,
+          future_needs,
+          closing_notes,
+          slot,
+          opened_at,
+          expected_close_date,
+          closed_at,
+          urgent,
+          site_id,
+          customer_id,
+          tenant_id,
+          source,
+          glpi_entity_path,
+          ticket_type,
+          created_at
+        `)
         .eq("source", "glpi")
         .ilike("glpi_entity_path", `${queryPath}%`)
         .order("opened_at", { ascending: false, nullsFirst: false })
         .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
-        .range(0, 999);
+        .range(0, 99);
 
       if (error) {
         console.log("Errore caricamento ticket entità GLPI:", error);
@@ -510,10 +537,37 @@ export default function CustomerCommandCenter({
 
       const { data, error } = await supabase
         .from("tickets")
-        .select("*")
+        .select(`
+          id,
+          glpi_ticket_id,
+          site,
+          region,
+          entity,
+          city,
+          problem,
+          materials,
+          technician,
+          status,
+          intervention_date,
+          resolved,
+          future_needs,
+          closing_notes,
+          slot,
+          opened_at,
+          expected_close_date,
+          closed_at,
+          urgent,
+          site_id,
+          customer_id,
+          tenant_id,
+          source,
+          glpi_entity_path,
+          ticket_type,
+          created_at
+        `)
         .eq("site_id", selectedSite.id)
         .order("created_at", { ascending: false })
-        .range(0, 999);
+        .range(0, 99);
 
       if (error) {
         console.log("Errore caricamento ticket sede:", error);

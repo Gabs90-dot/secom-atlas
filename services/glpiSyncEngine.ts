@@ -5,6 +5,7 @@ type GlpiSyncArgs = {
   limit?: number;
   offset?: number;
   glpiTicketId?: number | string;
+  incremental?: boolean;
 };
 
 const GLPI_STATUS_MAP: Record<number, string> = {
@@ -303,25 +304,80 @@ async function loadGlpiSolutions(
   }
 }
 
+
+async function getGlpiSyncState(supabaseAdmin: any, tenantId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("glpi_sync_state")
+    .select("id, tenant_id, last_sync_at, last_glpi_ticket_id")
+    .eq("tenant_id", tenantId)
+    .eq("sync_key", "glpi_api")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("GLPI sync state read warning", error.message);
+    return null;
+  }
+
+  return data || null;
+}
+
+async function saveGlpiSyncState(
+  supabaseAdmin: any,
+  tenantId: string,
+  payload: { lastGlpiTicketId?: number | null; processed?: number; updated?: number; inserted?: number; errors?: number },
+) {
+  const now = new Date().toISOString();
+
+  const { error } = await supabaseAdmin
+    .from("glpi_sync_state")
+    .upsert(
+      {
+        tenant_id: tenantId,
+        sync_key: "glpi_api",
+        last_sync_at: now,
+        last_glpi_ticket_id: payload.lastGlpiTicketId || null,
+        last_processed: payload.processed || 0,
+        last_updated: payload.updated || 0,
+        last_inserted: payload.inserted || 0,
+        last_errors: payload.errors || 0,
+        updated_at: now,
+      },
+      { onConflict: "tenant_id,sync_key" },
+    );
+
+  if (error) {
+    console.warn("GLPI sync state save warning", error.message);
+  }
+}
+
+
 // Manteniamo lo stesso nome esportato per non rompere la route già collegata.
 // Ora però NON usa più MySQL: usa GLPI REST API.
 export async function syncGlpiDbToAtlas({
   tenantId,
-  limit = 500,
+  limit = 25,
   offset = 0,
   glpiTicketId,
+  incremental = true,
 }: GlpiSyncArgs) {
   const supabaseAdmin = createClient(
     getEnv("NEXT_PUBLIC_SUPABASE_URL"),
     getEnv("SUPABASE_SERVICE_ROLE_KEY"),
   );
 
+  const syncState = incremental && !glpiTicketId ? await getGlpiSyncState(supabaseAdmin, tenantId) : null;
+  const lastKnownGlpiTicketId = Number(syncState?.last_glpi_ticket_id || 0);
+  let maxSeenGlpiTicketId = lastKnownGlpiTicketId;
+
+  const safeLimit = Math.max(1, Math.min(Number(limit || 25), 100));
+  const safeOffset = Math.max(0, Number(offset || 0));
+
   const session = await openGlpiSession();
 
   try {
     const tickets = await loadGlpiTickets(session, {
-      limit,
-      offset,
+      limit: safeLimit,
+      offset: safeOffset,
       glpiTicketId,
     });
 
@@ -330,17 +386,36 @@ export async function syncGlpiDbToAtlas({
       glpiTicketId !== null &&
       String(glpiTicketId).trim() !== "";
 
+    let scanned = 0;
     let processed = 0;
     let updated = 0;
     let inserted = 0;
     let insertedEvents = 0;
     let errors = 0;
+    let skippedAlreadySynced = 0;
     const skipped: number[] = [];
 
     for (const glpiTicket of tickets) {
-      processed += 1;
+      scanned += 1;
 
       const glpiId = extractGlpiId(glpiTicket);
+      const numericGlpiId = Number(glpiId || 0);
+
+      if (numericGlpiId && numericGlpiId > maxSeenGlpiTicketId) {
+        maxSeenGlpiTicketId = numericGlpiId;
+      }
+
+      if (incremental && !byId && lastKnownGlpiTicketId && numericGlpiId && numericGlpiId <= lastKnownGlpiTicketId) {
+        skippedAlreadySynced += 1;
+        skipped.push(numericGlpiId);
+
+        // La search GLPI è ordinata per ID decrescente.
+        // Appena troviamo un ID già sincronizzato, i successivi sono ancora più vecchi:
+        // inutile processare il resto del batch.
+        break;
+      }
+
+      processed += 1;
 
       if (!glpiId) {
         errors += 1;
@@ -550,17 +625,31 @@ export async function syncGlpiDbToAtlas({
       }
     }
 
+    if (!byId) {
+      await saveGlpiSyncState(supabaseAdmin, tenantId, {
+        lastGlpiTicketId: maxSeenGlpiTicketId || lastKnownGlpiTicketId || null,
+        processed,
+        updated,
+        inserted,
+        errors,
+      });
+    }
+
     return {
       ok: true,
-      mode: "glpi_api",
+      mode: "glpi_api_incremental_v2",
+      scanned,
       processed,
       updated,
       inserted,
       insertedEvents,
       errors,
+      skippedAlreadySynced,
       skipped,
-      nextOffset: byId ? offset : offset + processed,
-      hasMore: byId ? false : processed >= limit,
+      previousLastGlpiTicketId: lastKnownGlpiTicketId || null,
+      newLastGlpiTicketId: maxSeenGlpiTicketId || null,
+      nextOffset: byId ? safeOffset : safeOffset + scanned,
+      hasMore: byId ? false : scanned >= safeLimit && skippedAlreadySynced === 0,
     };
   } finally {
     await closeGlpiSession(session);

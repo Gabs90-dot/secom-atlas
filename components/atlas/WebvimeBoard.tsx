@@ -16,41 +16,49 @@ import {
   Plus,
   Save,
   Trash2,
+  Copy,
+  Edit3,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import TicketAttachmentsPanel from "@/components/atlas/TicketAttachmentsPanel";
 
 type WebvimeTicket = Record<string, any>;
 
-type WebvimeHelpSection = {
+type HelpContent = {
   id: string;
-  title: string;
   category: string;
-  type: "query" | "procedure" | "section";
-  body: string;
-  children: Array<{ id: string; title: string; body: string }>;
+  title: string;
+  keywords?: string | null;
+  sql_text: string;
+  notes?: string | null;
+  kind?: "query" | "procedure" | null;
+  created_at?: string | null;
 };
 
 const WEBVIME_OR =
   "glpi_entity_path.ilike.%webvime%,entity.ilike.%webvime%,site.ilike.%webvime%,city.ilike.%webvime%";
 
-const DEFAULT_HELP_SECTIONS: WebvimeHelpSection[] = [
-  {
-    id: "query-base",
-    title: "Query utili",
-    category: "Query",
-    type: "query",
-    body: "Incolla qui query SQL utili per Webvime, reset utenti, pratiche, stati, costi o diagnostica.",
-    children: [],
-  },
-  {
-    id: "procedure-base",
-    title: "Procedure operative",
-    category: "Procedure",
-    type: "procedure",
-    body: "Scrivi qui procedure consultabili con titolo, note e passaggi.",
-    children: [],
-  },
+const HELP_CATEGORIES = [
+  "Agenda",
+  "Anagrafiche",
+  "Costi",
+  "Fatturazione",
+  "Indicatori",
+  "Portale",
+  "Procedure",
+  "Query Spot",
+  "Report",
+  "Utenze",
+  "Visite",
+  "Altro",
 ];
+
+function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => window.setTimeout(() => reject(new Error("Timeout Supabase: operazione non completata.")), ms)),
+  ]);
+}
 
 function normalize(value: any) {
   return String(value || "")
@@ -80,6 +88,19 @@ function formatDate(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function daysSince(value?: string | null) {
@@ -134,22 +155,24 @@ export default function WebvimeBoard() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<WebvimeTicket | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [helpSections, setHelpSections] = useState<WebvimeHelpSection[]>(() => {
-    if (typeof window === "undefined") return DEFAULT_HELP_SECTIONS;
-    try {
-      const saved = localStorage.getItem("atlas-webvime-help-sections");
-      return saved ? JSON.parse(saved) : DEFAULT_HELP_SECTIONS;
-    } catch {
-      return DEFAULT_HELP_SECTIONS;
-    }
+  const [helpItems, setHelpItems] = useState<HelpContent[]>([]);
+  const [helpLoading, setHelpLoading] = useState(false);
+  const [helpError, setHelpError] = useState("");
+  const [helpSearch, setHelpSearch] = useState("");
+  const [activeHelpCategory, setActiveHelpCategory] = useState("Tutte");
+  const [selectedHelpItem, setSelectedHelpItem] = useState<HelpContent | null>(null);
+  const [copiedHelpId, setCopiedHelpId] = useState<string | null>(null);
+  const [helpEditorOpen, setHelpEditorOpen] = useState(false);
+  const [editingHelpItem, setEditingHelpItem] = useState<HelpContent | null>(null);
+  const [savingHelp, setSavingHelp] = useState(false);
+  const [helpForm, setHelpForm] = useState({
+    kind: "query" as "query" | "procedure",
+    category: "Query Spot",
+    title: "",
+    keywords: "",
+    notes: "",
+    sql_text: "",
   });
-  const [activeHelpId, setActiveHelpId] = useState("query-base");
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("atlas-webvime-help-sections", JSON.stringify(helpSections));
-    }
-  }, [helpSections]);
 
   async function countQuery(extra?: (query: any) => any) {
     let q = supabase
@@ -199,6 +222,162 @@ export default function WebvimeBoard() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  }
+
+  async function loadHelpContent() {
+    setHelpLoading(true);
+    setHelpError("");
+
+    try {
+      const response = await fetch("/api/admin/help-queries", { cache: "no-store" });
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Errore caricamento Help Webvime.");
+      }
+
+      const rows = (result.items || []) as HelpContent[];
+      setHelpItems(rows);
+      setSelectedHelpItem((current) => {
+        if (current && rows.some((item) => item.id === current.id)) return current;
+        return rows[0] || null;
+      });
+    } catch (error: any) {
+      console.error("Help Webvime load error", error);
+      setHelpError(error?.message || "Errore caricamento Help Webvime.");
+      setHelpItems([]);
+      setSelectedHelpItem(null);
+    } finally {
+      setHelpLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (helpOpen) {
+      loadHelpContent();
+    }
+  }, [helpOpen]);
+
+  function resetHelpForm() {
+    setHelpError("");
+    setEditingHelpItem(null);
+    setHelpForm({
+      kind: "query",
+      category: "Query Spot",
+      title: "",
+      keywords: "",
+      notes: "",
+      sql_text: "",
+    });
+  }
+
+  function openNewHelpItem(kind: "query" | "procedure" = "query") {
+    setHelpError("");
+    setEditingHelpItem(null);
+    setHelpForm({
+      kind,
+      category: kind === "procedure" ? "Procedure" : "Query Spot",
+      title: "",
+      keywords: "",
+      notes: "",
+      sql_text: "",
+    });
+    setHelpEditorOpen(true);
+  }
+
+  function openEditHelpItem(item: HelpContent) {
+    setHelpError("");
+    setEditingHelpItem(item);
+    setHelpForm({
+      kind: item.kind === "procedure" ? "procedure" : "query",
+      category: item.category || "Query Spot",
+      title: item.title || "",
+      keywords: item.keywords || "",
+      notes: item.notes || "",
+      sql_text: item.sql_text || "",
+    });
+    setHelpEditorOpen(true);
+  }
+
+  async function saveHelpItem() {
+    const title = helpForm.title.trim();
+    const body = helpForm.sql_text.trim();
+
+    if (!title || !body) {
+      setHelpError("Titolo e contenuto sono obbligatori.");
+      return;
+    }
+
+    setSavingHelp(true);
+    setHelpError("");
+
+    const payload = {
+      id: editingHelpItem?.id,
+      kind: helpForm.kind,
+      category: helpForm.category || (helpForm.kind === "procedure" ? "Procedure" : "Query Spot"),
+      title,
+      keywords: helpForm.keywords.trim() || title,
+      notes: helpForm.notes.trim(),
+      sql_text: body,
+    };
+
+    try {
+      const response = await fetch("/api/admin/help-queries", {
+        method: editingHelpItem ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Errore salvataggio contenuto Help.");
+      }
+
+      await loadHelpContent();
+      setHelpEditorOpen(false);
+      resetHelpForm();
+    } catch (error: any) {
+      console.error("Help save error", error);
+      setHelpError(error?.message || "Errore salvataggio contenuto Help.");
+    } finally {
+      setSavingHelp(false);
+    }
+  }
+
+  async function deleteHelpItem(item: HelpContent) {
+    const ok = window.confirm(`Eliminare "${item.title}"?`);
+    if (!ok) return;
+
+    setHelpError("");
+
+    try {
+      const response = await fetch(`/api/admin/help-queries?id=${encodeURIComponent(item.id)}`, {
+        method: "DELETE",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Errore eliminazione contenuto Help.");
+      }
+
+      setHelpItems((prev) => prev.filter((entry) => entry.id !== item.id));
+      setSelectedHelpItem(null);
+    } catch (error: any) {
+      console.error("Help delete error", error);
+      setHelpError(error?.message || "Errore eliminazione contenuto Help.");
+    }
+  }
+
+  async function copyHelpContent(item: HelpContent) {
+    try {
+      await navigator.clipboard.writeText(item.sql_text || "");
+      setCopiedHelpId(item.id);
+      window.setTimeout(() => setCopiedHelpId(null), 1500);
+    } catch {
+      setHelpError("Copia non riuscita. Seleziona manualmente il testo.");
     }
   }
 
@@ -252,56 +431,45 @@ export default function WebvimeBoard() {
     });
   }, [tickets, query, statusFilter, sortOrder]);
 
-  const activeHelp = helpSections.find((section) => section.id === activeHelpId) || helpSections[0];
+  const helpCategories = useMemo(() => {
+    const categories = Array.from(new Set(helpItems.map((item) => item.category || "Altro"))).sort((a, b) =>
+      a.localeCompare(b, "it"),
+    );
+    return ["Tutte", ...categories];
+  }, [helpItems]);
+
+  const filteredHelpItems = useMemo(() => {
+    const q = normalize(helpSearch);
+
+    return helpItems.filter((item) => {
+      const category = item.category || "Altro";
+      const matchesCategory = activeHelpCategory === "Tutte" || category === activeHelpCategory;
+
+      if (!matchesCategory) return false;
+      if (!q) return true;
+
+      const text = normalize(`${item.title} ${item.category} ${item.keywords} ${item.notes} ${item.sql_text}`);
+      return text.includes(q);
+    });
+  }, [helpItems, helpSearch, activeHelpCategory]);
+
+  const groupedHelpItems = useMemo(() => {
+    const grouped: Record<string, HelpContent[]> = {};
+
+    filteredHelpItems.forEach((item) => {
+      const category = item.category || "Altro";
+      if (!grouped[category]) grouped[category] = [];
+      grouped[category].push(item);
+    });
+
+    return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b, "it"));
+  }, [filteredHelpItems]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTickets.length / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const paginatedTickets = filteredTickets.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize);
   const pageStart = filteredTickets.length === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
   const pageEnd = Math.min(safeCurrentPage * pageSize, filteredTickets.length);
-
-  function updateHelpSection(id: string, patch: Partial<WebvimeHelpSection>) {
-    setHelpSections((prev) => prev.map((section) => (section.id === id ? { ...section, ...patch } : section)));
-  }
-
-  function addHelpSection(type: WebvimeHelpSection["type"] = "section") {
-    const section: WebvimeHelpSection = {
-      id: `webvime-help-${Date.now()}`,
-      title: "Nuova sezione",
-      category: type === "query" ? "Query" : type === "procedure" ? "Procedure" : "Sezione",
-      type,
-      body: "",
-      children: [],
-    };
-    setHelpSections((prev) => [section, ...prev]);
-    setActiveHelpId(section.id);
-  }
-
-  function addChildToHelp(sectionId: string) {
-    setHelpSections((prev) =>
-      prev.map((section) =>
-        section.id === sectionId
-          ? { ...section, children: [...section.children, { id: `child-${Date.now()}`, title: "Nuovo ramo", body: "" }] }
-          : section,
-      ),
-    );
-  }
-
-  function updateChild(sectionId: string, childId: string, patch: any) {
-    setHelpSections((prev) =>
-      prev.map((section) =>
-        section.id === sectionId
-          ? { ...section, children: section.children.map((child) => (child.id === childId ? { ...child, ...patch } : child)) }
-          : section,
-      ),
-    );
-  }
-
-  function deleteHelpSection(id: string) {
-    const next = helpSections.filter((section) => section.id !== id);
-    setHelpSections(next.length ? next : DEFAULT_HELP_SECTIONS);
-    setActiveHelpId((next[0] || DEFAULT_HELP_SECTIONS[0]).id);
-  }
 
   function exportCsv() {
     const header = ["ID ATLAS", "ID GLPI", "Stato", "Esito", "Sede", "Ente", "Entity path", "Tecnico", "Apertura", "Chiusura", "Descrizione"];
@@ -344,7 +512,7 @@ export default function WebvimeBoard() {
           <h2 className="mt-2 text-3xl font-black text-white">Registro separato Webvime</h2>
           <p className="mt-1 max-w-4xl text-sm font-bold text-slate-400">
             Archivio operativo separato: ticket Webvime, help interno, query, procedure e note ramificate.
-            La lista sotto mostra gli ultimi 1000 ticket sincronizzati, le metriche sono calcolate sul totale.
+            La lista sotto mostra gli ultimi 1000 ticket sincronizzati, con orario di arrivo ATLAS; le metriche sono calcolate sul totale.
           </p>
         </div>
 
@@ -435,7 +603,11 @@ export default function WebvimeBoard() {
             const old = !closed && age !== null && age >= 7;
 
             return (
-              <article key={ticket.id} className={`rounded-3xl border p-4 ${old ? "border-amber-500/30 bg-amber-500/10" : closed ? "border-emerald-500/20 bg-emerald-500/10" : "border-white/10 bg-white/[0.045]"}`}>
+              <article
+                key={ticket.id}
+                onClick={() => setSelectedTicket(ticket)}
+                className={`cursor-pointer rounded-3xl border p-4 transition hover:bg-blue-500/10 ${old ? "border-amber-500/30 bg-amber-500/10" : closed ? "border-emerald-500/20 bg-emerald-500/10" : "border-white/10 bg-white/[0.045]"}`}
+              >
                 <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -448,14 +620,14 @@ export default function WebvimeBoard() {
                     <h3 className="mt-3 break-words text-lg font-black text-white">{shortText(ticket.problem, 120)}</h3>
                     <p className="mt-2 text-sm font-bold text-slate-400">{ticket.glpi_entity_path || ticket.entity || "Root > Webvime"}</p>
                     <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black uppercase tracking-wide text-slate-500">
-                      <span className="inline-flex items-center gap-1"><Clock size={13} />Sync: {formatDate(ticket.imported_at)}</span>
-                      <span>Apertura: {formatDate(ticket.opened_at || ticket.created_at)}</span>
+                      <span className="inline-flex items-center gap-1"><Clock size={13} />Arrivo: {formatDateTime(ticket.imported_at)}</span>
+                      <span>Apertura: {formatDateTime(ticket.opened_at || ticket.created_at)}</span>
                       <span>Chiusura: {formatDate(ticket.closed_at)}</span>
                       <span>Tecnico: {ticket.technician || "N/D"}</span>
                       <span>Stato: {ticket.status || "N/D"}</span>
                     </div>
                   </div>
-                  <button onClick={() => setSelectedTicket(ticket)} className="rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black text-white">Apri dettaglio</button>
+                  <button onClick={(event) => { event.stopPropagation(); setSelectedTicket(ticket); }} className="rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black text-white">Apri dettaglio</button>
                 </div>
               </article>
             );
@@ -491,8 +663,8 @@ export default function WebvimeBoard() {
             <div className="mt-5 grid gap-3 md:grid-cols-4">
               <Detail label="Stato" value={selectedTicket.status || "N/D"} />
               <Detail label="Tecnico" value={selectedTicket.technician || "N/D"} />
-              <Detail label="Sync ATLAS" value={formatDate(selectedTicket.imported_at)} />
-              <Detail label="Apertura" value={formatDate(selectedTicket.opened_at || selectedTicket.created_at)} />
+              <Detail label="Arrivo ATLAS" value={formatDateTime(selectedTicket.imported_at)} />
+              <Detail label="Apertura" value={formatDateTime(selectedTicket.opened_at || selectedTicket.created_at)} />
               <Detail label="Chiusura" value={formatDate(selectedTicket.closed_at)} />
             </div>
             <div className="mt-5 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
@@ -503,81 +675,223 @@ export default function WebvimeBoard() {
               <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Contenuto ticket</p>
               <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-relaxed text-slate-200">{selectedTicket.problem || "Nessun contenuto disponibile."}</p>
             </div>
+
+            <div className="mt-5">
+              <TicketAttachmentsPanel ticketId={selectedTicket.id} title="Allegati ticket Webvime" />
+            </div>
           </div>
         </div>
       )}
 
       {helpOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onMouseDown={() => setHelpOpen(false)}>
-          <div className="grid max-h-[92vh] w-full max-w-7xl grid-cols-1 gap-4 overflow-hidden rounded-[2rem] border border-white/10 bg-[#081523] p-5 text-white shadow-2xl xl:grid-cols-[320px_1fr]" onMouseDown={(event) => event.stopPropagation()}>
-            <aside className="min-h-0 overflow-y-auto rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-              <div className="flex items-center justify-between gap-3">
+          <div className="grid h-[92vh] w-full max-w-7xl grid-cols-1 gap-4 overflow-hidden rounded-[2rem] border border-white/10 bg-[#081523] p-5 text-white shadow-2xl xl:grid-cols-[360px_1fr]" onMouseDown={(event) => event.stopPropagation()}>
+            <aside className="flex min-h-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+              <div className="flex shrink-0 items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">HELP WEBVIME</p>
-                  <h3 className="mt-1 text-xl font-black">Base operativa</h3>
+                  <h3 className="mt-1 text-xl font-black">Query e procedure</h3>
+                  <p className="mt-1 text-xs font-bold text-slate-400">{helpItems.length} contenuti caricati da Supabase</p>
                 </div>
                 <button onClick={() => setHelpOpen(false)} className="rounded-2xl bg-white/10 p-3"><XCircle size={18} /></button>
               </div>
-              <div className="mt-4 grid gap-2">
-                <button onClick={() => addHelpSection("query")} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-3 py-3 text-xs font-black"><Plus size={15} />Nuova query</button>
-                <button onClick={() => addHelpSection("procedure")} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-3 py-3 text-xs font-black"><Plus size={15} />Nuova procedura</button>
-                <button onClick={() => addHelpSection("section")} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-violet-600 px-3 py-3 text-xs font-black"><Plus size={15} />Nuova sezione</button>
+
+              <div className="mt-4 grid shrink-0 gap-3">
+                <div className="relative">
+                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    value={helpSearch}
+                    onChange={(event) => setHelpSearch(event.target.value)}
+                    placeholder="Cerca query, procedura, utenza, fattura..."
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950/70 py-3 pl-11 pr-4 text-sm font-bold text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={loadHelpContent}
+                  disabled={helpLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-700 px-3 py-3 text-xs font-black text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCw size={15} className={helpLoading ? "animate-spin" : ""} />
+                  {helpLoading ? "Carico..." : "Aggiorna Help"}
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => openNewHelpItem("query")} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-3 py-3 text-xs font-black text-white hover:bg-blue-500">
+                    <Plus size={15} />Nuova query
+                  </button>
+                  <button type="button" onClick={() => openNewHelpItem("procedure")} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-violet-600 px-3 py-3 text-xs font-black text-white hover:bg-violet-500">
+                    <Plus size={15} />Procedura
+                  </button>
+                </div>
               </div>
-              <div className="mt-4 grid gap-2">
-                {helpSections.map((section) => (
-                  <button key={section.id} onClick={() => setActiveHelpId(section.id)} className={`rounded-2xl border p-3 text-left transition ${activeHelp?.id === section.id ? "border-blue-500 bg-blue-600/20" : "border-white/10 bg-white/[0.035] hover:bg-white/[0.07]"}`}>
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{section.category}</p>
-                    <p className="mt-1 break-words text-sm font-black">{section.title}</p>
+
+              <div className="mt-4 flex shrink-0 flex-wrap gap-2">
+                {helpCategories.map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => {
+                      setActiveHelpCategory(category);
+                      setSelectedHelpItem(null);
+                    }}
+                    className={`rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-wide ${
+                      activeHelpCategory === category ? "bg-blue-600 text-white" : "bg-white/10 text-slate-300 hover:bg-white/15"
+                    }`}
+                  >
+                    {category}
                   </button>
                 ))}
               </div>
+
+              <div className="mt-4 h-[52vh] min-h-[360px] overflow-y-auto overscroll-contain pr-2">
+                {helpLoading ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-sm font-bold text-slate-400">Caricamento contenuti...</div>
+                ) : helpError ? (
+                  <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm font-bold text-red-100">{helpError}</div>
+                ) : filteredHelpItems.length === 0 ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-sm font-bold text-slate-400">Nessun contenuto. Crea una query o una procedura verificata.</div>
+                ) : (
+                  <div className="grid gap-3 pb-4">
+                    {groupedHelpItems.map(([category, items]) => (
+                      <div key={category} className="grid gap-2">
+                        <p className="sticky top-0 z-10 bg-[#0f1c2d] px-2 py-2 text-[10px] font-black uppercase tracking-[0.25em] text-blue-300">{category} · {items.length}</p>
+                        {items.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setSelectedHelpItem(item)}
+                            className={`rounded-2xl border p-3 text-left transition ${
+                              selectedHelpItem?.id === item.id ? "border-blue-500 bg-blue-600/20" : "border-white/10 bg-white/[0.035] hover:bg-white/[0.07]"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className={`rounded-full px-2 py-1 text-[9px] font-black ${item.kind === "procedure" ? "bg-violet-600" : "bg-blue-600"} text-white`}>
+                                {item.kind === "procedure" ? "PROCEDURA" : "QUERY"}
+                              </span>
+                            </div>
+                            <p className="mt-2 break-words text-sm font-black text-white">{item.title}</p>
+                            {item.keywords && <p className="mt-1 line-clamp-2 text-[11px] font-bold text-slate-500">{item.keywords}</p>}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </aside>
 
-            {activeHelp && (
-              <main className="min-h-0 overflow-y-auto rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <main className="flex min-h-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+              {selectedHelpItem ? (
+                <>
+                  <div className="flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">{selectedHelpItem.category}</p>
+                      <h3 className="mt-1 break-words text-2xl font-black">{selectedHelpItem.title}</h3>
+                      {selectedHelpItem.keywords && <p className="mt-2 text-xs font-bold text-slate-400">Keyword: {selectedHelpItem.keywords}</p>}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => copyHelpContent(selectedHelpItem)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-black text-white shadow-lg shadow-emerald-950/30 hover:bg-emerald-500">
+                        <Copy size={16} />{copiedHelpId === selectedHelpItem.id ? "Copiato" : selectedHelpItem.kind === "procedure" ? "Copia procedura" : "Copia query"}
+                      </button>
+                      <button type="button" onClick={() => openEditHelpItem(selectedHelpItem)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black text-white shadow-lg shadow-blue-950/30 hover:bg-blue-500">
+                        <Edit3 size={16} />Modifica
+                      </button>
+                      <button type="button" onClick={() => deleteHelpItem(selectedHelpItem)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-xs font-black text-white shadow-lg shadow-red-950/30 hover:bg-red-500">
+                        <Trash2 size={16} />Elimina
+                      </button>
+                    </div>
+                  </div>
+
+                  {selectedHelpItem.notes && (
+                    <div className="mt-5 rounded-3xl border border-amber-500/20 bg-amber-500/10 p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-200">Note operative</p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-relaxed text-amber-50">{selectedHelpItem.notes}</p>
+                    </div>
+                  )}
+
+                  <pre className="mt-5 h-[58vh] min-h-[380px] overflow-auto whitespace-pre-wrap rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-sm font-semibold leading-relaxed text-slate-100">
+                    <code>{selectedHelpItem.sql_text || "-- Contenuto non presente nel database."}</code>
+                  </pre>
+                </>
+              ) : (
+                <div className="flex h-full items-center justify-center rounded-3xl border border-dashed border-white/10 bg-slate-950/30 p-8 text-center">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">{activeHelp.category}</p>
-                    <h3 className="mt-1 text-2xl font-black">Editor Help Webvime</h3>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button onClick={() => addChildToHelp(activeHelp.id)} className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black"><Plus size={15} />Aggiungi ramo</button>
-                    <button onClick={() => deleteHelpSection(activeHelp.id)} className="inline-flex items-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-xs font-black"><Trash2 size={15} />Elimina</button>
+                    <HelpCircle className="mx-auto text-blue-300" size={38} />
+                    <h3 className="mt-3 text-2xl font-black">Seleziona un contenuto</h3>
+                    <p className="mt-2 max-w-md text-sm font-bold text-slate-400">Usa la ricerca a sinistra o scegli una categoria. Puoi copiare query e procedure operative.</p>
                   </div>
                 </div>
-                <div className="mt-5 grid gap-4">
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Titolo</span>
-                    <input value={activeHelp.title} onChange={(event) => updateHelpSection(activeHelp.id, { title: event.target.value })} className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold outline-none focus:border-blue-500" />
-                  </label>
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Categoria</span>
-                    <input value={activeHelp.category} onChange={(event) => updateHelpSection(activeHelp.id, { category: event.target.value })} className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold outline-none focus:border-blue-500" />
-                  </label>
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Testo / query / procedura</span>
-                    <textarea value={activeHelp.body} onChange={(event) => updateHelpSection(activeHelp.id, { body: event.target.value })} rows={12} placeholder="Incolla query, procedura, note operative, passaggi..." className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 font-mono text-sm outline-none focus:border-blue-500" />
-                  </label>
-                  <div className="grid gap-3">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Rami / sottosezioni</p>
-                    {activeHelp.children.length === 0 ? (
-                      <p className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-sm font-bold text-slate-400">Nessun ramo. Usa “Aggiungi ramo” per ramificare questa sezione.</p>
-                    ) : (
-                      activeHelp.children.map((child) => (
-                        <div key={child.id} className="grid gap-2 rounded-3xl border border-white/10 bg-white/[0.035] p-4">
-                          <input value={child.title} onChange={(event) => updateChild(activeHelp.id, child.id, { title: event.target.value })} className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-black outline-none focus:border-blue-500" />
-                          <textarea value={child.body} onChange={(event) => updateChild(activeHelp.id, child.id, { body: event.target.value })} rows={5} className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-semibold outline-none focus:border-blue-500" />
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm font-bold text-emerald-100"><Save className="mr-2 inline" size={16} />Salvataggio automatico locale attivo.</div>
-                </div>
-              </main>
-            )}
+              )}
+            </main>
           </div>
         </div>
       )}
+
+      {helpEditorOpen && (
+        <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onMouseDown={() => { setHelpEditorOpen(false); resetHelpForm(); }}>
+          <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#081523] p-5 text-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="flex shrink-0 items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">HELP WEBVIME</p>
+                <h3 className="mt-1 text-2xl font-black">{editingHelpItem ? "Modifica contenuto" : "Nuovo contenuto verificato"}</h3>
+                <p className="mt-1 text-sm font-bold text-slate-400">Inserisci solo query o procedure già controllate. Questo archivio deve restare pulito.</p>
+              </div>
+              <button onClick={() => { setHelpEditorOpen(false); resetHelpForm(); }} className="rounded-2xl bg-white/10 p-3"><XCircle size={18} /></button>
+            </div>
+
+            <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-2">
+              <div className="grid gap-4">
+                <label className="grid gap-2">
+                  <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Tipo contenuto</span>
+                  <select value={helpForm.kind} onChange={(event) => setHelpForm((prev) => ({ ...prev, kind: event.target.value as "query" | "procedure", category: event.target.value === "procedure" ? "Procedure" : prev.category === "Procedure" ? "Query Spot" : prev.category }))} className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold outline-none focus:border-blue-500">
+                    <option value="query">Query SQL</option>
+                    <option value="procedure">Procedura / Nota operativa</option>
+                  </select>
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Categoria</span>
+                  <select value={helpForm.category} onChange={(event) => setHelpForm((prev) => ({ ...prev, category: event.target.value }))} className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold outline-none focus:border-blue-500">
+                    {HELP_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Titolo *</span>
+                  <input value={helpForm.title} onChange={(event) => setHelpForm((prev) => ({ ...prev, title: event.target.value }))} placeholder="Es. Reset password utente portale" className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold outline-none focus:border-blue-500" />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Keyword</span>
+                  <input value={helpForm.keywords} onChange={(event) => setHelpForm((prev) => ({ ...prev, keywords: event.target.value }))} placeholder="password, utenza, portale, sblocco" className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold outline-none focus:border-blue-500" />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Note operative / istruzioni</span>
+                  <textarea value={helpForm.notes} onChange={(event) => setHelpForm((prev) => ({ ...prev, notes: event.target.value }))} rows={4} placeholder="Quando usarla, cosa modificare prima di eseguirla, rischi, campi da sostituire..." className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-semibold outline-none focus:border-blue-500" />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">{helpForm.kind === "procedure" ? "Procedura / testo operativo *" : "Query SQL *"}</span>
+                  <textarea value={helpForm.sql_text} onChange={(event) => setHelpForm((prev) => ({ ...prev, sql_text: event.target.value }))} rows={18} placeholder={helpForm.kind === "procedure" ? "Scrivi qui la procedura operativa..." : "Incolla qui la query SQL reale..."} className="min-h-[420px] rounded-2xl border border-white/10 bg-slate-950/80 p-4 font-mono text-sm font-semibold leading-relaxed text-slate-100 outline-none focus:border-blue-500" />
+                </label>
+
+                {helpError && <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm font-bold text-red-100">{helpError}</div>}
+              </div>
+            </div>
+
+            <div className="mt-4 flex shrink-0 flex-wrap justify-end gap-2 border-t border-white/10 pt-4">
+              <button type="button" onClick={() => { setHelpEditorOpen(false); resetHelpForm(); }} className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white hover:bg-white/15">Annulla</button>
+              <button type="button" onClick={saveHelpItem} disabled={savingHelp} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60">
+                <Save size={16} />{savingHelp ? "Salvataggio..." : editingHelpItem ? "Salva modifiche" : "Salva contenuto"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </section>
   );
 }

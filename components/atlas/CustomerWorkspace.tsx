@@ -105,6 +105,7 @@ export default function CustomerWorkspace({
   const [modal, setModal] = useState<ModalType>(null);
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [ticketSort, setTicketSort] = useState<"all" | "newest" | "oldest" | "open" | "closed" | "urgent">("all");
+  const [ticketPageSize, setTicketPageSize] = useState(50);
   const [assetDraft, setAssetDraft] = useState("");
   const [timelineEvents, setTimelineEvents] = useState<any[]>([]);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
@@ -173,6 +174,10 @@ export default function CustomerWorkspace({
     .map((ticket) => ticketDateValue(ticket))
     .filter(Boolean)
     .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+
+  useEffect(() => {
+    setTicketPageSize(50);
+  }, [currentLabel, selectedSite?.id, currentCustomer?.id, ticketSort]);
 
   const sortedTickets = useMemo(() => {
     const list = [...relatedTickets];
@@ -250,9 +255,10 @@ export default function CustomerWorkspace({
 
       const { data, error } = await supabase
         .from("ticket_events")
-        .select("*")
+        .select("id, ticket_id, customer_id, site_id, event_type, title, description, created_by, created_at, metadata")
         .eq("customer_id", customerId)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .range(0, 99);
 
       if (error) {
         console.log(error);
@@ -425,7 +431,9 @@ export default function CustomerWorkspace({
   }
 
   function renderTicketList(limit?: number) {
-    const list = typeof limit === "number" ? sortedTickets.slice(0, limit) : sortedTickets;
+    const effectiveLimit = typeof limit === "number" ? limit : ticketPageSize;
+    const list = sortedTickets.slice(0, effectiveLimit);
+    const hasMoreTickets = sortedTickets.length > list.length;
 
     if (list.length === 0) {
       return (
@@ -450,6 +458,16 @@ export default function CustomerWorkspace({
             </div>
           </button>
         ))}
+
+        {hasMoreTickets && (
+          <button
+            type="button"
+            onClick={() => setTicketPageSize((prev) => prev + 50)}
+            className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-white hover:bg-white/[0.1]"
+          >
+            Carica altri 50 ticket · visualizzati {list.length} di {sortedTickets.length}
+          </button>
+        )}
       </div>
     );
   }

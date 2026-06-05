@@ -11,6 +11,7 @@ export default function AuthCallbackPage() {
     async function handleCallback() {
       await supabase.auth.getSession();
       router.replace("/");
+      router.refresh();
     }
 
     handleCallback();

@@ -62,6 +62,31 @@ const roleTone: Record<string, string> = {
   cliente_user: "border-slate-500/30 bg-slate-500/15 text-slate-200",
 };
 
+const SAFE_DEFAULT_ROLE = "cliente_user";
+
+function normalizeRoleKey(value?: string | null) {
+  const role = String(value || "").trim();
+  return role || SAFE_DEFAULT_ROLE;
+}
+
+function isFallbackRole(role?: Role | null) {
+  return Boolean(role?.id?.startsWith("fallback-"));
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = 25000) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "Mai";
   try {
@@ -270,7 +295,13 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
     setSaving(true);
     setInviteMessage("");
 
-    const role = availableRoles.find((item) => item.key === newUser.role) || availableRoles[0];
+    const role =
+      availableRoles.find((item) => item.key === normalizeRoleKey(newUser.role)) ||
+      availableRoles.find((item) => item.key === SAFE_DEFAULT_ROLE) ||
+      null;
+
+    const roleKey = normalizeRoleKey(role?.key || newUser.role);
+
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -282,7 +313,7 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
         return;
       }
 
-      const response = await fetch("/api/admin/invite-user", {
+      const response = await fetchWithTimeout("/api/admin/invite-user", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -292,8 +323,8 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
           tenantId: tenant.id,
           email: newUser.email.trim().toLowerCase(),
           displayName: newUser.display_name.trim() || newUser.email.split("@")[0],
-          roleKey: role?.key || newUser.role,
-          roleId: role?.id?.startsWith("fallback-") ? null : role?.id || null,
+          roleKey,
+          roleId: isFallbackRole(role) ? null : role?.id || null,
           status: newUser.status || "pending",
         }),
       });
@@ -320,12 +351,17 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
       setNewUser({ email: "", display_name: "", role: "cliente_user", status: "pending" });
       setNewUserOpen(false);
       await loadData();
-    } catch (error) {
+    } catch (error: any) {
       console.log(error);
-      setInviteMessage("Errore imprevisto durante invito utente.");
+      const isAbort = error?.name === "AbortError";
+      setInviteMessage(
+        isAbort
+          ? "Timeout invito: la route non ha risposto entro 25 secondi. Controlla terminale Next.js e route invite-user."
+          : error?.message || "Errore imprevisto durante invito utente.",
+      );
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
   }
 
 
@@ -501,7 +537,7 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
               </button>
 
               <p className="text-xs font-bold text-slate-500">
-                Invia una email Supabase Auth e crea/aggiorna il profilo tenant collegato.
+                Invia una email Supabase Auth e crea/aggiorna il profilo tenant collegato. Default sicuro: se il ruolo non è valido, viene creato come Cliente User, mai Admin.
               </p>
               {inviteMessage && (
                 <p className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-xs font-black text-blue-100">

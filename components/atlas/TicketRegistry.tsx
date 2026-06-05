@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownUp, CheckCircle2, Clock, Download, Filter, Flame, RefreshCw, Search, XCircle } from "lucide-react";
 import { materials, technicians } from "@/lib/atlasConstants";
 import { euro, materialCost } from "@/lib/atlasUtils";
+import TicketAttachmentsPanel from "@/components/atlas/TicketAttachmentsPanel";
 
 type TicketRegistryProps = {
   variant: "mobile" | "desktop";
@@ -55,6 +56,23 @@ function formatDate(value?: string | null) {
   if (!value) return "—";
   try {
     return new Date(value).toLocaleDateString("it-IT");
+  } catch {
+    return String(value);
+  }
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return date.toLocaleString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   } catch {
     return String(value);
   }
@@ -335,7 +353,7 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
           <p className="mt-3 break-words text-sm text-slate-300">{ticketDescription(ticket)}</p>
 
           <div className="mt-4 grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
-            <div className="rounded-2xl bg-slate-950/35 p-3"><span className="block font-black text-slate-300">Apertura</span>{formatDate(ticket.openedAt)}</div>
+            <div className="rounded-2xl bg-slate-950/35 p-3"><span className="block font-black text-slate-300">Apertura</span>{formatDateTime(ticket.openedAt || ticket.opened_at || ticket.created_at || ticket.date)}</div>
             <div className={`rounded-2xl p-3 ${overdue ? "bg-amber-500/15 text-amber-200" : "bg-slate-950/35"}`}><span className="block font-black text-slate-300">Chiusura prevista</span>{formatDate(ticket.expectedCloseDate)}</div>
             <div className="rounded-2xl bg-slate-950/35 p-3"><span className="block font-black text-slate-300">Chiusura</span>{formatDate(ticket.closedAt)}</div>
           </div>
@@ -523,7 +541,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
                   <p className="text-xs font-black text-slate-400">Apertura</p>
-                  <p className="mt-1 font-black text-white">{formatDate(selectedTicket.openedAt || selectedTicket.opened_at || selectedTicket.date)}</p>
+                  <p className="mt-1 font-black text-white">{formatDateTime(selectedTicket.openedAt || selectedTicket.opened_at || selectedTicket.created_at || selectedTicket.date)}</p>
                 </div>
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
                   <p className="text-xs font-black text-slate-400">Chiusura prevista</p>
@@ -534,6 +552,8 @@ export default function TicketRegistry(props: TicketRegistryProps) {
                   <p className="mt-1 font-black text-white">{formatDate(selectedTicket.closedAt || selectedTicket.closed_at)}</p>
                 </div>
               </div>
+
+              <TicketAttachmentsPanel ticketId={selectedTicket.id} />
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
