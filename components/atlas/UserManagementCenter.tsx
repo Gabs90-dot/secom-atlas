@@ -137,6 +137,7 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
   const [inviteMessage, setInviteMessage] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const fallbackRoles: Role[] = [
+    { id: "fallback-super-admin", key: "super_admin", name: "Super Admin" },
     { id: "fallback-admin", key: "admin", name: "Admin" },
     { id: "fallback-manager", key: "manager", name: "Manager" },
     { id: "fallback-dispatcher", key: "dispatcher", name: "Dispatcher" },
@@ -212,14 +213,16 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
 
     return rolePermissions.some((item) => item.role_id === role.id && item.permission_id === permission.id);
   }
-if (
-  selectedUser?.role === "super_admin" &&
-  nextUser.role !== "super_admin"
-) {
-  setActionMessage("Il Super Admin non può essere declassato.");
-  return;
-}
   async function saveUserCore(nextUser: TenantUser) {
+    if (
+      selectedUser?.role === "super_admin" &&
+      nextUser.role !== "super_admin"
+    ) {
+      setActionMessage("Il Super Admin non può essere declassato.");
+      setSaving(false);
+      return;
+    }
+
     setSaving(true);
 
     const role = roles.find((item) => item.id === nextUser.role_id || item.key === nextUser.role);
@@ -373,11 +376,12 @@ if (
 
 
   async function deleteSelectedUser() {
-    if (selectedUser?.role === "super_admin") {
-  setActionMessage("Il Super Admin non può essere eliminato.");
-  return;
-}
     if (!selectedUser?.id || !tenant?.id) return;
+
+    if (selectedUser.role === "super_admin") {
+      setActionMessage("Il Super Admin non può essere eliminato.");
+      return;
+    }
 
     if (selectedUser.email === currentUser?.email) {
       setActionMessage("Non puoi eliminare la tua utenza admin mentre sei loggato.");
