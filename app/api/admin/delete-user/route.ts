@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     return jsonError(requesterError.message, 500);
   }
 
-  const allowedRoles = new Set(["admin", "owner", "manager"]);
+  const allowedRoles = new Set(["super_admin", "admin", "owner", "manager"]);
 
   if (!requester || requester.status !== "active" || !allowedRoles.has(String(requester.role))) {
     return jsonError("Non hai permessi sufficienti per eliminare utenti.", 403);
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
 
   const { data: targetUser, error: targetError } = await serviceClient
     .from("tenant_users")
-    .select("id, user_id, email, tenant_id")
+    .select("id, user_id, email, tenant_id, role")
     .eq("tenant_id", tenantId)
     .eq("id", tenantUserId)
     .maybeSingle();
@@ -84,6 +84,10 @@ export async function POST(request: NextRequest) {
 
   if (!targetUser) {
     return jsonError("Utente tenant non trovato.", 404);
+  }
+
+  if (targetUser.role === "super_admin" && requester.role !== "super_admin") {
+    return jsonError("Solo un Super Admin può eliminare un Super Admin.", 403);
   }
 
   await serviceClient

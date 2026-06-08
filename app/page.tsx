@@ -47,6 +47,7 @@ import {
   Sun,
   Clock,
   CheckCircle2,
+  BookOpen,
 } from "lucide-react";
 
 const AtlasMap = dynamic(() => import("@/components/AtlasMap"), {
@@ -56,6 +57,7 @@ const AtlasMap = dynamic(() => import("@/components/AtlasMap"), {
 const TicketRegistry = dynamic(() => import("@/components/atlas/TicketRegistry"), { ssr: false });
 const TicketWorkspace = dynamic(() => import("@/components/atlas/TicketWorkspace"), { ssr: false });
 const CustomerCommandCenter = dynamic(() => import("@/components/atlas/CustomerCommandCenter"), { ssr: false });
+const CustomerInviteCodeCenter = dynamic(() => import("@/components/atlas/CustomerInviteCodeCenter"), { ssr: false });
 const CustomerPortal = dynamic(() => import("@/components/atlas/CustomerPortal"), { ssr: false });
 const UserManagementCenter = dynamic(() => import("@/components/atlas/UserManagementCenter"), { ssr: false });
 const GlpiImportCenter = dynamic(() => import("@/components/atlas/GlpiImportCenter"), { ssr: false });
@@ -63,6 +65,7 @@ const DispatchCenter = dynamic(() => import("@/components/atlas/DispatchCenter")
 const GlobalActivityFeed = dynamic(() => import("@/components/atlas/GlobalActivityFeed"), { ssr: false });
 const WebvimeBoard = dynamic(() => import("@/components/atlas/WebvimeBoard"), { ssr: false });
 const TodoListPanel = dynamic(() => import("@/components/atlas/TodoListPanel"), { ssr: false });
+const ManualsCenter = dynamic(() => import("@/components/atlas/ManualsCenter"), { ssr: false });
 const KPIDashboard = dynamic(() => import("@/components/atlas/KPIDashboard"), { ssr: false });
 const AIInsightsPanel = dynamic(() => import("@/components/atlas/AIInsightsPanel"), { ssr: false });
 
@@ -696,11 +699,17 @@ function escapeHtml(value: any) {
 
 
 
+type PublicCustomerEntityOption = {
+  id: string;
+  customerId: string;
+  name: string;
+  completeName?: string | null;
+  glpiEntityId?: number | string | null;
+};
+
 type PublicCustomerOption = {
   id: string;
   name: string;
-  city?: string | null;
-  region?: string | null;
 };
 
 type CustomerRegistrationPayload = {
@@ -709,6 +718,8 @@ type CustomerRegistrationPayload = {
   displayName: string;
   fiscalCode: string;
   customerId: string;
+  customerEntityId: string;
+  registrationCode: string;
 };
 
 const CUSTOMER_AUTH_DEFAULT_ROLE = "cliente_user";
@@ -727,7 +738,9 @@ export default function Home() {
 
   const [authMode, setAuthMode] = useState<"login" | "register" | "forgot">("login");
   const [customerOptions, setCustomerOptions] = useState<PublicCustomerOption[]>([]);
+  const [customerEntityOptions, setCustomerEntityOptions] = useState<PublicCustomerEntityOption[]>([]);
   const [customerOptionsLoading, setCustomerOptionsLoading] = useState(false);
+  const [customerOptionsLoaded, setCustomerOptionsLoaded] = useState(false);
   const [authActionLoading, setAuthActionLoading] = useState(false);
   const [authActionMessage, setAuthActionMessage] = useState("");
   const [registerForm, setRegisterForm] = useState<CustomerRegistrationPayload>({
@@ -736,35 +749,62 @@ export default function Home() {
     displayName: "",
     fiscalCode: "",
     customerId: "",
+    customerEntityId: "",
+    registrationCode: "",
   });
   const [forgotEmail, setForgotEmail] = useState("");
 
   async function loadCustomerOptions() {
-    setCustomerOptionsLoading(true);
-    setAuthActionMessage("");
+  setCustomerOptionsLoading(true);
+  setAuthActionMessage("");
 
-    try {
-      const response = await fetch("/api/auth/customer-register", { cache: "no-store" });
-      const result = await response.json();
+  try {
+    const response = await fetch("/api/auth/customer-register", {
+      method: "GET",
+      cache: "no-store",
+    });
 
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || "Errore caricamento clienti.");
-      }
+    const result = await response.json().catch(() => ({}));
 
-      setCustomerOptions(result.customers || []);
-    } catch (error: any) {
-      console.error(error);
-      setAuthActionMessage(error?.message || "Errore caricamento clienti.");
-    } finally {
-      setCustomerOptionsLoading(false);
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.error || "Errore caricamento clienti.");
     }
+
+    setCustomerOptions(
+      (result.customers || []).map((customer: any) => ({
+        id: String(customer.id),
+        name: customer.name || "Cliente senza nome",
+      })),
+    );
+
+    setCustomerEntityOptions(
+      (result.entities || []).map((entity: any) => ({
+        id: String(entity.id),
+        customerId: String(entity.customerId || entity.customer_id || ""),
+        name: entity.name || "Entità senza nome",
+        completeName: entity.completeName || entity.complete_name || null,
+        glpiEntityId: entity.glpiEntityId || entity.glpi_entity_id || null,
+      })),
+    );
+  } catch (error: any) {
+    console.error(error);
+    setAuthActionMessage(error?.message || "Errore caricamento clienti.");
+  } finally {
+    setCustomerOptionsLoaded(true);
+    setCustomerOptionsLoading(false);
   }
+}
 
   useEffect(() => {
-    if (!currentUser && authMode === "register" && customerOptions.length === 0 && !customerOptionsLoading) {
+    if (!currentUser && authMode === "register" && !customerOptionsLoaded && !customerOptionsLoading) {
       loadCustomerOptions();
     }
-  }, [authMode, currentUser, customerOptions.length, customerOptionsLoading]);
+  }, [authMode, currentUser, customerOptionsLoaded, customerOptionsLoading]);
+
+  const availableCustomerEntities = useMemo(() => {
+    if (!registerForm.customerId) return [];
+    return customerEntityOptions.filter((entity) => entity.customerId === registerForm.customerId);
+  }, [customerEntityOptions, registerForm.customerId]);
 
   async function handleCustomerRegistration(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -774,9 +814,11 @@ export default function Home() {
     const displayName = registerForm.displayName.trim();
     const fiscalCode = registerForm.fiscalCode.trim().toUpperCase();
     const customerId = registerForm.customerId;
+    const customerEntityId = registerForm.customerEntityId;
+    const registrationCode = registerForm.registrationCode.trim().toUpperCase();
 
-    if (!email || !password || !displayName || !fiscalCode || !customerId) {
-      setAuthActionMessage("Compila email, password, nome, codice fiscale e cliente.");
+    if (!email || !password || !displayName || !fiscalCode || !customerId || !customerEntityId || !registrationCode) {
+      setAuthActionMessage("Compila email, password, nome, codice fiscale, cliente, entità e codice invito.");
       return;
     }
 
@@ -800,6 +842,7 @@ export default function Home() {
             display_name: displayName,
             fiscal_code: fiscalCode,
             customer_id: customerId,
+            customer_entity_id: customerEntityId,
             role: CUSTOMER_AUTH_DEFAULT_ROLE,
           },
         },
@@ -815,6 +858,8 @@ export default function Home() {
           displayName,
           fiscalCode,
           customerId,
+          customerEntityId,
+          registrationCode,
           userId: data.user?.id || null,
         }),
       });
@@ -826,7 +871,15 @@ export default function Home() {
       }
 
       setAuthActionMessage("Registrazione creata. Controlla la mail e conferma l'account.");
-      setRegisterForm({ email: "", password: "", displayName: "", fiscalCode: "", customerId: "" });
+      setRegisterForm({
+        email: "",
+        password: "",
+        displayName: "",
+        fiscalCode: "",
+        customerId: "",
+        customerEntityId: "",
+        registrationCode: "",
+      });
     } catch (error: any) {
       console.error(error);
       setAuthActionMessage(error?.message || "Errore registrazione cliente.");
@@ -923,24 +976,64 @@ export default function Home() {
               />
             </div>
 
-            <select
-              value={registerForm.customerId}
-              onChange={(event) => setRegisterForm((prev) => ({ ...prev, customerId: event.target.value }))}
-              disabled={customerOptionsLoading}
-              className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold outline-none focus:border-blue-500"
-            >
-              <option value="">{customerOptionsLoading ? "Caricamento clienti..." : "Seleziona cliente"}</option>
-              {customerOptions.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name}
-                  {customer.city ? ` - ${customer.city}` : ""}
-                  {customer.region ? ` (${customer.region})` : ""}
+            <div className="grid gap-4 md:grid-cols-2">
+              <select
+                value={registerForm.customerId}
+                onChange={(event) =>
+                  setRegisterForm((prev) => ({
+                    ...prev,
+                    customerId: event.target.value,
+                    customerEntityId: "",
+                    registrationCode: "",
+                  }))
+                }
+                disabled={customerOptionsLoading}
+                className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold outline-none focus:border-blue-500"
+              >
+                <option value="">
+                  {customerOptionsLoading
+                    ? "Caricamento clienti..."
+                    : customerOptions.length === 0
+                    ? "Nessun cliente disponibile"
+                    : "Seleziona cliente"}
                 </option>
-              ))}
-            </select>
+                {customerOptions.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={registerForm.customerEntityId}
+                onChange={(event) => setRegisterForm((prev) => ({ ...prev, customerEntityId: event.target.value, registrationCode: "" }))}
+                disabled={!registerForm.customerId || customerOptionsLoading}
+                className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold outline-none focus:border-blue-500 disabled:opacity-60"
+              >
+                <option value="">
+                  {!registerForm.customerId
+                    ? "Prima seleziona il cliente"
+                    : availableCustomerEntities.length === 0
+                    ? "Nessuna entità disponibile"
+                    : "Seleziona comando / sede"}
+                </option>
+                {availableCustomerEntities.map((entity) => (
+                  <option key={entity.id} value={entity.id}>
+                    {entity.completeName || entity.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <input
+              value={registerForm.registrationCode}
+              onChange={(event) => setRegisterForm((prev) => ({ ...prev, registrationCode: event.target.value.toUpperCase() }))}
+              placeholder="Codice invito autorizzato per questa sede"
+              className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold uppercase outline-none focus:border-blue-500"
+            />
 
             <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm font-bold text-blue-100">
-              Questa registrazione crea sempre un profilo <b>cliente_user</b>. Non può creare admin, tecnici o manager.
+              Registrazione enterprise: il profilo viene creato come <b>cliente_user</b> e viene associato solo al cliente/comando autorizzato dal codice invito.
             </div>
 
             {authActionMessage && (
@@ -1067,6 +1160,7 @@ export default function Home() {
     | "dispatch"
     | "webvime"
     | "todo"
+    | "manuali"
     | "activity"
     | "analytics"
     | "ai"
@@ -1204,6 +1298,7 @@ export default function Home() {
     | "dispatch"
     | "webvime"
     | "todo"
+    | "manuali"
     | "activity"
     | "analytics"
     | "ai"
@@ -2991,36 +3086,29 @@ site_id: t.site_id || null,
   }
 
   async function promptAddClient() {
-    if (!activeTenant?.id) {
-      showMessage("Organizzazione non configurata", "error");
-      return;
-    }
-
     const name = prompt("Nome sede/cliente:");
-    const cleanName = String(name || "").trim();
-    if (!cleanName) return;
+    if (!name) return;
 
-    const cityValue = (prompt("Città:", "") || "").trim();
-    const entityValue = (prompt("Ente:", "") || "").trim();
-    const regionValue = (prompt("Regione:", "Da definire") || "Da definire").trim() || "Da definire";
+    const cityValue = prompt("Città:", "") || "";
+    const entityValue = prompt("Ente:", "") || "";
+    const regionValue = prompt("Regione:", "Da definire") || "Da definire";
 
     const { data, error } = await supabase
       .from("sites")
       .insert([
         {
-          name: cleanName,
+          name,
           city: cityValue,
           entity: entityValue,
           region: regionValue,
-          tenant_id: activeTenant.id,
         },
       ])
       .select()
       .single();
 
     if (error) {
-      console.log("Errore creazione cliente/sede:", error);
-      showMessage(error.message || "Errore creazione cliente", "error");
+      console.log(error);
+      showMessage("Errore creazione cliente", "error");
       return;
     }
 
@@ -3530,6 +3618,7 @@ site_id: t.site_id || null,
         { key: "todo", label: "To Do List", icon: CheckCircle2, badge: todoNewCount },
         { key: "calendario", label: "Calendario", icon: CalendarDays },
         { key: "registro", label: "Registro Ticket", icon: ListChecks },
+        { key: "manuali", label: "Manuali", icon: BookOpen },
         { key: "customerPortal", label: "Portale Clienti", icon: Users },
       ],
     },
@@ -3943,7 +4032,7 @@ site_id: t.site_id || null,
       />
       <div className="flex min-h-screen">
         <aside
-          className={`hidden h-screen w-72 shrink-0 border-r p-6 lg:block ${
+          className={`hidden min-h-screen w-72 shrink-0 border-r p-6 pb-32 lg:block ${
             theme === "dark"
               ? "border-white/10 bg-[#081523]"
               : "border-slate-300 bg-white shadow-xl shadow-slate-300/30"
@@ -3960,7 +4049,7 @@ site_id: t.site_id || null,
             </div>
           </div>
 
-          <nav className="space-y-5">
+          <nav className="space-y-5 pb-24">
             {tabGroups.map((group) => {
               const visibleItems = group.items.filter((tab) =>
                 canAccessTab(tab.key),
@@ -4636,6 +4725,10 @@ site_id: t.site_id || null,
                     + Nuovo intervento
                   </button>
                 </div>
+              )}
+
+              {mobileView === "manuali" && (
+                <ManualsCenter tenant={activeTenant} currentUser={currentUser} customers={customers} customerEntities={customerEntities} />
               )}
 
               {mobileView === "registro" && (
@@ -5933,6 +6026,10 @@ site_id: t.site_id || null,
               />
             )}
 
+            {activeTab === "manuali" && (
+              <ManualsCenter tenant={activeTenant} currentUser={currentUser} customers={customers} customerEntities={customerEntities} />
+            )}
+
             {activeTab === "customerPortal" && (
               <CustomerPortal
                 user={currentUser}
@@ -6396,6 +6493,8 @@ site_id: t.site_id || null,
                     onChange={(e) => setClientSearch(e.target.value)}
                   />
                 </div>
+
+                <CustomerInviteCodeCenter />
 
                 <div className="space-y-4">
                   {Object.entries(clientCategories).map(

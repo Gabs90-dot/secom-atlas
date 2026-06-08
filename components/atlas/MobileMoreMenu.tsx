@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Home as HomeIcon,
   Briefcase,
+  BookOpen,
 } from "lucide-react";
 
 type Props = {
@@ -60,6 +61,7 @@ export default function MobileMoreMenu({
             { key: "todo", label: "To Do List", icon: CheckCircle2, badge: todoNewCount },
             { key: "calendario", label: "Calendario", icon: CalendarDays },
             { key: "registro", label: "Registro Ticket", icon: ListChecks },
+            { key: "manuali", label: "Manuali", icon: BookOpen },
             { key: "clienti", label: "Clienti", icon: Users },
             { key: "contatti", label: "Contatti", icon: Phone },
             { key: "mappa", label: "Mappa", icon: Map },
