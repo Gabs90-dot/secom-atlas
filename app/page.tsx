@@ -3555,8 +3555,12 @@ site_id: t.site_id || null,
 
   function canAccessTab(key: string) {
     if (!currentUser) return false;
-    if (key === "utenti") return currentUser.role === "admin";
+
+    const isAdminLike = ["super_admin", "admin"].includes(currentUser.role);
+
+    if (key === "utenti" || key === "glpiImport") return isAdminLike;
     if (key === "webvime" || key === "todo") return currentUser.role !== "cliente";
+
     return canViewModule(currentUser, key);
   }
 
@@ -7231,7 +7235,7 @@ site_id: t.site_id || null,
               </section>
             )}
 
-            {activeTab === "utenti" && currentUser?.role === "admin" && (
+            {activeTab === "utenti" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
               <div className="p-4 md:p-8">
                 <UserManagementCenter
                   currentUser={currentUser}
@@ -7240,7 +7244,7 @@ site_id: t.site_id || null,
               </div>
             )}
 
-            {activeTab === "glpiImport" && currentUser?.role === "admin" && (
+            {activeTab === "glpiImport" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
               <div className="p-4 md:p-8">
                 <GlpiImportCenter tenant={activeTenant} />
               </div>

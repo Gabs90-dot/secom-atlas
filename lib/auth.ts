@@ -1,4 +1,5 @@
 export type AtlasRole =
+  | "super_admin"
   | "admin"
   | "manager"
   | "dispatcher"
@@ -23,7 +24,7 @@ export type AtlasUser = {
 
 export function normalizeRole(role: any): AtlasRole {
   const value = String(role || "cliente_user").toLowerCase();
-
+if (value === "super_admin") return "super_admin";
   if (value === "admin") return "admin";
   if (value === "manager") return "manager";
   if (value === "dispatcher") return "dispatcher";
@@ -37,6 +38,7 @@ export function normalizeRole(role: any): AtlasRole {
 }
 
 const fallbackPermissionsByRole: Record<AtlasRole, string[]> = {
+  super_admin: ["*"],
   admin: ["*"],
   manager: ["home", "dispatch", "activity", "analytics", "ai", "operativo", "calendario", "mappa", "registro", "clienti", "contratti", "sistemi", "contatti", "budget", "customerPortal", "utenti"],
   dispatcher: ["home", "dispatch", "operativo", "calendario", "mappa", "registro", "clienti", "sistemi", "contatti"],
@@ -89,6 +91,7 @@ export function hasPermission(user: AtlasUser | null, permissionKey: string) {
 
 export function getRoleLabel(role: AtlasRole) {
   const labels: Record<AtlasRole, string> = {
+    super_admin: "Super Admin",
     admin: "Admin",
     manager: "Manager",
     dispatcher: "Dispatcher",

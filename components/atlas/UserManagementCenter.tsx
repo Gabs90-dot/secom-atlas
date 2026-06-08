@@ -53,6 +53,7 @@ type Permission = {
 };
 
 const roleTone: Record<string, string> = {
+  super_admin: "border-red-500/30 bg-red-500/15 text-red-200",
   admin: "border-blue-500/30 bg-blue-500/15 text-blue-200",
   manager: "border-violet-500/30 bg-violet-500/15 text-violet-200",
   dispatcher: "border-emerald-500/30 bg-emerald-500/15 text-emerald-200",
@@ -211,7 +212,13 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
 
     return rolePermissions.some((item) => item.role_id === role.id && item.permission_id === permission.id);
   }
-
+if (
+  selectedUser?.role === "super_admin" &&
+  nextUser.role !== "super_admin"
+) {
+  setActionMessage("Il Super Admin non può essere declassato.");
+  return;
+}
   async function saveUserCore(nextUser: TenantUser) {
     setSaving(true);
 
@@ -366,6 +373,10 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
 
 
   async function deleteSelectedUser() {
+    if (selectedUser?.role === "super_admin") {
+  setActionMessage("Il Super Admin non può essere eliminato.");
+  return;
+}
     if (!selectedUser?.id || !tenant?.id) return;
 
     if (selectedUser.email === currentUser?.email) {
@@ -427,7 +438,9 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
 
   const activeUsers = users.filter((user) => user.status === "active").length;
   const customerUsers = users.filter((user) => String(user.role).includes("cliente")).length;
-  const adminUsers = users.filter((user) => user.role === "admin").length;
+  const adminUsers = users.filter(
+  (user) => user.role === "admin" || user.role === "super_admin"
+).length;
 
   if (!tenant?.id) {
     return (
