@@ -2991,29 +2991,36 @@ site_id: t.site_id || null,
   }
 
   async function promptAddClient() {
-    const name = prompt("Nome sede/cliente:");
-    if (!name) return;
+    if (!activeTenant?.id) {
+      showMessage("Organizzazione non configurata", "error");
+      return;
+    }
 
-    const cityValue = prompt("Città:", "") || "";
-    const entityValue = prompt("Ente:", "") || "";
-    const regionValue = prompt("Regione:", "Da definire") || "Da definire";
+    const name = prompt("Nome sede/cliente:");
+    const cleanName = String(name || "").trim();
+    if (!cleanName) return;
+
+    const cityValue = (prompt("Città:", "") || "").trim();
+    const entityValue = (prompt("Ente:", "") || "").trim();
+    const regionValue = (prompt("Regione:", "Da definire") || "Da definire").trim() || "Da definire";
 
     const { data, error } = await supabase
       .from("sites")
       .insert([
         {
-          name,
+          name: cleanName,
           city: cityValue,
           entity: entityValue,
           region: regionValue,
+          tenant_id: activeTenant.id,
         },
       ])
       .select()
       .single();
 
     if (error) {
-      console.log(error);
-      showMessage("Errore creazione cliente", "error");
+      console.log("Errore creazione cliente/sede:", error);
+      showMessage(error.message || "Errore creazione cliente", "error");
       return;
     }
 
