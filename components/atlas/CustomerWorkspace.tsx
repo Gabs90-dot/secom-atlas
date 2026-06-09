@@ -8,6 +8,9 @@ import {
   Clock,
   FileText,
   Flame,
+  BookOpen,
+  KeyRound,
+  Plus,
   MapPin,
   Package,
   ShieldCheck,
@@ -30,7 +33,7 @@ type CustomerWorkspaceProps = {
   onReset: () => void;
 };
 
-type WorkspaceTab = "overview" | "tickets" | "sites" | "assets" | "timeline" | "documents";
+type WorkspaceTab = "overview" | "tickets" | "sites" | "contracts" | "assets" | "manuals" | "access" | "timeline";
 type ModalType = "contract" | "ticket" | "asset" | null;
 
 function normalize(value: any) {
@@ -107,16 +110,14 @@ export default function CustomerWorkspace({
   const [ticketSort, setTicketSort] = useState<"all" | "newest" | "oldest" | "open" | "closed" | "urgent">("all");
   const [ticketPageSize, setTicketPageSize] = useState(50);
   const [assetDraft, setAssetDraft] = useState("");
+  const [assetSerial, setAssetSerial] = useState("");
+  const [assetNotes, setAssetNotes] = useState("");
+  const [customerAssets, setCustomerAssets] = useState<any[]>([]);
+  const [manuals, setManuals] = useState<any[]>([]);
+  const [accessCodes, setAccessCodes] = useState<any[]>([]);
+  const [workspaceMessage, setWorkspaceMessage] = useState("");
   const [timelineEvents, setTimelineEvents] = useState<any[]>([]);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
-  const [assetsByKey, setAssetsByKey] = useState<Record<string, string[]>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      return JSON.parse(localStorage.getItem("atlas-customer-assets") || "{}");
-    } catch {
-      return {};
-    }
-  });
 
   function ticketStatus(ticket: any) {
     const rawStatus =
@@ -166,8 +167,26 @@ export default function CustomerWorkspace({
     return rawStatus || "Nuovo";
   }
 
-  const assetKey = String(selectedSite?.id || currentCustomer?.id || currentLabel || "default");
-  const currentAssets = assetsByKey[assetKey] || [];
+  const selectedEntityId = currentCustomer?.is_glpi_entity
+    ? String(currentCustomer.id || "").replace(/^entity-/, "")
+    : selectedSite?.customer_entity_id || selectedSite?.customerEntityId || null;
+  const resolvedCustomerId =
+    (!currentCustomer?.is_glpi_entity && currentCustomer?.id) ||
+    selectedSite?.customer_id ||
+    selectedSite?.customerId ||
+    relatedTickets?.[0]?.customerId ||
+    relatedTickets?.[0]?.customer_id ||
+    null;
+  const resolvedSiteId = selectedSite?.id || relatedTickets?.[0]?.site_id || relatedTickets?.[0]?.siteId || null;
+  const resolvedTenantId =
+    selectedSite?.tenant_id ||
+    selectedSite?.tenantId ||
+    currentCustomer?.tenant_id ||
+    currentCustomer?.tenantId ||
+    relatedTickets?.[0]?.tenantId ||
+    relatedTickets?.[0]?.tenant_id ||
+    null;
+  const currentAssets = customerAssets;
   const openTickets = relatedTickets.filter((ticket) => normalize(ticketStatus(ticket)) !== "chiuso");
   const urgentTickets = relatedTickets.filter((ticket) => Boolean(ticket.urgent));
   const lastActivity = relatedTickets
@@ -240,6 +259,106 @@ export default function CustomerWorkspace({
     oldOpenTickets.length > 0 ? `${oldOpenTickets.length} ticket aperti da oltre 7 giorni` : null,
     oldestOpenTicketDays > 0 ? `Ticket aperto più vecchio: ${oldestOpenTicketDays} giorni` : null,
   ].filter(Boolean);
+
+  useEffect(() => {
+    async function loadCustomerAssets() {
+      if (!resolvedTenantId || (!resolvedCustomerId && !resolvedSiteId)) {
+        setCustomerAssets([]);
+        return;
+      }
+
+      let query = supabase
+        .from("customer_assets")
+        .select("*")
+        .eq("tenant_id", resolvedTenantId)
+        .order("created_at", { ascending: false });
+
+      if (resolvedSiteId) {
+        query = query.eq("site_id", resolvedSiteId);
+      } else if (resolvedCustomerId) {
+        query = query.eq("customer_id", resolvedCustomerId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.log("Errore caricamento asset cliente:", error);
+        setCustomerAssets([]);
+        return;
+      }
+
+      setCustomerAssets(data || []);
+    }
+
+    loadCustomerAssets();
+  }, [resolvedTenantId, resolvedCustomerId, resolvedSiteId]);
+
+  useEffect(() => {
+    async function loadManuals() {
+      if (!resolvedTenantId || (!resolvedCustomerId && !selectedEntityId)) {
+        setManuals([]);
+        return;
+      }
+
+      let query = supabase
+        .from("manuals")
+        .select("*")
+        .eq("tenant_id", resolvedTenantId)
+        .order("manual_date", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false });
+
+      if (selectedEntityId) {
+        query = query.eq("customer_entity_id", selectedEntityId);
+      } else if (resolvedCustomerId) {
+        query = query.eq("customer_id", resolvedCustomerId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.log("Errore caricamento manuali cliente:", error);
+        setManuals([]);
+        return;
+      }
+
+      setManuals(data || []);
+    }
+
+    loadManuals();
+  }, [resolvedTenantId, resolvedCustomerId, selectedEntityId]);
+
+  useEffect(() => {
+    async function loadAccessCodes() {
+      if (!resolvedTenantId || (!resolvedCustomerId && !selectedEntityId)) {
+        setAccessCodes([]);
+        return;
+      }
+
+      let query = supabase
+        .from("customer_registration_codes")
+        .select("*")
+        .eq("tenant_id", resolvedTenantId)
+        .order("created_at", { ascending: false });
+
+      if (selectedEntityId) {
+        query = query.eq("customer_entity_id", selectedEntityId);
+      } else if (resolvedCustomerId) {
+        query = query.eq("customer_id", resolvedCustomerId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.log("Errore caricamento codici accesso:", error);
+        setAccessCodes([]);
+        return;
+      }
+
+      setAccessCodes(data || []);
+    }
+
+    loadAccessCodes();
+  }, [resolvedTenantId, resolvedCustomerId, selectedEntityId]);
 
   useEffect(() => {
     async function loadEvents() {
@@ -333,25 +452,56 @@ export default function CustomerWorkspace({
     }
   }
 
-  function saveAsset() {
-    if (!assetDraft) return;
-    const updated = {
-      ...assetsByKey,
-      [assetKey]: [...currentAssets, assetDraft],
+  async function saveAsset() {
+    if (!assetDraft || !resolvedTenantId) return;
+
+    setWorkspaceMessage("");
+
+    const payload = {
+      tenant_id: resolvedTenantId,
+      customer_id: resolvedCustomerId || null,
+      site_id: resolvedSiteId || null,
+      asset_name: assetDraft,
+      asset_type: "Sistema",
+      serial_number: assetSerial.trim() || null,
+      notes: assetNotes.trim() || null,
+      updated_at: new Date().toISOString(),
     };
-    setAssetsByKey(updated);
-    localStorage.setItem("atlas-customer-assets", JSON.stringify(updated));
+
+    const { data, error } = await supabase
+      .from("customer_assets")
+      .insert([payload])
+      .select()
+      .single();
+
+    if (error) {
+      console.log(error);
+      setWorkspaceMessage(error.message || "Errore salvataggio asset.");
+      return;
+    }
+
+    setCustomerAssets((prev) => [data, ...prev]);
     setAssetDraft("");
+    setAssetSerial("");
+    setAssetNotes("");
   }
 
-  function removeAsset(indexToRemove: number) {
-    const updatedAssets = currentAssets.filter((_, index) => index !== indexToRemove);
-    const updated = {
-      ...assetsByKey,
-      [assetKey]: updatedAssets,
-    };
-    setAssetsByKey(updated);
-    localStorage.setItem("atlas-customer-assets", JSON.stringify(updated));
+  async function removeAsset(assetId: string) {
+    const confirmed = window.confirm("Rimuovere questo asset dal cliente?");
+    if (!confirmed) return;
+
+    const { error } = await supabase
+      .from("customer_assets")
+      .delete()
+      .eq("id", assetId);
+
+    if (error) {
+      console.log(error);
+      setWorkspaceMessage(error.message || "Errore rimozione asset.");
+      return;
+    }
+
+    setCustomerAssets((prev) => prev.filter((asset) => String(asset.id) !== String(assetId)));
   }
 
   function renderModal() {
@@ -494,25 +644,58 @@ export default function CustomerWorkspace({
   function renderAssetsTab() {
     return (
       <div className="grid min-w-0 gap-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-          <select
-            value={assetDraft}
-            onChange={(event) => setAssetDraft(event.target.value)}
-            className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold text-white outline-none"
-          >
-            <option value="">Seleziona sistema / asset</option>
-            {systemsCatalog.map((system: any, index: number) => {
-              const name = getSystemName(system);
-              return (
-                <option key={`${name}-${index}`} value={name}>
-                  {name}
-                </option>
-              );
-            })}
-          </select>
-          <button onClick={saveAsset} className="rounded-2xl bg-blue-600 px-5 py-4 text-sm font-black text-white">
-            + Collega asset
-          </button>
+        {workspaceMessage && (
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm font-black text-amber-100">
+            {workspaceMessage}
+          </div>
+        )}
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Package className="text-violet-300" size={20} />
+            <div>
+              <p className="text-sm font-black text-white">Collega asset al cliente/sede</p>
+              <p className="text-xs font-bold text-slate-500">Ora gli asset vengono salvati su Supabase, non più nel browser locale.</p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_0.7fr]">
+            <select
+              value={assetDraft}
+              onChange={(event) => setAssetDraft(event.target.value)}
+              className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold text-white outline-none"
+            >
+              <option value="">Seleziona sistema / asset</option>
+              {systemsCatalog.map((system: any, index: number) => {
+                const name = getSystemName(system);
+                return (
+                  <option key={`${name}-${index}`} value={name}>
+                    {name}
+                  </option>
+                );
+              })}
+            </select>
+
+            <input
+              value={assetSerial}
+              onChange={(event) => setAssetSerial(event.target.value)}
+              placeholder="Seriale / matricola"
+              className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold text-white outline-none placeholder:text-slate-500"
+            />
+          </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+            <input
+              value={assetNotes}
+              onChange={(event) => setAssetNotes(event.target.value)}
+              placeholder="Note asset, posizione, stato, accessori..."
+              className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold text-white outline-none placeholder:text-slate-500"
+            />
+
+            <button onClick={saveAsset} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-4 text-sm font-black text-white">
+              <Plus size={16} /> Collega asset
+            </button>
+          </div>
         </div>
 
         {currentAssets.length === 0 ? (
@@ -521,15 +704,143 @@ export default function CustomerWorkspace({
           </div>
         ) : (
           <div className="grid min-w-0 gap-3">
-            {currentAssets.map((asset, index) => (
-              <div key={`${asset}-${index}`} className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                <div>
-                  <p className="font-black text-white">{asset}</p>
-                  <p className="text-xs font-bold text-slate-500">Collegato a {currentLabel}</p>
+            {currentAssets.map((asset: any) => (
+              <div key={asset.id} className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                <div className="min-w-0">
+                  <p className="font-black text-white">{asset.asset_name || asset.name || "Asset"}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    {asset.serial_number ? `Seriale: ${asset.serial_number}` : "Seriale non indicato"} · Collegato a {currentLabel}
+                  </p>
+                  {asset.notes && <p className="mt-2 text-xs font-bold text-slate-400">{asset.notes}</p>}
                 </div>
-                <button onClick={() => removeAsset(index)} className="rounded-2xl bg-red-600/80 px-3 py-2 text-xs font-black text-white">
+                <button onClick={() => removeAsset(String(asset.id))} className="rounded-2xl bg-red-600/80 px-3 py-2 text-xs font-black text-white">
                   Rimuovi
                 </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderContractsTab() {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+        <ContractProfilePanel
+          currentCustomer={currentCustomer}
+          selectedSite={selectedSite}
+          currentLabel={currentLabel}
+        />
+      </div>
+    );
+  }
+
+  function renderManualsTab() {
+    return (
+      <div className="grid min-w-0 gap-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">Manuali collegati</p>
+            <p className="mt-1 text-sm font-bold text-slate-400">Documenti filtrati per cliente/sede selezionata.</p>
+          </div>
+        </div>
+
+        {manuals.length === 0 ? (
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-slate-400">
+            Nessun manuale collegato a questa posizione. Caricalo dal tab Manuali e associalo a cliente o entità.
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {manuals.map((manual) => (
+              <div key={manual.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-black text-white">{manual.title}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-500">
+                      {manual.sector || "Settore n/d"} · {manual.version ? `v${manual.version}` : "Versione n/d"} · {formatDate(manual.manual_date)}
+                    </p>
+                    {manual.description && <p className="mt-2 text-sm font-bold text-slate-300">{manual.description}</p>}
+                    {manual.notes && <p className="mt-2 text-xs font-bold text-slate-500">Note: {manual.notes}</p>}
+                  </div>
+
+                  {manual.file_path ? (
+                    <button
+                      onClick={async () => {
+                        const { data, error } = await supabase.storage
+                          .from("atlas-manuals")
+                          .createSignedUrl(manual.file_path, 60);
+                        if (error || !data?.signedUrl) return;
+                        window.open(data.signedUrl, "_blank");
+                      }}
+                      className="rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black text-white"
+                    >
+                      Apri allegato
+                    </button>
+                  ) : (
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-slate-400">Nessun file</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderAccessTab() {
+    const activeCodes = accessCodes.filter((code) => code.is_active !== false);
+
+    return (
+      <div className="grid min-w-0 gap-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+            <KeyRound className="mb-3 text-blue-300" size={22} />
+            <p className="text-3xl font-black text-white">{activeCodes.length}</p>
+            <p className="text-sm font-bold text-slate-400">Codici attivi</p>
+          </div>
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+            <ShieldCheck className="mb-3 text-emerald-300" size={22} />
+            <p className="text-3xl font-black text-white">{accessCodes.reduce((sum, code) => sum + Number(code.used_count || 0), 0)}</p>
+            <p className="text-sm font-bold text-slate-400">Utilizzi totali</p>
+          </div>
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+            <Clock className="mb-3 text-amber-300" size={22} />
+            <p className="text-3xl font-black text-white">{accessCodes.filter((code) => code.expires_at && new Date(code.expires_at).getTime() < Date.now()).length}</p>
+            <p className="text-sm font-bold text-slate-400">Scaduti</p>
+          </div>
+        </div>
+
+        {accessCodes.length === 0 ? (
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-slate-400">
+            Nessun codice invito collegato a questo cliente/sede.
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {accessCodes.map((code) => (
+              <div key={code.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <p className="break-all text-lg font-black text-white">{code.code}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-500">
+                      {code.contact_name || "Referente n/d"} · {code.contact_email || "email n/d"}
+                    </p>
+                    {code.notes && <p className="mt-2 text-xs font-bold text-slate-400">{code.notes}</p>}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs font-black">
+                    <span className={`rounded-full px-3 py-1 ${code.is_active === false ? "bg-red-500/15 text-red-200" : "bg-emerald-500/15 text-emerald-200"}`}>
+                      {code.is_active === false ? "Disattivo" : "Attivo"}
+                    </span>
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-slate-300">
+                      {Number(code.used_count || 0)}/{code.max_uses || "∞"} usi
+                    </span>
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-slate-300">
+                      Scade: {formatDate(code.expires_at)}
+                    </span>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -607,9 +918,11 @@ export default function CustomerWorkspace({
     { key: "overview", label: "Overview", icon: ShieldCheck },
     { key: "tickets", label: "Tickets", icon: Ticket },
     { key: "sites", label: "Sedi", icon: Building2 },
+    { key: "contracts", label: "Contratti", icon: FileText },
     { key: "assets", label: "Assets", icon: Package },
+    { key: "manuals", label: "Manuali", icon: BookOpen },
+    { key: "access", label: "Accessi", icon: KeyRound },
     { key: "timeline", label: "Timeline", icon: History },
-    { key: "documents", label: "Docs", icon: FileText },
   ];
 
   return (
@@ -767,15 +1080,15 @@ export default function CustomerWorkspace({
         />
       )}
 
+      {activeTab === "contracts" && renderContractsTab()}
+
       {activeTab === "assets" && renderAssetsTab()}
 
-      {activeTab === "timeline" && renderTimelineTab()}
+      {activeTab === "manuals" && renderManualsTab()}
 
-      {activeTab === "documents" && (
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-sm font-bold text-slate-400">
-          Area documenti pronta per contratti, verbali, allegati e procedure. La collegheremo a Supabase Storage più avanti.
-        </div>
-      )}
+      {activeTab === "access" && renderAccessTab()}
+
+      {activeTab === "timeline" && renderTimelineTab()}
     </div>
   );
 }

@@ -133,7 +133,7 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [newUserOpen, setNewUserOpen] = useState(false);
-  const [newUser, setNewUser] = useState({ email: "", display_name: "", role: "cliente_user", status: "active" });
+  const [newUser, setNewUser] = useState({ email: "", display_name: "", role: "cliente_user", status: "active", mode: "email_invite", temporaryPassword: "" });
   const [inviteMessage, setInviteMessage] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const fallbackRoles: Role[] = [
@@ -336,6 +336,8 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
           roleKey,
           roleId: isFallbackRole(role) ? null : role?.id || null,
           status: newUser.status || "pending",
+          mode: newUser.mode,
+          temporaryPassword: newUser.temporaryPassword,
         }),
       });
 
@@ -357,8 +359,8 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
         setSelectedUser(result.user);
       }
 
-      setInviteMessage(result?.message || "Invito inviato correttamente.");
-      setNewUser({ email: "", display_name: "", role: "cliente_user", status: "pending" });
+      setInviteMessage(result?.message || (newUser.mode === "temporary_password" ? "Utente creato con password temporanea." : "Invito inviato correttamente."));
+      setNewUser({ email: "", display_name: "", role: "cliente_user", status: "pending", mode: "email_invite", temporaryPassword: "" });
       setNewUserOpen(false);
       await loadData();
     } catch (error: any) {
@@ -545,16 +547,58 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
                 ))}
               </select>
 
+              <div className="grid gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">Modalità creazione</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewUser((prev) => ({ ...prev, mode: "email_invite", temporaryPassword: "" }))}
+                    className={`rounded-2xl border px-4 py-3 text-xs font-black transition ${
+                      newUser.mode === "email_invite"
+                        ? "border-blue-500 bg-blue-600 text-white"
+                        : "border-white/10 bg-slate-950/40 text-slate-300 hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    Invito email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewUser((prev) => ({ ...prev, mode: "temporary_password" }))}
+                    className={`rounded-2xl border px-4 py-3 text-xs font-black transition ${
+                      newUser.mode === "temporary_password"
+                        ? "border-blue-500 bg-blue-600 text-white"
+                        : "border-white/10 bg-slate-950/40 text-slate-300 hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    Password temporanea
+                  </button>
+                </div>
+              </div>
+
+              {newUser.mode === "temporary_password" && (
+                <input
+                  value={newUser.temporaryPassword}
+                  onChange={(event) => setNewUser((prev) => ({ ...prev, temporaryPassword: event.target.value }))}
+                  placeholder="Password temporanea minimo 8 caratteri"
+                  type="text"
+                  className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold text-white outline-none"
+                />
+              )}
+
               <button
                 onClick={createTenantUser}
-                disabled={saving || !newUser.email.trim()}
+                disabled={saving || !newUser.email.trim() || (newUser.mode === "temporary_password" && newUser.temporaryPassword.length < 8)}
                 className="mt-2 rounded-2xl bg-blue-600 px-5 py-4 text-sm font-black text-white disabled:opacity-60"
               >
-                {saving ? "Invio invito..." : "Invita utente"}
+                {saving
+                  ? "Operazione in corso..."
+                  : newUser.mode === "temporary_password"
+                  ? "Crea utente con password"
+                  : "Invita utente"}
               </button>
 
               <p className="text-xs font-bold text-slate-500">
-                Invia una email Supabase Auth e crea/aggiorna il profilo tenant collegato. Default sicuro: se il ruolo non è valido, viene creato come Cliente User, mai Admin.
+                Invito email: usa il link Supabase. Password temporanea: crea subito l'account confermato e il collega accede da https://secom-atlas.vercel.app con email e password provvisoria.
               </p>
               {inviteMessage && (
                 <p className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 text-xs font-black text-blue-100">

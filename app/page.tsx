@@ -4017,12 +4017,154 @@ site_id: t.site_id || null,
 
   return (
     <main
-      className={`min-h-screen overflow-x-hidden transition-all duration-300 ${
+      className={`atlas-shell atlas-theme-${theme} min-h-screen overflow-x-hidden transition-all duration-300 ${
         theme === "dark"
           ? "bg-[#07111f] text-slate-100"
           : "bg-[#eef3f8] text-slate-900"
       }`}
     >
+      <style jsx global>{`
+        .atlas-theme-light {
+          --atlas-light-bg: #eef3f8;
+          --atlas-light-surface: #ffffff;
+          --atlas-light-surface-2: #f8fafc;
+          --atlas-light-border: #cbd5e1;
+          --atlas-light-text: #0f172a;
+          --atlas-light-muted: #475569;
+          --atlas-light-soft: #64748b;
+        }
+
+        .atlas-theme-light .atlas-sidebar {
+          background: #ffffff !important;
+          border-right-color: var(--atlas-light-border) !important;
+          box-shadow: 12px 0 28px rgba(15, 23, 42, 0.08) !important;
+          scrollbar-width: thin;
+        }
+
+
+
+        .atlas-theme-light .atlas-sidebar button:not(.atlas-force-keep) {
+          opacity: 1 !important;
+        }
+
+        .atlas-theme-light .atlas-sidebar button:not([class*="bg-blue-600"]) {
+          color: #0f172a !important;
+          background-color: #ffffff !important;
+        }
+
+        .atlas-theme-light .atlas-sidebar button:not([class*="bg-blue-600"]) svg,
+        .atlas-theme-light .atlas-sidebar button:not([class*="bg-blue-600"]) span {
+          color: #0f172a !important;
+          opacity: 1 !important;
+        }
+
+        .atlas-theme-light .atlas-sidebar button[class*="bg-blue-600"],
+        .atlas-theme-light .atlas-sidebar button[class*="bg-blue-600"] svg,
+        .atlas-theme-light .atlas-sidebar button[class*="bg-blue-600"] span {
+          color: #ffffff !important;
+          opacity: 1 !important;
+        }
+
+        .atlas-theme-light .atlas-sidebar-nav::before {
+          content: "";
+          position: absolute;
+          left: 0.625rem;
+          top: 0;
+          bottom: 5rem;
+          width: 1px;
+          background: linear-gradient(180deg, rgba(37,99,235,0.0), rgba(100,116,139,0.28), rgba(100,116,139,0.08));
+          pointer-events: none;
+        }
+
+        .atlas-theme-light [class*="bg-[#07111f]"],
+        .atlas-theme-light [class*="bg-[#081523]"],
+        .atlas-theme-light [class*="bg-[#06111f]"],
+        .atlas-theme-light [class*="bg-slate-950"],
+        .atlas-theme-light [class*="bg-slate-900"],
+        .atlas-theme-light [class*="bg-slate-800"] {
+          background-color: var(--atlas-light-surface) !important;
+        }
+
+        .atlas-theme-light [class*="bg-white/["],
+        .atlas-theme-light [class*="bg-white/"] {
+          background-color: var(--atlas-light-surface) !important;
+        }
+
+        .atlas-theme-light section[class*="rounded"],
+        .atlas-theme-light div[class*="rounded-[2rem]"],
+        .atlas-theme-light div[class*="rounded-3xl"] {
+          border-color: var(--atlas-light-border) !important;
+        }
+
+        .atlas-theme-light [class*="border-white/"] {
+          border-color: var(--atlas-light-border) !important;
+        }
+
+        .atlas-theme-light [class*="text-white"] {
+          color: var(--atlas-light-text) !important;
+        }
+
+        .atlas-theme-light [class*="text-slate-100"],
+        .atlas-theme-light [class*="text-slate-200"],
+        .atlas-theme-light [class*="text-slate-300"] {
+          color: #1e293b !important;
+        }
+
+        .atlas-theme-light [class*="text-slate-400"],
+        .atlas-theme-light [class*="text-slate-500"] {
+          color: var(--atlas-light-muted) !important;
+        }
+
+        .atlas-theme-light input,
+        .atlas-theme-light textarea,
+        .atlas-theme-light select {
+          background: #ffffff !important;
+          color: var(--atlas-light-text) !important;
+          border-color: var(--atlas-light-border) !important;
+        }
+
+        .atlas-theme-light input::placeholder,
+        .atlas-theme-light textarea::placeholder {
+          color: #64748b !important;
+        }
+
+        .atlas-theme-light button[class*="bg-blue-"],
+        .atlas-theme-light a[class*="bg-blue-"],
+        .atlas-theme-light button[class*="bg-emerald-"],
+        .atlas-theme-light a[class*="bg-emerald-"],
+        .atlas-theme-light button[class*="bg-red-"],
+        .atlas-theme-light button[class*="bg-violet-"] {
+          color: #ffffff !important;
+        }
+
+        /* Non forzare tutti i bg-blue/bg-red/bg-emerald a colore pieno: rompe le card con opacity tipo bg-blue-500/[0.055]. */
+
+        .atlas-theme-light .shadow-2xl,
+        .atlas-theme-light .shadow-xl {
+          box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08) !important;
+        }
+
+        .atlas-theme-light [class*="bg-amber-500/10"] {
+          background-color: #fffbeb !important;
+          border-color: #f59e0b !important;
+        }
+
+        .atlas-theme-light [class*="bg-red-500/10"] {
+          background-color: #fff1f2 !important;
+          border-color: #fb7185 !important;
+        }
+
+        .atlas-theme-light [class*="bg-blue-500/10"],
+        .atlas-theme-light [class*="bg-blue-600/10"] {
+          background-color: #eff6ff !important;
+          border-color: #93c5fd !important;
+        }
+
+        .atlas-theme-light [class*="bg-emerald-500/10"] {
+          background-color: #ecfdf5 !important;
+          border-color: #6ee7b7 !important;
+        }
+      `}</style>
       {renderNotificationsDrawer()}
       <TicketWorkspace
         ticket={selectedTicketWorkspace}
@@ -4032,13 +4174,17 @@ site_id: t.site_id || null,
       />
       <div className="flex min-h-screen">
         <aside
-          className={`hidden min-h-screen w-72 shrink-0 border-r p-6 pb-32 lg:block ${
+          className={`atlas-sidebar hidden w-72 shrink-0 border-r p-6 pb-40 lg:block ${
             theme === "dark"
               ? "border-white/10 bg-[#081523]"
               : "border-slate-300 bg-white shadow-xl shadow-slate-300/30"
           }`}
         >
-          <div className="mb-8 rounded-[2rem] border border-emerald-400/70 bg-[#081523] shadow-[0_0_0_1px_rgba(34,197,94,0.22),0_0_15px_rgba(34,197,94,0.28)]">
+          <div className={`mb-8 rounded-[2rem] border bg-[#081523] ${
+            theme === "dark"
+              ? "border-emerald-400/70 shadow-[0_0_0_1px_rgba(34,197,94,0.22),0_0_15px_rgba(34,197,94,0.28)]"
+              : "border-slate-300 shadow-lg shadow-slate-300/40"
+          }`}>
             <div className="overflow-hidden rounded-[2rem]">
               <img
                 src={ATLAS_LOGO_CARD_IMAGE}
@@ -4049,7 +4195,7 @@ site_id: t.site_id || null,
             </div>
           </div>
 
-          <nav className="space-y-5 pb-24">
+          <nav className="atlas-sidebar-nav relative space-y-5 pb-32">
             {tabGroups.map((group) => {
               const visibleItems = group.items.filter((tab) =>
                 canAccessTab(tab.key),
@@ -4067,10 +4213,14 @@ site_id: t.site_id || null,
                     <button
                       key={key}
                       onClick={() => setActiveTab(key as any)}
-                      className={`relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-2xl border px-4 py-3 text-left text-sm font-bold transition-all duration-300 before:absolute before:inset-0 before:opacity-0 before:transition-opacity before:duration-300 before:content-[''] after:absolute after:inset-y-2 after:right-0 after:w-10 after:rounded-l-full after:bg-emerald-400/0 after:blur-xl after:transition-all after:duration-300 hover:translate-x-0 hover:before:opacity-100 hover:after:bg-emerald-400/30 ${
-                        theme === "dark"
-                          ? "border-white/10 bg-white/[0.025] text-slate-300 before:bg-[linear-gradient(90deg,rgba(16,185,129,0.24),rgba(16,185,129,0.10)_56%,rgba(16,185,129,0.03))] hover:border-emerald-400/55 hover:text-emerald-50 hover:shadow-[inset_0_0_0_1px_rgba(74,222,128,0.12),0_0_22px_rgba(34,197,94,0.18)]"
-                          : "border-slate-300 bg-slate-50 text-slate-800 before:bg-[linear-gradient(90deg,rgba(16,185,129,0.16),rgba(16,185,129,0.06)_55%,transparent)] hover:border-emerald-400 hover:text-emerald-700 hover:shadow-[0_0_22px_rgba(34,197,94,0.16)]"
+                      className={`relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-2xl border px-4 py-3 text-left text-sm font-bold transition-all duration-300 ${
+                        activeTab === key
+                          ? theme === "dark"
+                            ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-50 shadow-[inset_0_0_0_1px_rgba(74,222,128,0.14),0_0_22px_rgba(34,197,94,0.18)]"
+                            : "border-blue-600 bg-blue-600 text-white shadow-lg shadow-blue-900/20"
+                          : theme === "dark"
+                            ? "border-white/10 bg-white/[0.025] text-slate-300 hover:border-emerald-400/55 hover:bg-emerald-500/10 hover:text-emerald-50"
+                            : "border-slate-300 bg-white text-slate-900 shadow-sm shadow-slate-200/70 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
                       }`}
                     >
                       <Icon className="relative z-10" size={18} />

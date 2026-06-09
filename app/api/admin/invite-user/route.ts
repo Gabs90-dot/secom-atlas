@@ -10,11 +10,14 @@ type InvitePayload = {
   roleKey?: string;
   roleId?: string | null;
   status?: string;
+  mode?: "email_invite" | "temporary_password";
+  temporaryPassword?: string;
 };
 
 const SAFE_DEFAULT_ROLE = "cliente_user";
 
 const INTERNAL_ALLOWED_ROLES = new Set([
+  "super_admin",
   "admin",
   "owner",
   "manager",
@@ -25,7 +28,7 @@ const INTERNAL_ALLOWED_ROLES = new Set([
   "cliente_user",
 ]);
 
-const REQUESTER_ALLOWED_ROLES = new Set(["admin", "owner", "manager"]);
+const REQUESTER_ALLOWED_ROLES = new Set(["super_admin", "admin", "owner", "manager"]);
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -95,12 +98,18 @@ export async function POST(request: NextRequest) {
   const displayName = body?.displayName?.trim() || email?.split("@")[0] || "Utente";
   const requestedRoleKey = normalizeRoleKey(body?.roleKey);
   const status = normalizeStatus(body?.status);
+  const mode = body?.mode === "temporary_password" ? "temporary_password" : "email_invite";
+  const temporaryPassword = String(body?.temporaryPassword || "");
 
   if (!tenantId || !email) {
     return jsonError("Tenant ed email sono obbligatori.", 400);
   }
 
-  console.log("[invite-user] request", { tenantId, email, requestedRoleKey, status });
+  if (mode === "temporary_password" && temporaryPassword.length < 8) {
+    return jsonError("La password temporanea deve contenere almeno 8 caratteri.", 400);
+  }
+
+  console.log("[invite-user] request", { tenantId, email, requestedRoleKey, status, mode });
 
   const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -128,7 +137,7 @@ export async function POST(request: NextRequest) {
   let finalRoleKey = requestedRoleKey;
 
   // Freno di sicurezza: solo admin/owner può creare altri admin/owner.
-  if (["admin", "owner"].includes(finalRoleKey) && !["admin", "owner"].includes(String(requester.role))) {
+  if (["super_admin", "admin", "owner"].includes(finalRoleKey) && !["super_admin", "admin", "owner"].includes(String(requester.role))) {
     finalRoleKey = SAFE_DEFAULT_ROLE;
   }
 
@@ -177,40 +186,9 @@ export async function POST(request: NextRequest) {
   }
 
   let invitedUserId: string | null = null;
-  let inviteMessage = "Invito inviato e profilo tenant creato.";
-
-  const redirectTo = process.env.NEXT_PUBLIC_SITE_URL
-    ? `${process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}/`
-    : undefined;
-
-  const { data: inviteData, error: inviteError } = await withTimeout(
-    serviceClient.auth.admin.inviteUserByEmail(email, {
-      data: {
-        display_name: displayName,
-        tenant_id: tenantId,
-        role: finalRoleKey,
-      },
-      redirectTo,
-    }),
-    20000,
-    "Invio email invito Supabase Auth",
-  );
-
-  if (inviteError) {
-    const msg = inviteError.message || "";
-    const alreadyExists =
-      msg.toLowerCase().includes("already") ||
-      msg.toLowerCase().includes("registered") ||
-      msg.toLowerCase().includes("exists");
-
-    if (!alreadyExists) {
-      return jsonError(msg || "Errore invito Supabase Auth", 400);
-    }
-
-    inviteMessage = "Utente già presente in Auth: profilo tenant creato/aggiornato.";
-  } else {
-    invitedUserId = inviteData?.user?.id || null;
-  }
+  let inviteMessage = mode === "temporary_password"
+    ? "Utente creato con password temporanea e profilo tenant collegato."
+    : "Invito inviato e profilo tenant creato.";
 
   const { data: existing, error: existingError } = await withTimeout(
     serviceClient
@@ -225,6 +203,87 @@ export async function POST(request: NextRequest) {
 
   if (existingError) {
     return jsonError(existingError.message, 500);
+  }
+
+  if (mode === "temporary_password") {
+    if (existing?.user_id) {
+      const { error: updateAuthError } = await withTimeout(
+        serviceClient.auth.admin.updateUserById(existing.user_id, {
+          password: temporaryPassword,
+          email_confirm: true,
+          user_metadata: {
+            display_name: displayName,
+            tenant_id: tenantId,
+            role: finalRoleKey,
+            temporary_password: true,
+          },
+        }),
+        20000,
+        "Aggiornamento password temporanea Supabase Auth",
+      );
+
+      if (updateAuthError) {
+        return jsonError(updateAuthError.message || "Errore aggiornamento password temporanea.", 400);
+      }
+
+      invitedUserId = existing.user_id;
+      inviteMessage = "Password temporanea aggiornata e profilo tenant collegato.";
+    } else {
+      const { data: createdAuthData, error: createAuthError } = await withTimeout(
+        serviceClient.auth.admin.createUser({
+          email,
+          password: temporaryPassword,
+          email_confirm: true,
+          user_metadata: {
+            display_name: displayName,
+            tenant_id: tenantId,
+            role: finalRoleKey,
+            temporary_password: true,
+          },
+        }),
+        20000,
+        "Creazione utente Supabase Auth con password temporanea",
+      );
+
+      if (createAuthError) {
+        return jsonError(createAuthError.message || "Errore creazione utente con password temporanea.", 400);
+      }
+
+      invitedUserId = createdAuthData?.user?.id || null;
+    }
+  } else {
+    const redirectTo = process.env.NEXT_PUBLIC_SITE_URL
+      ? `${process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}/`
+      : undefined;
+
+    const { data: inviteData, error: inviteError } = await withTimeout(
+      serviceClient.auth.admin.inviteUserByEmail(email, {
+        data: {
+          display_name: displayName,
+          tenant_id: tenantId,
+          role: finalRoleKey,
+        },
+        redirectTo,
+      }),
+      20000,
+      "Invio email invito Supabase Auth",
+    );
+
+    if (inviteError) {
+      const msg = inviteError.message || "";
+      const alreadyExists =
+        msg.toLowerCase().includes("already") ||
+        msg.toLowerCase().includes("registered") ||
+        msg.toLowerCase().includes("exists");
+
+      if (!alreadyExists) {
+        return jsonError(msg || "Errore invito Supabase Auth", 400);
+      }
+
+      inviteMessage = "Utente già presente in Auth: profilo tenant creato/aggiornato.";
+    } else {
+      invitedUserId = inviteData?.user?.id || null;
+    }
   }
 
   const tenantPayload = {

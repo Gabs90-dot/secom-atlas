@@ -233,7 +233,49 @@ export default function CustomerInviteCodeCenter() {
   }
 
   return (
-    <section className="grid gap-5 rounded-[2rem] border border-blue-500/15 bg-blue-500/[0.055] p-5 shadow-2xl shadow-black/20 md:p-6">
+    <>
+      <style jsx global>{`
+        .atlas-theme-light .atlas-customer-invite {
+          background: #ffffff !important;
+          border-color: #cbd5e1 !important;
+          box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08) !important;
+        }
+
+        .atlas-theme-light .atlas-customer-invite [class*="bg-slate-950"],
+        .atlas-theme-light .atlas-customer-invite [class*="bg-[#081523]"] {
+          background: #f8fafc !important;
+          border-color: #cbd5e1 !important;
+        }
+
+        .atlas-theme-light .atlas-customer-invite [class*="bg-white/[0.04]"],
+        .atlas-theme-light .atlas-customer-invite [class*="bg-white/[0.05]"],
+        .atlas-theme-light .atlas-customer-invite [class*="bg-white/[0.07]"] {
+          background: #ffffff !important;
+          border-color: #cbd5e1 !important;
+        }
+
+        .atlas-theme-light .atlas-customer-invite [class*="border-white/10"] {
+          border-color: #cbd5e1 !important;
+        }
+
+        .atlas-theme-light .atlas-customer-invite [class*="text-white"],
+        .atlas-theme-light .atlas-customer-invite [class*="text-slate-200"],
+        .atlas-theme-light .atlas-customer-invite [class*="text-slate-300"] {
+          color: #0f172a !important;
+        }
+
+        .atlas-theme-light .atlas-customer-invite [class*="text-slate-400"],
+        .atlas-theme-light .atlas-customer-invite [class*="text-slate-500"] {
+          color: #475569 !important;
+        }
+
+        .atlas-theme-light .atlas-customer-invite button[class*="bg-blue-600"],
+        .atlas-theme-light .atlas-customer-invite button[class*="bg-emerald"],
+        .atlas-theme-light .atlas-customer-invite button[class*="bg-red"] {
+          color: #ffffff !important;
+        }
+      `}</style>
+      <section className="atlas-customer-invite grid gap-5 rounded-[2rem] border border-blue-500/15 bg-blue-500/[0.055] p-5 shadow-2xl shadow-black/20 md:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">Accessi cliente</p>
@@ -470,5 +512,6 @@ export default function CustomerInviteCodeCenter() {
         </div>
       </div>
     </section>
+    </>
   );
 }
