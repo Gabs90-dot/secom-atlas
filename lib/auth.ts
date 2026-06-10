@@ -18,8 +18,11 @@ export type AtlasUser = {
   tenantName: string;
   tenantUserId?: string;
   permissions?: string[];
-    customerId?: string | null;
+  customerId?: string | null;
+  siteId?: string | number | null;
+  customerEntityId?: string | number | null;
   siteIds?: Array<string | number>;
+  mustChangePassword?: boolean;
 };
 
 export function normalizeRole(role: any): AtlasRole {

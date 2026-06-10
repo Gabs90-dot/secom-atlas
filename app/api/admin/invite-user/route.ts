@@ -286,7 +286,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const tenantPayload = {
+  const baseTenantPayload = {
     tenant_id: tenantId,
     user_id: invitedUserId || existing?.user_id || null,
     email,
@@ -297,19 +297,32 @@ export async function POST(request: NextRequest) {
     updated_at: new Date().toISOString(),
   };
 
-  const query = existing?.id
-    ? serviceClient.from("tenant_users").update(tenantPayload).eq("id", existing.id).select().single()
-    : serviceClient
-        .from("tenant_users")
-        .insert([{ ...tenantPayload, created_at: new Date().toISOString() }])
-        .select()
-        .single();
+  const tenantPayloadWithPasswordFlag = {
+    ...baseTenantPayload,
+    must_change_password: mode === "temporary_password",
+  };
 
-  const { data: tenantUser, error: tenantUserError } = await withTimeout(
-    query,
-    12000,
-    "Creazione/aggiornamento profilo tenant",
-  );
+  async function upsertTenantUser(payload: any) {
+    const query = existing?.id
+      ? serviceClient.from("tenant_users").update(payload).eq("id", existing.id).select().single()
+      : serviceClient
+          .from("tenant_users")
+          .insert([{ ...payload, created_at: new Date().toISOString() }])
+          .select()
+          .single();
+
+    return withTimeout(query, 12000, "Creazione/aggiornamento profilo tenant");
+  }
+
+  let { data: tenantUser, error: tenantUserError } = await upsertTenantUser(tenantPayloadWithPasswordFlag);
+
+  // Compatibility: if the DB has not yet been migrated, keep user creation working.
+  // Run sql/2026-06-09_add_must_change_password.sql to enable mandatory password change persistently.
+  if (tenantUserError && String(tenantUserError.message || "").includes("must_change_password")) {
+    const fallback = await upsertTenantUser(baseTenantPayload);
+    tenantUser = fallback.data;
+    tenantUserError = fallback.error;
+  }
 
   if (tenantUserError) {
     return jsonError(tenantUserError.message, 500);

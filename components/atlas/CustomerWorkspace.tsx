@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Ticket,
   X,
+  Users,
 } from "lucide-react";
 import { systemsCatalog } from "@/lib/systemsCatalog";
 import { supabase } from "@/lib/supabase";
@@ -33,7 +34,15 @@ type CustomerWorkspaceProps = {
   onReset: () => void;
 };
 
-type WorkspaceTab = "overview" | "tickets" | "sites" | "contracts" | "assets" | "manuals" | "access" | "timeline";
+type WorkspaceTab =
+  | "overview"
+  | "tickets"
+  | "sites"
+  | "contracts"
+  | "assets"
+  | "manuals"
+  | "access"
+  | "timeline";
 type ModalType = "contract" | "ticket" | "asset" | null;
 
 function normalize(value: any) {
@@ -56,7 +65,14 @@ function formatDate(value?: string | null) {
 }
 
 function ticketDateValue(ticket: any) {
-  return ticket.openedAt || ticket.opened_at || ticket.date || ticket.intervention_date || ticket.created_at || "";
+  return (
+    ticket.openedAt ||
+    ticket.opened_at ||
+    ticket.date ||
+    ticket.intervention_date ||
+    ticket.created_at ||
+    ""
+  );
 }
 
 function daysSince(value?: string | null) {
@@ -74,10 +90,23 @@ function getSystemName(system: any) {
 
 function getStatusTone(status: any) {
   const value = normalize(status);
-  if (value.includes("chiuso") || value.includes("validato") || value.includes("risolto")) return "border-emerald-500/30 bg-emerald-500/15 text-emerald-200";
-  if (value.includes("bloccato")) return "border-red-500/30 bg-red-500/15 text-red-200";
-  if (value.includes("pian") || value.includes("assegnato") || value.includes("carico") || value.includes("lavorazione")) return "border-blue-500/30 bg-blue-500/15 text-blue-200";
-  if (value.includes("sosp") || value.includes("attesa")) return "border-amber-500/30 bg-amber-500/15 text-amber-200";
+  if (
+    value.includes("chiuso") ||
+    value.includes("validato") ||
+    value.includes("risolto")
+  )
+    return "border-emerald-500/30 bg-emerald-500/15 text-emerald-200";
+  if (value.includes("bloccato"))
+    return "border-red-500/30 bg-red-500/15 text-red-200";
+  if (
+    value.includes("pian") ||
+    value.includes("assegnato") ||
+    value.includes("carico") ||
+    value.includes("lavorazione")
+  )
+    return "border-blue-500/30 bg-blue-500/15 text-blue-200";
+  if (value.includes("sosp") || value.includes("attesa"))
+    return "border-amber-500/30 bg-amber-500/15 text-amber-200";
   return "border-slate-500/30 bg-slate-500/15 text-slate-200";
 }
 
@@ -107,7 +136,9 @@ export default function CustomerWorkspace({
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
   const [modal, setModal] = useState<ModalType>(null);
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
-  const [ticketSort, setTicketSort] = useState<"all" | "newest" | "oldest" | "open" | "closed" | "urgent">("all");
+  const [ticketSort, setTicketSort] = useState<
+    "all" | "newest" | "oldest" | "open" | "closed" | "urgent"
+  >("all");
   const [ticketPageSize, setTicketPageSize] = useState(50);
   const [assetDraft, setAssetDraft] = useState("");
   const [assetSerial, setAssetSerial] = useState("");
@@ -115,9 +146,12 @@ export default function CustomerWorkspace({
   const [customerAssets, setCustomerAssets] = useState<any[]>([]);
   const [manuals, setManuals] = useState<any[]>([]);
   const [accessCodes, setAccessCodes] = useState<any[]>([]);
+  const [customerUsers, setCustomerUsers] = useState<any[]>([]);
   const [workspaceMessage, setWorkspaceMessage] = useState("");
   const [timelineEvents, setTimelineEvents] = useState<any[]>([]);
-  const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
+  const [statusOverrides, setStatusOverrides] = useState<
+    Record<string, string>
+  >({});
 
   function ticketStatus(ticket: any) {
     const rawStatus =
@@ -140,7 +174,11 @@ export default function CustomerWorkspace({
       return "Chiuso";
     }
 
-    if (value.includes("attesa") || value.includes("sospeso") || value === "4") {
+    if (
+      value.includes("attesa") ||
+      value.includes("sospeso") ||
+      value === "4"
+    ) {
       return "Attesa";
     }
 
@@ -169,7 +207,9 @@ export default function CustomerWorkspace({
 
   const selectedEntityId = currentCustomer?.is_glpi_entity
     ? String(currentCustomer.id || "").replace(/^entity-/, "")
-    : selectedSite?.customer_entity_id || selectedSite?.customerEntityId || null;
+    : selectedSite?.customer_entity_id ||
+      selectedSite?.customerEntityId ||
+      null;
   const resolvedCustomerId =
     (!currentCustomer?.is_glpi_entity && currentCustomer?.id) ||
     selectedSite?.customer_id ||
@@ -177,7 +217,11 @@ export default function CustomerWorkspace({
     relatedTickets?.[0]?.customerId ||
     relatedTickets?.[0]?.customer_id ||
     null;
-  const resolvedSiteId = selectedSite?.id || relatedTickets?.[0]?.site_id || relatedTickets?.[0]?.siteId || null;
+  const resolvedSiteId =
+    selectedSite?.id ||
+    relatedTickets?.[0]?.site_id ||
+    relatedTickets?.[0]?.siteId ||
+    null;
   const resolvedTenantId =
     selectedSite?.tenant_id ||
     selectedSite?.tenantId ||
@@ -187,8 +231,12 @@ export default function CustomerWorkspace({
     relatedTickets?.[0]?.tenant_id ||
     null;
   const currentAssets = customerAssets;
-  const openTickets = relatedTickets.filter((ticket) => normalize(ticketStatus(ticket)) !== "chiuso");
-  const urgentTickets = relatedTickets.filter((ticket) => Boolean(ticket.urgent));
+  const openTickets = relatedTickets.filter(
+    (ticket) => normalize(ticketStatus(ticket)) !== "chiuso",
+  );
+  const urgentTickets = relatedTickets.filter((ticket) =>
+    Boolean(ticket.urgent),
+  );
   const lastActivity = relatedTickets
     .map((ticket) => ticketDateValue(ticket))
     .filter(Boolean)
@@ -210,11 +258,15 @@ export default function CustomerWorkspace({
     }
 
     if (ticketSort === "open") {
-      return list.filter((ticket) => normalize(ticketStatus(ticket)) !== "chiuso");
+      return list.filter(
+        (ticket) => normalize(ticketStatus(ticket)) !== "chiuso",
+      );
     }
 
     if (ticketSort === "closed") {
-      return list.filter((ticket) => normalize(ticketStatus(ticket)) === "chiuso");
+      return list.filter(
+        (ticket) => normalize(ticketStatus(ticket)) === "chiuso",
+      );
     }
 
     if (ticketSort === "urgent") {
@@ -228,13 +280,20 @@ export default function CustomerWorkspace({
     });
   }, [relatedTickets, ticketSort]);
 
-  const blockedTickets = relatedTickets.filter((ticket) => normalize(ticketStatus(ticket)).includes("bloccato"));
+  const blockedTickets = relatedTickets.filter((ticket) =>
+    normalize(ticketStatus(ticket)).includes("bloccato"),
+  );
   const waitingTickets = relatedTickets.filter((ticket) => {
     const status = normalize(ticketStatus(ticket));
     return status.includes("attesa") || status.includes("sospeso");
   });
-  const oldOpenTickets = openTickets.filter((ticket) => daysSince(ticketDateValue(ticket)) >= 7);
-  const oldestOpenTicketDays = openTickets.reduce((max, ticket) => Math.max(max, daysSince(ticketDateValue(ticket))), 0);
+  const oldOpenTickets = openTickets.filter(
+    (ticket) => daysSince(ticketDateValue(ticket)) >= 7,
+  );
+  const oldestOpenTicketDays = openTickets.reduce(
+    (max, ticket) => Math.max(max, daysSince(ticketDateValue(ticket))),
+    0,
+  );
 
   const healthDeductions =
     urgentTickets.length * 18 +
@@ -244,20 +303,41 @@ export default function CustomerWorkspace({
     Math.max(0, openTickets.length - 3) * 5;
 
   const healthScore = Math.max(0, Math.min(100, 100 - healthDeductions));
-  const healthTone = healthScore >= 80 ? "text-emerald-300" : healthScore >= 60 ? "text-amber-300" : "text-red-300";
-  const healthRiskLabel = healthScore >= 80 ? "Rischio basso" : healthScore >= 60 ? "Rischio medio" : "Rischio alto";
-  const healthRiskTone = healthScore >= 80
-    ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200"
-    : healthScore >= 60
-    ? "border-amber-500/30 bg-amber-500/15 text-amber-200"
-    : "border-red-500/30 bg-red-500/15 text-red-200";
+  const healthTone =
+    healthScore >= 80
+      ? "text-emerald-300"
+      : healthScore >= 60
+        ? "text-amber-300"
+        : "text-red-300";
+  const healthRiskLabel =
+    healthScore >= 80
+      ? "Rischio basso"
+      : healthScore >= 60
+        ? "Rischio medio"
+        : "Rischio alto";
+  const healthRiskTone =
+    healthScore >= 80
+      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200"
+      : healthScore >= 60
+        ? "border-amber-500/30 bg-amber-500/15 text-amber-200"
+        : "border-red-500/30 bg-red-500/15 text-red-200";
   const healthReasons = [
-    openTickets.length > 0 ? `${openTickets.length} ticket aperti` : "Nessun ticket aperto",
+    openTickets.length > 0
+      ? `${openTickets.length} ticket aperti`
+      : "Nessun ticket aperto",
     urgentTickets.length > 0 ? `${urgentTickets.length} urgenze attive` : null,
-    blockedTickets.length > 0 ? `${blockedTickets.length} ticket bloccati` : null,
-    waitingTickets.length > 0 ? `${waitingTickets.length} ticket in attesa` : null,
-    oldOpenTickets.length > 0 ? `${oldOpenTickets.length} ticket aperti da oltre 7 giorni` : null,
-    oldestOpenTicketDays > 0 ? `Ticket aperto più vecchio: ${oldestOpenTicketDays} giorni` : null,
+    blockedTickets.length > 0
+      ? `${blockedTickets.length} ticket bloccati`
+      : null,
+    waitingTickets.length > 0
+      ? `${waitingTickets.length} ticket in attesa`
+      : null,
+    oldOpenTickets.length > 0
+      ? `${oldOpenTickets.length} ticket aperti da oltre 7 giorni`
+      : null,
+    oldestOpenTicketDays > 0
+      ? `Ticket aperto più vecchio: ${oldestOpenTicketDays} giorni`
+      : null,
   ].filter(Boolean);
 
   useEffect(() => {
@@ -361,11 +441,50 @@ export default function CustomerWorkspace({
   }, [resolvedTenantId, resolvedCustomerId, selectedEntityId]);
 
   useEffect(() => {
+    async function loadCustomerUsers() {
+      if (
+        !resolvedTenantId ||
+        (!resolvedCustomerId && !selectedEntityId && !resolvedSiteId)
+      ) {
+        setCustomerUsers([]);
+        return;
+      }
+
+      let query = supabase
+        .from("tenant_users")
+        .select(
+          "id, email, display_name, role, status, last_login_at, customer_id, customer_entity_id, site_id, created_at",
+        )
+        .eq("tenant_id", resolvedTenantId)
+        .in("role", ["cliente_admin", "cliente_user"])
+        .order("created_at", { ascending: false });
+
+      if (resolvedSiteId) {
+        query = query.eq("site_id", resolvedSiteId);
+      } else if (selectedEntityId) {
+        query = query.eq("customer_entity_id", selectedEntityId);
+      } else if (resolvedCustomerId) {
+        query = query.eq("customer_id", resolvedCustomerId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.log("Errore caricamento utenti cliente:", error);
+        setCustomerUsers([]);
+        return;
+      }
+
+      setCustomerUsers(data || []);
+    }
+
+    loadCustomerUsers();
+  }, [resolvedTenantId, resolvedCustomerId, selectedEntityId, resolvedSiteId]);
+
+  useEffect(() => {
     async function loadEvents() {
       const customerId =
-        currentCustomer?.id ||
-        relatedTickets?.[0]?.customerId ||
-        null;
+        currentCustomer?.id || relatedTickets?.[0]?.customerId || null;
 
       if (!customerId) {
         setTimelineEvents([]);
@@ -374,7 +493,9 @@ export default function CustomerWorkspace({
 
       const { data, error } = await supabase
         .from("ticket_events")
-        .select("id, ticket_id, customer_id, site_id, event_type, title, description, created_by, created_at, metadata")
+        .select(
+          "id, ticket_id, customer_id, site_id, event_type, title, description, created_by, created_at, metadata",
+        )
         .eq("customer_id", customerId)
         .order("created_at", { ascending: false })
         .range(0, 99);
@@ -404,7 +525,10 @@ export default function CustomerWorkspace({
       .from("tickets")
       .update({
         status: nextStatus,
-        closed_at: nextStatus === "Chiuso" ? new Date().toISOString() : ticket.closedAt || ticket.closed_at || null,
+        closed_at:
+          nextStatus === "Chiuso"
+            ? new Date().toISOString()
+            : ticket.closedAt || ticket.closed_at || null,
       })
       .eq("id", Number(ticket.id));
 
@@ -419,12 +543,22 @@ export default function CustomerWorkspace({
     }));
 
     setSelectedTicket((prev: any) =>
-      prev ? { ...prev, status: nextStatus, closedAt: nextStatus === "Chiuso" ? new Date().toISOString() : prev.closedAt } : prev
+      prev
+        ? {
+            ...prev,
+            status: nextStatus,
+            closedAt:
+              nextStatus === "Chiuso"
+                ? new Date().toISOString()
+                : prev.closedAt,
+          }
+        : prev,
     );
 
     const eventPayload = {
       ticket_id: Number(ticket.id),
-      customer_id: currentCustomer?.id || ticket.customerId || ticket.customer_id || null,
+      customer_id:
+        currentCustomer?.id || ticket.customerId || ticket.customer_id || null,
       site_id: selectedSite?.id || ticket.site_id || null,
       event_type: "ticket_status_changed",
       title: "Stato ticket aggiornato",
@@ -501,7 +635,9 @@ export default function CustomerWorkspace({
       return;
     }
 
-    setCustomerAssets((prev) => prev.filter((asset) => String(asset.id) !== String(assetId)));
+    setCustomerAssets((prev) =>
+      prev.filter((asset) => String(asset.id) !== String(assetId)),
+    );
   }
 
   function renderModal() {
@@ -512,14 +648,19 @@ export default function CustomerWorkspace({
         <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#081523] p-5 shadow-2xl md:p-7">
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.28em] text-blue-300">ATLAS Workspace</p>
+              <p className="text-xs font-black uppercase tracking-[0.28em] text-blue-300">
+                ATLAS Workspace
+              </p>
               <h3 className="mt-2 text-2xl font-black text-white">
                 {modal === "contract" && "Contratto rapido"}
                 {modal === "ticket" && "Dettaglio chiamata"}
                 {modal === "asset" && "Asset collegati"}
               </h3>
             </div>
-            <button onClick={() => setModal(null)} className="rounded-2xl bg-white/10 p-3 text-white hover:bg-white/15">
+            <button
+              onClick={() => setModal(null)}
+              className="rounded-2xl bg-white/10 p-3 text-white hover:bg-white/15"
+            >
               <X size={20} />
             </button>
           </div>
@@ -535,9 +676,15 @@ export default function CustomerWorkspace({
           {modal === "ticket" && selectedTicket && (
             <div className="grid min-w-0 gap-3">
               <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">#{selectedTicket.id}</p>
-                <h4 className="mt-2 text-xl font-black text-white">{selectedTicket.site || "Sede n/d"}</h4>
-                <p className={`mt-3 w-fit rounded-full border px-3 py-1 text-xs font-black ${getStatusTone(ticketStatus(selectedTicket))}`}>
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
+                  #{selectedTicket.id}
+                </p>
+                <h4 className="mt-2 text-xl font-black text-white">
+                  {selectedTicket.site || "Sede n/d"}
+                </h4>
+                <p
+                  className={`mt-3 w-fit rounded-full border px-3 py-1 text-xs font-black ${getStatusTone(ticketStatus(selectedTicket))}`}
+                >
                   {ticketStatus(selectedTicket) || "Stato n/d"}
                 </p>
               </div>
@@ -546,7 +693,9 @@ export default function CustomerWorkspace({
                   Cambia stato operativo
                   <select
                     value={ticketStatus(selectedTicket)}
-                    onChange={(event) => updateTicketStatus(selectedTicket, event.target.value)}
+                    onChange={(event) =>
+                      updateTicketStatus(selectedTicket, event.target.value)
+                    }
                     className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold text-white outline-none"
                   >
                     {ticketLifecycleStatuses.map((status) => (
@@ -559,17 +708,40 @@ export default function CustomerWorkspace({
               </div>
 
               <div className="grid min-w-0 gap-3 md:grid-cols-3">
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4"><p className="text-xs font-black text-slate-400">Aperto</p><p className="mt-1 font-black text-white">{formatDate(selectedTicket.openedAt || selectedTicket.date)}</p></div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4"><p className="text-xs font-black text-slate-400">Previsto</p><p className="mt-1 font-black text-white">{formatDate(selectedTicket.expectedCloseDate)}</p></div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4"><p className="text-xs font-black text-slate-400">Chiuso</p><p className="mt-1 font-black text-white">{formatDate(selectedTicket.closedAt)}</p></div>
+                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-black text-slate-400">Aperto</p>
+                  <p className="mt-1 font-black text-white">
+                    {formatDate(selectedTicket.openedAt || selectedTicket.date)}
+                  </p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-black text-slate-400">Previsto</p>
+                  <p className="mt-1 font-black text-white">
+                    {formatDate(selectedTicket.expectedCloseDate)}
+                  </p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                  <p className="text-xs font-black text-slate-400">Chiuso</p>
+                  <p className="mt-1 font-black text-white">
+                    {formatDate(selectedTicket.closedAt)}
+                  </p>
+                </div>
               </div>
               <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
                 <p className="text-sm font-black text-slate-400">Descrizione</p>
-                <p className="mt-2 whitespace-pre-wrap text-sm font-bold text-slate-200">{selectedTicket.problem || "Descrizione non disponibile"}</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm font-bold text-slate-200">
+                  {selectedTicket.problem || "Descrizione non disponibile"}
+                </p>
               </div>
               <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                <p className="text-sm font-black text-slate-400">Note chiusura / necessità future</p>
-                <p className="mt-2 text-sm font-bold text-slate-200">{selectedTicket.closingNotes || selectedTicket.futureNeeds || "Nessuna nota disponibile"}</p>
+                <p className="text-sm font-black text-slate-400">
+                  Note chiusura / necessità future
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-200">
+                  {selectedTicket.closingNotes ||
+                    selectedTicket.futureNeeds ||
+                    "Nessuna nota disponibile"}
+                </p>
               </div>
             </div>
           )}
@@ -588,7 +760,8 @@ export default function CustomerWorkspace({
     if (list.length === 0) {
       return (
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-slate-400">
-          Nessuna chiamata collegata trovata. Puoi aprire la prima chiamata da questa posizione.
+          Nessuna chiamata collegata trovata. Puoi aprire la prima chiamata da
+          questa posizione.
         </div>
       );
     }
@@ -596,15 +769,34 @@ export default function CustomerWorkspace({
     return (
       <div className="grid min-w-0 gap-3">
         {list.map((ticket) => (
-          <button key={ticket.id} onClick={() => openTicketModal(ticket)} className="flex min-w-0 flex-col gap-3 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-blue-500/10 md:flex-row md:items-center md:justify-between">
+          <button
+            key={ticket.id}
+            onClick={() => openTicketModal(ticket)}
+            className="flex min-w-0 flex-col gap-3 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-blue-500/10 md:flex-row md:items-center md:justify-between"
+          >
             <div className="min-w-0">
-              <p className="truncate text-sm font-black text-white">#{ticket.id} · {ticket.site || "Sede n/d"}</p>
-              <p className="truncate text-xs font-bold text-slate-500">{ticket.problem || "Descrizione non disponibile"}</p>
+              <p className="truncate text-sm font-black text-white">
+                #{ticket.id} · {ticket.site || "Sede n/d"}
+              </p>
+              <p className="truncate text-xs font-bold text-slate-500">
+                {ticket.problem || "Descrizione non disponibile"}
+              </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-end justify-end gap-2 text-xs font-black md:max-w-[180px]">
-              <span className={`max-w-full break-words rounded-full border px-3 py-1 text-center ${getStatusTone(ticketStatus(ticket))}`}>{ticketStatus(ticket) || "Stato n/d"}</span>
-              <span className="w-fit rounded-full bg-blue-500/15 px-3 py-1 text-blue-200"><CalendarDays size={12} className="mr-1 inline" />{formatDate(ticketDateValue(ticket))}</span>
-              {ticket.urgent && <span className="w-fit rounded-full bg-red-600 px-3 py-1 text-white">URGENTE</span>}
+              <span
+                className={`max-w-full break-words rounded-full border px-3 py-1 text-center ${getStatusTone(ticketStatus(ticket))}`}
+              >
+                {ticketStatus(ticket) || "Stato n/d"}
+              </span>
+              <span className="w-fit rounded-full bg-blue-500/15 px-3 py-1 text-blue-200">
+                <CalendarDays size={12} className="mr-1 inline" />
+                {formatDate(ticketDateValue(ticket))}
+              </span>
+              {ticket.urgent && (
+                <span className="w-fit rounded-full bg-red-600 px-3 py-1 text-white">
+                  URGENTE
+                </span>
+              )}
             </div>
           </button>
         ))}
@@ -615,7 +807,8 @@ export default function CustomerWorkspace({
             onClick={() => setTicketPageSize((prev) => prev + 50)}
             className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-white hover:bg-white/[0.1]"
           >
-            Carica altri 50 ticket · visualizzati {list.length} di {sortedTickets.length}
+            Carica altri 50 ticket · visualizzati {list.length} di{" "}
+            {sortedTickets.length}
           </button>
         )}
       </div>
@@ -626,10 +819,18 @@ export default function CustomerWorkspace({
     return (
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">Chiamate collegate</p>
-          <p className="mt-1 text-sm font-bold text-slate-400">Ordina e apri il dettaglio operativo.</p>
+          <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">
+            Chiamate collegate
+          </p>
+          <p className="mt-1 text-sm font-bold text-slate-400">
+            Ordina e apri il dettaglio operativo.
+          </p>
         </div>
-        <select value={ticketSort} onChange={(event) => setTicketSort(event.target.value as any)} className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs font-black text-white outline-none">
+        <select
+          value={ticketSort}
+          onChange={(event) => setTicketSort(event.target.value as any)}
+          className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs font-black text-white outline-none"
+        >
           <option value="all">Tutti</option>
           <option value="newest">Più recenti</option>
           <option value="oldest">Più vecchie</option>
@@ -654,8 +855,13 @@ export default function CustomerWorkspace({
           <div className="mb-3 flex items-center gap-2">
             <Package className="text-violet-300" size={20} />
             <div>
-              <p className="text-sm font-black text-white">Collega asset al cliente/sede</p>
-              <p className="text-xs font-bold text-slate-500">Ora gli asset vengono salvati su Supabase, non più nel browser locale.</p>
+              <p className="text-sm font-black text-white">
+                Collega asset al cliente/sede
+              </p>
+              <p className="text-xs font-bold text-slate-500">
+                Ora gli asset vengono salvati su Supabase, non più nel browser
+                locale.
+              </p>
             </div>
           </div>
 
@@ -692,7 +898,10 @@ export default function CustomerWorkspace({
               className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold text-white outline-none placeholder:text-slate-500"
             />
 
-            <button onClick={saveAsset} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-4 text-sm font-black text-white">
+            <button
+              onClick={saveAsset}
+              className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-4 text-sm font-black text-white"
+            >
               <Plus size={16} /> Collega asset
             </button>
           </div>
@@ -705,15 +914,30 @@ export default function CustomerWorkspace({
         ) : (
           <div className="grid min-w-0 gap-3">
             {currentAssets.map((asset: any) => (
-              <div key={asset.id} className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+              <div
+                key={asset.id}
+                className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.05] p-4"
+              >
                 <div className="min-w-0">
-                  <p className="font-black text-white">{asset.asset_name || asset.name || "Asset"}</p>
-                  <p className="mt-1 text-xs font-bold text-slate-500">
-                    {asset.serial_number ? `Seriale: ${asset.serial_number}` : "Seriale non indicato"} · Collegato a {currentLabel}
+                  <p className="font-black text-white">
+                    {asset.asset_name || asset.name || "Asset"}
                   </p>
-                  {asset.notes && <p className="mt-2 text-xs font-bold text-slate-400">{asset.notes}</p>}
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    {asset.serial_number
+                      ? `Seriale: ${asset.serial_number}`
+                      : "Seriale non indicato"}{" "}
+                    · Collegato a {currentLabel}
+                  </p>
+                  {asset.notes && (
+                    <p className="mt-2 text-xs font-bold text-slate-400">
+                      {asset.notes}
+                    </p>
+                  )}
                 </div>
-                <button onClick={() => removeAsset(String(asset.id))} className="rounded-2xl bg-red-600/80 px-3 py-2 text-xs font-black text-white">
+                <button
+                  onClick={() => removeAsset(String(asset.id))}
+                  className="rounded-2xl bg-red-600/80 px-3 py-2 text-xs font-black text-white"
+                >
                   Rimuovi
                 </button>
               </div>
@@ -741,27 +965,47 @@ export default function CustomerWorkspace({
       <div className="grid min-w-0 gap-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">Manuali collegati</p>
-            <p className="mt-1 text-sm font-bold text-slate-400">Documenti filtrati per cliente/sede selezionata.</p>
+            <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">
+              Manuali collegati
+            </p>
+            <p className="mt-1 text-sm font-bold text-slate-400">
+              Documenti filtrati per cliente/sede selezionata.
+            </p>
           </div>
         </div>
 
         {manuals.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-slate-400">
-            Nessun manuale collegato a questa posizione. Caricalo dal tab Manuali e associalo a cliente o entità.
+            Nessun manuale collegato a questa posizione. Caricalo dal tab
+            Manuali e associalo a cliente o entità.
           </div>
         ) : (
           <div className="grid gap-3">
             {manuals.map((manual) => (
-              <div key={manual.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+              <div
+                key={manual.id}
+                className="rounded-3xl border border-white/10 bg-white/[0.04] p-4"
+              >
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div className="min-w-0">
-                    <p className="text-sm font-black text-white">{manual.title}</p>
-                    <p className="mt-1 text-xs font-bold text-slate-500">
-                      {manual.sector || "Settore n/d"} · {manual.version ? `v${manual.version}` : "Versione n/d"} · {formatDate(manual.manual_date)}
+                    <p className="text-sm font-black text-white">
+                      {manual.title}
                     </p>
-                    {manual.description && <p className="mt-2 text-sm font-bold text-slate-300">{manual.description}</p>}
-                    {manual.notes && <p className="mt-2 text-xs font-bold text-slate-500">Note: {manual.notes}</p>}
+                    <p className="mt-1 text-xs font-bold text-slate-500">
+                      {manual.sector || "Settore n/d"} ·{" "}
+                      {manual.version ? `v${manual.version}` : "Versione n/d"} ·{" "}
+                      {formatDate(manual.manual_date)}
+                    </p>
+                    {manual.description && (
+                      <p className="mt-2 text-sm font-bold text-slate-300">
+                        {manual.description}
+                      </p>
+                    )}
+                    {manual.notes && (
+                      <p className="mt-2 text-xs font-bold text-slate-500">
+                        Note: {manual.notes}
+                      </p>
+                    )}
                   </div>
 
                   {manual.file_path ? (
@@ -778,7 +1022,9 @@ export default function CustomerWorkspace({
                       Apri allegato
                     </button>
                   ) : (
-                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-slate-400">Nessun file</span>
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-slate-400">
+                      Nessun file
+                    </span>
                   )}
                 </div>
               </div>
@@ -791,68 +1037,167 @@ export default function CustomerWorkspace({
 
   function renderAccessTab() {
     const activeCodes = accessCodes.filter((code) => code.is_active !== false);
+    const activeUsers = customerUsers.filter(
+      (user) => user.status === "active",
+    );
+    const pendingUsers = customerUsers.filter(
+      (user) => user.status === "pending",
+    );
 
     return (
       <div className="grid min-w-0 gap-4">
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-4">
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-            <KeyRound className="mb-3 text-blue-300" size={22} />
-            <p className="text-3xl font-black text-white">{activeCodes.length}</p>
-            <p className="text-sm font-bold text-slate-400">Codici attivi</p>
+            <Users className="mb-3 text-blue-300" size={22} />
+            <p className="text-3xl font-black text-white">
+              {customerUsers.length}
+            </p>
+            <p className="text-sm font-bold text-slate-400">Utenti cliente</p>
           </div>
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
             <ShieldCheck className="mb-3 text-emerald-300" size={22} />
-            <p className="text-3xl font-black text-white">{accessCodes.reduce((sum, code) => sum + Number(code.used_count || 0), 0)}</p>
-            <p className="text-sm font-bold text-slate-400">Utilizzi totali</p>
+            <p className="text-3xl font-black text-white">
+              {activeUsers.length}
+            </p>
+            <p className="text-sm font-bold text-slate-400">Attivi</p>
           </div>
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
             <Clock className="mb-3 text-amber-300" size={22} />
-            <p className="text-3xl font-black text-white">{accessCodes.filter((code) => code.expires_at && new Date(code.expires_at).getTime() < Date.now()).length}</p>
-            <p className="text-sm font-bold text-slate-400">Scaduti</p>
+            <p className="text-3xl font-black text-white">
+              {pendingUsers.length}
+            </p>
+            <p className="text-sm font-bold text-slate-400">In attesa</p>
+          </div>
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+            <KeyRound className="mb-3 text-violet-300" size={22} />
+            <p className="text-3xl font-black text-white">
+              {activeCodes.length}
+            </p>
+            <p className="text-sm font-bold text-slate-400">Codici attivi</p>
           </div>
         </div>
 
-        {accessCodes.length === 0 ? (
-          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-slate-400">
-            Nessun codice invito collegato a questo cliente/sede.
+        <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">
+                Utenti autorizzati
+              </p>
+              <p className="mt-1 text-sm font-bold text-slate-400">
+                Persone abilitate ad accedere al portale per questa posizione.
+              </p>
+            </div>
           </div>
-        ) : (
-          <div className="grid gap-3">
-            {accessCodes.map((code) => (
-              <div key={code.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div className="min-w-0">
-                    <p className="break-all text-lg font-black text-white">{code.code}</p>
-                    <p className="mt-1 text-xs font-bold text-slate-500">
-                      {code.contact_name || "Referente n/d"} · {code.contact_email || "email n/d"}
-                    </p>
-                    {code.notes && <p className="mt-2 text-xs font-bold text-slate-400">{code.notes}</p>}
-                  </div>
 
-                  <div className="flex flex-wrap gap-2 text-xs font-black">
-                    <span className={`rounded-full px-3 py-1 ${code.is_active === false ? "bg-red-500/15 text-red-200" : "bg-emerald-500/15 text-emerald-200"}`}>
-                      {code.is_active === false ? "Disattivo" : "Attivo"}
-                    </span>
-                    <span className="rounded-full bg-white/10 px-3 py-1 text-slate-300">
-                      {Number(code.used_count || 0)}/{code.max_uses || "∞"} usi
-                    </span>
-                    <span className="rounded-full bg-white/10 px-3 py-1 text-slate-300">
-                      Scade: {formatDate(code.expires_at)}
-                    </span>
+          {customerUsers.length === 0 ? (
+            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-slate-400">
+              Nessun utente cliente collegato a questa posizione.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {customerUsers.map((portalUser) => (
+                <div
+                  key={portalUser.id}
+                  className="rounded-3xl border border-white/10 bg-white/[0.04] p-4"
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-white">
+                        {portalUser.display_name || portalUser.email}
+                      </p>
+                      <p className="mt-1 truncate text-xs font-bold text-slate-500">
+                        {portalUser.email}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 text-xs font-black">
+                      <span
+                        className={`rounded-full px-3 py-1 ${portalUser.status === "active" ? "bg-emerald-500/15 text-emerald-200" : "bg-amber-500/15 text-amber-200"}`}
+                      >
+                        {portalUser.status || "n/d"}
+                      </span>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-slate-300">
+                        {portalUser.role || "cliente_user"}
+                      </span>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-slate-300">
+                        Ultimo login: {formatDate(portalUser.last_login_at)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">
+                Codici invito
+              </p>
+              <p className="mt-1 text-sm font-bold text-slate-400">
+                Codici generati per registrare nuovi utenti cliente sulla
+                posizione selezionata.
+              </p>
+            </div>
           </div>
-        )}
+
+          {accessCodes.length === 0 ? (
+            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-slate-400">
+              Nessun codice invito collegato a questo cliente/sede.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {accessCodes.map((code) => (
+                <div
+                  key={code.id}
+                  className="rounded-3xl border border-white/10 bg-white/[0.04] p-4"
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <p className="break-all text-lg font-black text-white">
+                        {code.code}
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-slate-500">
+                        {code.contact_name || "Referente n/d"} ·{" "}
+                        {code.contact_email || "email n/d"}
+                      </p>
+                      {code.notes && (
+                        <p className="mt-2 text-xs font-bold text-slate-400">
+                          {code.notes}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 text-xs font-black">
+                      <span
+                        className={`rounded-full px-3 py-1 ${code.is_active === false ? "bg-red-500/15 text-red-200" : "bg-emerald-500/15 text-emerald-200"}`}
+                      >
+                        {code.is_active === false ? "Disattivo" : "Attivo"}
+                      </span>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-slate-300">
+                        {Number(code.used_count || 0)}/{code.max_uses || "∞"}{" "}
+                        usi
+                      </span>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-slate-300">
+                        Scade: {formatDate(code.expires_at)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
   function renderTimelineTab() {
-    const events = timelineEvents.map((event) => ({
-      id: event.id,
-      title: event.title || "Evento",
+    const ticketEvents = timelineEvents.map((event) => ({
+      id: `ticket-${event.id}`,
+      title: event.title || "Evento ticket",
       detail: event.description || "",
       date: event.created_at,
       author: event.created_by || "Sistema",
@@ -860,9 +1205,58 @@ export default function CustomerWorkspace({
         event.event_type === "ticket_closed"
           ? "emerald"
           : event.event_type === "ticket_urgent"
-          ? "red"
-          : "blue",
+            ? "red"
+            : "blue",
     }));
+
+    const assetEvents = customerAssets.map((asset) => ({
+      id: `asset-${asset.id}`,
+      title: "Asset collegato",
+      detail: `${asset.asset_name || "Asset"}${asset.serial_number ? ` · Seriale ${asset.serial_number}` : ""}`,
+      date: asset.created_at || asset.updated_at,
+      author: "Asset",
+      tone: "violet",
+    }));
+
+    const manualEvents = manuals.map((manual) => ({
+      id: `manual-${manual.id}`,
+      title: "Manuale disponibile",
+      detail: `${manual.title || "Manuale"}${manual.version ? ` · v${manual.version}` : ""}`,
+      date: manual.manual_date || manual.updated_at || manual.created_at,
+      author: "Manuali",
+      tone: "blue",
+    }));
+
+    const accessEvents = accessCodes.map((code) => ({
+      id: `access-${code.id}`,
+      title:
+        Number(code.used_count || 0) > 0
+          ? "Codice invito utilizzato"
+          : "Codice invito generato",
+      detail: `${code.code || "Codice"}${code.contact_email ? ` · ${code.contact_email}` : ""}`,
+      date: code.last_used_at || code.created_at || code.updated_at,
+      author: "Accessi",
+      tone: Number(code.used_count || 0) > 0 ? "emerald" : "amber",
+    }));
+
+    const userEvents = customerUsers.map((portalUser) => ({
+      id: `user-${portalUser.id}`,
+      title: "Utente cliente registrato",
+      detail: `${portalUser.display_name || portalUser.email} · ${portalUser.status || "n/d"}`,
+      date: portalUser.created_at || portalUser.last_login_at,
+      author: "Utenti",
+      tone: portalUser.status === "active" ? "emerald" : "amber",
+    }));
+
+    const events = [
+      ...ticketEvents,
+      ...assetEvents,
+      ...manualEvents,
+      ...accessEvents,
+      ...userEvents,
+    ]
+      .filter((event) => event.date)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     if (events.length === 0) {
       return (
@@ -884,16 +1278,18 @@ export default function CustomerWorkspace({
                 event.tone === "red"
                   ? "bg-red-500"
                   : event.tone === "emerald"
-                  ? "bg-emerald-500"
-                  : "bg-blue-500"
+                    ? "bg-emerald-500"
+                    : event.tone === "amber"
+                      ? "bg-amber-500"
+                      : event.tone === "violet"
+                        ? "bg-violet-500"
+                        : "bg-blue-500"
               }`}
             />
 
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-black text-white">
-                  {event.title}
-                </p>
+                <p className="text-sm font-black text-white">{event.title}</p>
 
                 <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-slate-300">
                   {event.author}
@@ -931,8 +1327,12 @@ export default function CustomerWorkspace({
 
       <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">Customer workspace</p>
-          <h2 className="mt-2 break-words text-2xl font-black text-white md:text-4xl">{currentLabel}</h2>
+          <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">
+            Customer workspace
+          </p>
+          <h2 className="mt-2 break-words text-2xl font-black text-white md:text-4xl">
+            {currentLabel}
+          </h2>
           <p className="mt-2 text-sm font-bold text-slate-400">
             {selectedSite
               ? [selectedSite.city, selectedSite.region, selectedSite.entity]
@@ -945,17 +1345,31 @@ export default function CustomerWorkspace({
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2 md:w-auto">
-          <button onClick={() => onOpenTicket?.(currentCustomer || selectedSite, selectedSite || undefined)} className="rounded-2xl bg-blue-600 px-5 py-4 text-sm font-black text-white shadow-lg shadow-blue-950/40 transition hover:-translate-y-0.5">
+          <button
+            onClick={() =>
+              onOpenTicket?.(
+                currentCustomer || selectedSite,
+                selectedSite || undefined,
+              )
+            }
+            className="rounded-2xl bg-blue-600 px-5 py-4 text-sm font-black text-white shadow-lg shadow-blue-950/40 transition hover:-translate-y-0.5"
+          >
             + Apri chiamata
           </button>
-          <button onClick={onReset} className="rounded-2xl border border-white/10 bg-white/[0.08] px-5 py-4 text-sm font-black text-white transition hover:bg-white/[0.12]">
+          <button
+            onClick={onReset}
+            className="rounded-2xl border border-white/10 bg-white/[0.08] px-5 py-4 text-sm font-black text-white transition hover:bg-white/[0.12]"
+          >
             Nuova ricerca
           </button>
         </div>
       </div>
 
-      <div className="grid min-w-0 gap-3 md:grid-cols-5">
-        <button onClick={() => setModal("contract")} className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-blue-500/50">
+      <div className="grid min-w-0 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <button
+          onClick={() => setModal("contract")}
+          className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-blue-500/50"
+        >
           <FileText className="mb-3 text-blue-300" size={22} />
           <p className="text-sm font-black text-slate-400">Contratto</p>
           <p className="mt-1 break-words text-lg font-black text-white">
@@ -966,28 +1380,68 @@ export default function CustomerWorkspace({
           </p>
         </button>
 
-        <button onClick={() => { setTicketSort("open"); setActiveTab("tickets"); }} className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-emerald-500/50">
+        <button
+          onClick={() => {
+            setTicketSort("open");
+            setActiveTab("tickets");
+          }}
+          className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-emerald-500/50"
+        >
           <Ticket className="mb-3 text-emerald-300" size={22} />
           <p className="text-3xl font-black text-white">{openTickets.length}</p>
           <p className="text-sm font-bold text-slate-400">Chiamate aperte</p>
         </button>
 
-        <button onClick={() => { setTicketSort("urgent"); setActiveTab("tickets"); }} className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-red-500/50">
+        <button
+          onClick={() => {
+            setTicketSort("urgent");
+            setActiveTab("tickets");
+          }}
+          className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-red-500/50"
+        >
           <Flame className="mb-3 text-red-300" size={22} />
-          <p className="text-3xl font-black text-white">{urgentTickets.length}</p>
+          <p className="text-3xl font-black text-white">
+            {urgentTickets.length}
+          </p>
           <p className="text-sm font-bold text-slate-400">Urgenze</p>
         </button>
 
-        <button onClick={() => setActiveTab("sites")} className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-blue-500/50">
+        <button
+          onClick={() => setActiveTab("sites")}
+          className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-blue-500/50"
+        >
           <Building2 className="mb-3 text-blue-300" size={22} />
-          <p className="text-3xl font-black text-white">{relatedSites.length || new Set(relatedTickets.map((ticket) => ticket.site_id || ticket.site).filter(Boolean)).size}</p>
+          <p className="text-3xl font-black text-white">
+            {relatedSites.length ||
+              new Set(
+                relatedTickets
+                  .map((ticket) => ticket.site_id || ticket.site)
+                  .filter(Boolean),
+              ).size}
+          </p>
           <p className="text-sm font-bold text-slate-400">Sedi collegate</p>
         </button>
 
-        <button onClick={() => setActiveTab("assets")} className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-violet-500/50">
+        <button
+          onClick={() => setActiveTab("assets")}
+          className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-violet-500/50"
+        >
           <Package className="mb-3 text-violet-300" size={22} />
-          <p className="text-3xl font-black text-white">{currentAssets.length}</p>
+          <p className="text-3xl font-black text-white">
+            {currentAssets.length}
+          </p>
           <p className="text-sm font-bold text-slate-400">Asset collegati</p>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("access")}
+          className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-cyan-500/50"
+        >
+          <Users className="mb-3 text-cyan-300" size={22} />
+          <p className="text-3xl font-black text-white">
+            {customerUsers.length}
+          </p>
+          <p className="text-sm font-bold text-slate-400">Utenti cliente</p>
         </button>
       </div>
 
@@ -1014,12 +1468,18 @@ export default function CustomerWorkspace({
             <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <ShieldCheck className={healthTone} size={22} />
-                <span className={`rounded-full border px-3 py-1 text-[11px] font-black ${healthRiskTone}`}>
+                <span
+                  className={`rounded-full border px-3 py-1 text-[11px] font-black ${healthRiskTone}`}
+                >
                   {healthRiskLabel}
                 </span>
               </div>
-              <p className={`text-4xl font-black ${healthTone}`}>{healthScore}</p>
-              <p className="text-sm font-bold text-slate-400">Health score cliente</p>
+              <p className={`text-4xl font-black ${healthTone}`}>
+                {healthScore}
+              </p>
+              <p className="text-sm font-bold text-slate-400">
+                Health score cliente
+              </p>
               <div className="mt-3 grid gap-1 text-xs font-bold text-slate-400">
                 {healthReasons.slice(0, 3).map((reason: any) => (
                   <p key={reason}>• {reason}</p>
@@ -1028,29 +1488,105 @@ export default function CustomerWorkspace({
             </div>
             <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
               <Clock className="mb-3 text-blue-300" size={22} />
-              <p className="text-2xl font-black text-white">{currentCustomer?.sla_hours ? `${currentCustomer.sla_hours}h` : "N/D"}</p>
+              <p className="text-2xl font-black text-white">
+                {currentCustomer?.sla_hours
+                  ? `${currentCustomer.sla_hours}h`
+                  : "N/D"}
+              </p>
               <p className="text-sm font-bold text-slate-400">SLA operativo</p>
             </div>
             <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
               <CalendarDays className="mb-3 text-violet-300" size={22} />
-              <p className="text-2xl font-black text-white">{formatDate(lastActivity)}</p>
-              <p className="text-sm font-bold text-slate-400">Ultima attività</p>
+              <p className="text-2xl font-black text-white">
+                {formatDate(lastActivity)}
+              </p>
+              <p className="text-sm font-bold text-slate-400">
+                Ultima attività
+              </p>
             </div>
+          </div>
+
+          <div className="grid min-w-0 gap-3 md:grid-cols-4">
+            <button
+              onClick={() => setActiveTab("tickets")}
+              className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-blue-500/10"
+            >
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Ticket totali
+              </p>
+              <p className="mt-2 text-3xl font-black text-white">
+                {relatedTickets.length}
+              </p>
+              <p className="mt-1 text-xs font-bold text-slate-400">
+                Storico collegato
+              </p>
+            </button>
+            <button
+              onClick={() => setActiveTab("assets")}
+              className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-violet-500/10"
+            >
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Asset
+              </p>
+              <p className="mt-2 text-3xl font-black text-white">
+                {currentAssets.length}
+              </p>
+              <p className="mt-1 text-xs font-bold text-slate-400">
+                Installati/associati
+              </p>
+            </button>
+            <button
+              onClick={() => setActiveTab("manuals")}
+              className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-blue-500/10"
+            >
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Manuali
+              </p>
+              <p className="mt-2 text-3xl font-black text-white">
+                {manuals.length}
+              </p>
+              <p className="mt-1 text-xs font-bold text-slate-400">
+                Documenti disponibili
+              </p>
+            </button>
+            <button
+              onClick={() => setActiveTab("access")}
+              className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-cyan-500/10"
+            >
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Utenti
+              </p>
+              <p className="mt-2 text-3xl font-black text-white">
+                {customerUsers.length}
+              </p>
+              <p className="mt-1 text-xs font-bold text-slate-400">
+                Accessi cliente
+              </p>
+            </button>
           </div>
 
           <div className="min-w-0 rounded-3xl border border-white/10 bg-slate-950/35 p-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">Customer risk analysis</p>
-                <p className="mt-1 text-lg font-black text-white">{healthRiskLabel}</p>
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">
+                  Customer risk analysis
+                </p>
+                <p className="mt-1 text-lg font-black text-white">
+                  {healthRiskLabel}
+                </p>
               </div>
-              <p className={`w-fit rounded-full border px-3 py-1 text-xs font-black ${healthRiskTone}`}>
+              <p
+                className={`w-fit rounded-full border px-3 py-1 text-xs font-black ${healthRiskTone}`}
+              >
                 Score {healthScore}/100
               </p>
             </div>
             <div className="mt-3 grid min-w-0 gap-2 md:grid-cols-2">
               {healthReasons.map((reason: any) => (
-                <div key={reason} className="min-w-0 break-words rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-bold text-slate-300">
+                <div
+                  key={reason}
+                  className="min-w-0 break-words rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-bold text-slate-300"
+                >
                   {reason}
                 </div>
               ))}

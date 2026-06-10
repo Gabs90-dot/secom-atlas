@@ -9,6 +9,7 @@ import {
   FileText,
   Flame,
   History,
+  MessageSquare,
   Package,
   PenLine,
   Send,
@@ -26,7 +27,14 @@ export type TicketWorkspaceProps = {
   onStatusUpdated?: (ticket: any) => void;
 };
 
-type WorkspaceTab = "overview" | "timeline" | "operativita" | "materiali" | "allegati" | "ai";
+type WorkspaceTab =
+  | "overview"
+  | "conversazione"
+  | "timeline"
+  | "operativita"
+  | "materiali"
+  | "allegati"
+  | "ai";
 
 function normalize(value: any) {
   return String(value || "")
@@ -263,6 +271,68 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
   const latestGlpiCommunication = glpiCommunicationEvents[0] || null;
 
+  const conversationEvents = useMemo(() => {
+    const initialTicketEvent = normalizedTicket?.description
+      ? [
+          {
+            id: `ticket-initial-${normalizedTicket.id}`,
+            event_type: "glpi_ticket_content",
+            title: "Richiesta iniziale",
+            description: normalizedTicket.description,
+            created_by: normalizedTicket.glpi_requester || normalizedTicket.customerLabel || "Richiedente",
+            created_at:
+              normalizedTicket.openedAt ||
+              normalizedTicket.opened_at ||
+              normalizedTicket.created_at ||
+              normalizedTicket.date ||
+              new Date().toISOString(),
+            synthetic: true,
+          },
+        ]
+      : [];
+
+    const communicationEvents = events
+      .filter((event) =>
+        ["glpi_ticket_content", "glpi_followup", "glpi_solution", "atlas_reply_sent"].includes(
+          String(event.event_type || ""),
+        ),
+      )
+      .filter((event) => String(event.description || "").trim().length > 0);
+
+    const merged = [...initialTicketEvent, ...communicationEvents];
+    const seen = new Set<string>();
+
+    return merged
+      .filter((event) => {
+        const key = `${event.event_type}-${event.created_at}-${String(event.description || "").slice(0, 80)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+  }, [events, normalizedTicket]);
+
+  function isOperatorMessage(event: any) {
+    const type = String(event.event_type || "");
+    const author = normalize(event.created_by || "");
+
+    return (
+      type === "atlas_reply_sent" ||
+      type === "glpi_solution" ||
+      author.includes("operatore") ||
+      author.includes("secom") ||
+      author.includes("dispatch") ||
+      author.includes("support")
+    );
+  }
+
+  function conversationRoleLabel(event: any) {
+    const type = String(event.event_type || "");
+    if (type === "glpi_solution") return "Soluzione / Operatore";
+    if (isOperatorMessage(event)) return "Operatore Secom";
+    return event.created_by || "Richiedente / GLPI";
+  }
+
 
   async function createTicketEvent(payload: {
     event_type: string;
@@ -472,6 +542,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
   const tabs: Array<{ key: WorkspaceTab; label: string; icon: any }> = [
     { key: "overview", label: "Overview", icon: FileText },
+    { key: "conversazione", label: "Conversazione", icon: MessageSquare },
     { key: "timeline", label: "Timeline", icon: History },
     { key: "operativita", label: "Operatività", icon: PenLine },
     { key: "materiali", label: "Materiali", icon: Package },
@@ -621,6 +692,150 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                   </div>
                 </div>
               </section>
+            </div>
+          )}
+
+          {activeTab === "conversazione" && (
+            <div className="grid min-h-[calc(100vh-260px)] gap-4 xl:grid-cols-[1fr_380px]">
+              <section className="flex min-h-[560px] flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.045]">
+                <div className="border-b border-white/10 bg-slate-950/35 p-5">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
+                        Conversazione ticket
+                      </p>
+                      <h3 className="mt-2 text-xl font-black text-white">
+                        Botta e risposta GLPI
+                      </h3>
+                      <p className="mt-2 text-sm font-bold text-slate-400">
+                        Qui vedi richiesta iniziale, follow-up, soluzioni e risposte inviate da ATLAS nello stesso flusso conversazionale.
+                      </p>
+                    </div>
+
+                    {normalizedTicket.glpi_ticket_id && (
+                      <span className="w-fit rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-xs font-black text-emerald-200">
+                        Collegato a GLPI #{normalizedTicket.glpi_ticket_id}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-5">
+                  {conversationEvents.length === 0 ? (
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-sm font-bold text-slate-400">
+                      Nessuna conversazione disponibile. Dopo la prossima sincronizzazione GLPI compariranno follow-up, risposte e soluzioni.
+                    </div>
+                  ) : (
+                    <div className="grid gap-4">
+                      {conversationEvents.map((event) => {
+                        const operatorMessage = isOperatorMessage(event);
+                        const type = String(event.event_type || "");
+                        const isSolution = type === "glpi_solution";
+
+                        return (
+                          <div
+                            key={event.id}
+                            className={`flex ${operatorMessage ? "justify-end" : "justify-start"}`}
+                          >
+                            <div
+                              className={`max-w-[88%] rounded-[1.5rem] border p-4 shadow-lg ${
+                                operatorMessage
+                                  ? isSolution
+                                    ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-50"
+                                    : "border-blue-500/30 bg-blue-600/80 text-white"
+                                  : "border-white/10 bg-slate-900/90 text-slate-100"
+                              }`}
+                            >
+                              <div className="mb-2 flex flex-wrap items-center gap-2">
+                                <span className="rounded-full bg-black/20 px-2 py-1 text-[10px] font-black uppercase tracking-wide opacity-80">
+                                  {conversationRoleLabel(event)}
+                                </span>
+                                <span className="rounded-full bg-black/20 px-2 py-1 text-[10px] font-black uppercase tracking-wide opacity-70">
+                                  {isSolution ? "Soluzione" : type === "atlas_reply_sent" ? "Risposta ATLAS" : type === "glpi_ticket_content" ? "Richiesta" : "Follow-up"}
+                                </span>
+                              </div>
+
+                              <p className="whitespace-pre-wrap text-sm font-bold leading-relaxed">
+                                {event.description || "—"}
+                              </p>
+
+                              <p className="mt-3 text-right text-[11px] font-black uppercase tracking-wide opacity-70">
+                                {formatDateTime(event.created_at)}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <aside className="grid content-start gap-4">
+                <div className="rounded-[2rem] border border-emerald-500/20 bg-emerald-500/10 p-5">
+                  <div className="flex items-center gap-2">
+                    <Send className="text-emerald-300" size={18} />
+                    <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-300">
+                      Rispondi tramite GLPI
+                    </p>
+                  </div>
+
+                  <p className="mt-2 text-sm font-bold text-slate-300">
+                    La risposta viene aggiunta come follow-up GLPI. Sarà GLPI a gestire la notifica email al richiedente, mantenendo il botta e risposta nello stesso ticket.
+                  </p>
+
+                  {!normalizedTicket.glpi_ticket_id ? (
+                    <div className="mt-4 rounded-3xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
+                      Questo ticket non ha un ID GLPI associato: non posso inviare follow-up a GLPI.
+                    </div>
+                  ) : (
+                    <>
+                      <textarea
+                        value={replyDraft}
+                        onChange={(event) => setReplyDraft(event.target.value)}
+                        placeholder="Scrivi risposta al richiedente..."
+                        className="mt-4 min-h-48 w-full rounded-3xl border border-white/10 bg-slate-950/60 p-4 text-sm font-bold text-white outline-none placeholder:text-slate-500"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={sendGlpiReply}
+                        disabled={sendingReply || !replyDraft.trim()}
+                        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Send size={16} />
+                        {sendingReply ? "Invio a GLPI..." : "Invia risposta GLPI"}
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div className="rounded-[2rem] border border-white/10 bg-white/[0.045] p-5">
+                  <p className="text-xs font-black uppercase tracking-[0.25em] text-slate-500">
+                    Contesto rapido
+                  </p>
+                  <div className="mt-4 grid gap-3 text-sm font-bold text-slate-300">
+                    <div className="rounded-2xl bg-slate-950/40 p-3">
+                      <span className="block text-xs font-black uppercase tracking-wide text-slate-500">Stato</span>
+                      <span className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusTone(normalizedTicket.readableStatus)}`}>
+                        {normalizedTicket.readableStatus}
+                      </span>
+                    </div>
+                    <div className="rounded-2xl bg-slate-950/40 p-3">
+                      <span className="block text-xs font-black uppercase tracking-wide text-slate-500">Cliente</span>
+                      <span className="mt-1 block break-words text-white">{normalizedTicket.customerLabel}</span>
+                    </div>
+                    <div className="rounded-2xl bg-slate-950/40 p-3">
+                      <span className="block text-xs font-black uppercase tracking-wide text-slate-500">Tecnico / gruppo</span>
+                      <span className="mt-1 block break-words text-white">{normalizedTicket.technician || normalizedTicket.glpi_technician_group || "Non assegnato"}</span>
+                    </div>
+                    <div className="rounded-2xl bg-slate-950/40 p-3">
+                      <span className="block text-xs font-black uppercase tracking-wide text-slate-500">Messaggi</span>
+                      <span className="mt-1 block text-white">{conversationEvents.length}</span>
+                    </div>
+                  </div>
+                </div>
+              </aside>
             </div>
           )}
 

@@ -2568,14 +2568,78 @@ site_id: t.site_id || null,
     );
   }
 
-  const calendarSiteResults = sites
-    .filter((s) => {
-      const q = calendarSiteSearch.toLowerCase();
-      return `${s.name} ${s.city} ${s.entity} ${s.region}`
-        .toLowerCase()
-        .includes(q);
-    })
-    .slice(0, 8);
+  function mapCustomerEntityToCalendarSite(entity: any) {
+    const completeName =
+      entity.normalized_complete_name ||
+      entity.complete_name ||
+      entity.name ||
+      "";
+
+    const parts = String(completeName)
+      .split(">")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .filter((part) => part.toLowerCase() !== "root");
+
+    const label =
+      parts[parts.length - 1] ||
+      entity.name ||
+      "Sede / entità cliente";
+
+    return {
+      id: null,
+      name: label,
+      city: entity.city || "",
+      region: parts[1] || entity.region || "",
+      entity: parts[0] || entity.entity_type || "",
+      customer_id: entity.customer_id || entity.customerId || null,
+      customerId: entity.customer_id || entity.customerId || null,
+      customer_entity_id: entity.id || null,
+      customerEntityId: entity.id || null,
+      glpi_entity_path: completeName,
+      complete_name: completeName,
+      is_customer_entity: true,
+    };
+  }
+
+  const calendarSiteResults = useMemo(() => {
+    const q = calendarSiteSearch.toLowerCase().trim();
+
+    if (q.length < 2) return [];
+
+    const siteResults = sites
+      .filter((s) =>
+        `${s.name} ${s.city} ${s.entity} ${s.region} ${s.glpi_entity_path || ""}`
+          .toLowerCase()
+          .includes(q),
+      )
+      .map((site) => ({ ...site, is_customer_entity: false }));
+
+    const entityResults = customerEntities
+      .filter((entity) =>
+        `${entity.name || ""} ${entity.complete_name || ""} ${entity.normalized_complete_name || ""}`
+          .toLowerCase()
+          .includes(q),
+      )
+      .map(mapCustomerEntityToCalendarSite);
+
+    const seen = new Set<string>();
+
+    return [...siteResults, ...entityResults]
+      .filter((item) => {
+        const key =
+          String(item.id || "") ||
+          String(item.customer_entity_id || "") ||
+          `${item.name}-${item.glpi_entity_path || item.complete_name || ""}`;
+
+        if (!key) return true;
+        if (seen.has(key)) return false;
+
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 12);
+  }, [calendarSiteSearch, sites, customerEntities]);
   async function updateCalendarTicket() {
     if (
       !editingCalendarTicketId ||
@@ -2596,6 +2660,8 @@ site_id: t.site_id || null,
         entity: calendarSite.entity || "",
         city: calendarSite.city || "",
         site_id: calendarSite.id || null,
+        customer_id: calendarSite.customer_id || calendarSite.customerId || null,
+        glpi_entity_path: calendarSite.glpi_entity_path || calendarSite.complete_name || null,
         technician: calendarTechnician,
         slot: calendarTime,
         intervention_date: selectedCalendarDay,
@@ -2618,6 +2684,9 @@ site_id: t.site_id || null,
               region: calendarSite.region || "",
               entity: calendarSite.entity || "",
               city: calendarSite.city || "",
+              customerId: calendarSite.customer_id || calendarSite.customerId || null,
+              customer_id: calendarSite.customer_id || calendarSite.customerId || null,
+              glpi_entity_path: calendarSite.glpi_entity_path || calendarSite.complete_name || "",
               technician: calendarTechnician,
               slot: calendarTime,
               date: selectedCalendarDay,
@@ -2672,6 +2741,8 @@ site_id: t.site_id || null,
           entity: calendarSite.entity || "",
           city: calendarSite.city || "",
           site_id: calendarSite.id || null,
+          customer_id: calendarSite.customer_id || calendarSite.customerId || null,
+          glpi_entity_path: calendarSite.glpi_entity_path || calendarSite.complete_name || null,
           problem: "Intervento pianificato da calendario",
           materials: [],
           technician: calendarTechnician,
@@ -2700,6 +2771,11 @@ site_id: t.site_id || null,
       region: calendarSite.region || "",
       entity: calendarSite.entity || "",
       city: calendarSite.city || "",
+      customerId: data.customer_id || calendarSite.customer_id || calendarSite.customerId || null,
+      customer_id: data.customer_id || calendarSite.customer_id || calendarSite.customerId || null,
+      siteId: data.site_id || calendarSite.id || null,
+      site_id: data.site_id || calendarSite.id || null,
+      glpi_entity_path: data.glpi_entity_path || calendarSite.glpi_entity_path || calendarSite.complete_name || "",
       problem: "Intervento pianificato da calendario",
       materialIds: [],
       technician: calendarTechnician,

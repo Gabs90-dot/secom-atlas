@@ -186,9 +186,9 @@ export async function POST(request: NextRequest) {
     const registrationCode = String(body?.registrationCode || "").trim().toUpperCase();
     const userId = body?.userId ? String(body.userId) : null;
 
-    if (!email || !displayName || !fiscalCode || !customerId || !customerEntityId || !registrationCode) {
+    if (!email || !displayName || !fiscalCode || !customerId || !registrationCode) {
       return NextResponse.json(
-        { ok: false, error: "Email, nome, codice fiscale, cliente, entità e codice invito sono obbligatori." },
+        { ok: false, error: "Email, nome, codice fiscale, cliente e codice invito sono obbligatori." },
         { status: 400 },
       );
     }
@@ -208,10 +208,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let inviteQuery = supabase
+      .from("customer_registration_codes")
+      .select("id, tenant_id, customer_id, customer_entity_id, site_id, code, is_active, max_uses, used_count, expires_at")
+      .eq("tenant_id", customer.tenant_id)
+      .eq("customer_id", customer.id)
+      .eq("code", registrationCode);
+
+    if (customerEntityId) {
+      inviteQuery = inviteQuery.eq("customer_entity_id", customerEntityId);
+    }
+
+    const { data: inviteCode, error: inviteCodeError } = await inviteQuery.maybeSingle();
+
+    if (inviteCodeError) throw inviteCodeError;
+
+    if (!inviteCode?.id || inviteCode.is_active === false) {
+      return NextResponse.json(
+        { ok: false, error: "Codice invito non valido per il cliente selezionato." },
+        { status: 403 },
+      );
+    }
+
+    const resolvedCustomerEntityId = String(inviteCode.customer_entity_id || customerEntityId || "").trim();
+
+    if (!resolvedCustomerEntityId) {
+      return NextResponse.json(
+        { ok: false, error: "Il codice invito non è associato a nessuna entità cliente." },
+        { status: 400 },
+      );
+    }
+
     const { data: entity, error: entityError } = await supabase
       .from("customer_entities")
       .select("id, tenant_id, name, complete_name, normalized_complete_name")
-      .eq("id", customerEntityId)
+      .eq("id", resolvedCustomerEntityId)
       .eq("tenant_id", customer.tenant_id)
       .maybeSingle();
 
@@ -219,26 +250,8 @@ export async function POST(request: NextRequest) {
 
     if (!entity?.id) {
       return NextResponse.json(
-        { ok: false, error: "Entità cliente non valida." },
+        { ok: false, error: "Entità collegata al codice invito non valida." },
         { status: 400 },
-      );
-    }
-
-    const { data: inviteCode, error: inviteCodeError } = await supabase
-      .from("customer_registration_codes")
-      .select("id, tenant_id, customer_id, customer_entity_id, site_id, code, is_active, max_uses, used_count, expires_at")
-      .eq("tenant_id", customer.tenant_id)
-      .eq("customer_id", customer.id)
-      .eq("customer_entity_id", entity.id)
-      .eq("code", registrationCode)
-      .maybeSingle();
-
-    if (inviteCodeError) throw inviteCodeError;
-
-    if (!inviteCode?.id || inviteCode.is_active === false) {
-      return NextResponse.json(
-        { ok: false, error: "Codice invito non valido per il cliente/comando selezionato." },
-        { status: 403 },
       );
     }
 

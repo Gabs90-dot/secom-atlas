@@ -111,20 +111,45 @@ function statusTone(ticket: any) {
 }
 
 
+function isCustomerRole(user: AtlasUser) {
+  return String(user.role || "").startsWith("cliente");
+}
+
 function hasCustomerScope(user: AtlasUser) {
-  return user.role === "cliente" && (Boolean(user.customerId) || Boolean(user.siteIds?.length));
+  return isCustomerRole(user) && (
+    Boolean(user.customerId) ||
+    Boolean(user.customerEntityId) ||
+    Boolean(user.siteId) ||
+    Boolean(user.siteIds?.length)
+  );
 }
 
 function belongsToCustomerScope(item: any, user: AtlasUser) {
-  if (user.role !== "cliente") return true;
+  if (!isCustomerRole(user)) return true;
 
   const customerId = String(user.customerId || "");
-  const siteIds = (user.siteIds || []).map((value) => String(value));
+  const customerEntityId = String(user.customerEntityId || "");
+  const directSiteId = String(user.siteId || "");
+  const siteIds = Array.from(
+    new Set([
+      ...((user.siteIds || []).map((value) => String(value))),
+      directSiteId,
+    ].filter(Boolean)),
+  );
+
   const itemCustomerId = String(item.customerId || item.customer_id || item.customer || "");
+  const itemCustomerEntityId = String(
+    item.customerEntityId ||
+      item.customer_entity_id ||
+      item.entity_id ||
+      item.glpi_entity_id ||
+      "",
+  );
   const itemSiteId = String(item.siteId || item.site_id || item.id || "");
 
   return (
     (customerId && itemCustomerId === customerId) ||
+    (customerEntityId && itemCustomerEntityId === customerEntityId) ||
     (itemSiteId && siteIds.includes(itemSiteId))
   );
 }
@@ -172,12 +197,12 @@ export default function CustomerPortal({
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
 
   const scopedSites = useMemo(() => {
-    if (user.role !== "cliente") return sites;
+    if (!isCustomerRole(user)) return sites;
     return sites.filter((site) => belongsToCustomerScope(site, user));
   }, [sites, user]);
 
   const scopedTickets = useMemo(() => {
-    if (user.role !== "cliente") return tickets;
+    if (!isCustomerRole(user)) return tickets;
     return tickets.filter((ticket) => belongsToCustomerScope(ticket, user));
   }, [tickets, user]);
 
@@ -225,7 +250,7 @@ export default function CustomerPortal({
 
   return (
     <section className="grid gap-5">
-      {user.role === "cliente" && !hasCustomerScope(user) && (
+      {isCustomerRole(user) && !hasCustomerScope(user) && (
         <div className="rounded-[1.75rem] border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
           Portale cliente isolato attivo, ma questo utente non ha ancora customer_id o site_ids assegnati in tenant_users.
         </div>

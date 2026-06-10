@@ -335,7 +335,7 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
           displayName: newUser.display_name.trim() || newUser.email.split("@")[0],
           roleKey,
           roleId: isFallbackRole(role) ? null : role?.id || null,
-          status: newUser.status || "pending",
+          status: newUser.mode === "temporary_password" ? "active" : (newUser.status || "pending"),
           mode: newUser.mode,
           temporaryPassword: newUser.temporaryPassword,
         }),
@@ -360,7 +360,7 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
       }
 
       setInviteMessage(result?.message || (newUser.mode === "temporary_password" ? "Utente creato con password temporanea." : "Invito inviato correttamente."));
-      setNewUser({ email: "", display_name: "", role: "cliente_user", status: "pending", mode: "email_invite", temporaryPassword: "" });
+      setNewUser({ email: "", display_name: "", role: "cliente_user", status: "active", mode: "email_invite", temporaryPassword: "" });
       setNewUserOpen(false);
       await loadData();
     } catch (error: any) {
