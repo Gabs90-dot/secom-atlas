@@ -18,11 +18,9 @@ import {
   Trash2,
   Copy,
   Edit3,
-  Mail,
-  ClipboardCheck,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import TicketAttachmentsPanel from "@/components/atlas/TicketAttachmentsPanel";
+import TicketWorkspace from "@/components/atlas/TicketWorkspace";
 
 type WebvimeTicket = Record<string, any>;
 
@@ -55,17 +53,6 @@ const HELP_CATEGORIES = [
   "Altro",
 ];
 
-function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      window.setTimeout(
-        () => reject(new Error("Timeout Supabase: operazione non completata.")),
-        ms,
-      ),
-    ),
-  ]);
-}
 
 function normalize(value: any) {
   return String(value || "")
@@ -171,41 +158,143 @@ function monthKey(value: any) {
 
 function classifyWebvimeRequest(ticket: WebvimeTicket) {
   const text = normalize(
-    `${ticket.problem || ""} ${ticket.status || ""} ${ticket.entity || ""} ${ticket.glpi_entity_path || ""}`,
+    `${ticket.problem || ""} ${ticket.description || ""} ${ticket.content || ""} ${ticket.status || ""} ${ticket.entity || ""} ${ticket.glpi_entity_path || ""}`,
   );
 
   if (
-    /(password|utenza|utente|login|accesso|credenzial|reset|sbloc)/.test(text)
+    /(referto|referti|direzionesanita rfi it|direzione sanita rfi it|link referto|accesso al referto|non riesco ad accedere|non accedo al referto|scaricare referto|ottenere il referto)/.test(text)
+  )
+    return "Portale / accesso referti";
+
+  if (
+    /(profilazione|profilare|abilitazione|abilitare|vime|creazione utenza|nuova utenza|utenza nuova|attivazione utenza)/.test(text)
+  )
+    return "Profilazione / utenze";
+
+  if (
+    /(password|utente|login|accesso|credenzial|reset|sbloc|blocco utenza|account)/.test(text)
   )
     return "Utenze / accessi";
+
   if (
-    /(anagraf|codice fiscale|cf |nominativo|paziente|dipendente|matricola)/.test(
-      text,
-    )
+    /(nexi|transazione|authorised|authorized|autorizzata|pagamento elettronico|pos|incasso|storno)/.test(text)
+  )
+    return "Transazioni / NEXI";
+
+  if (
+    /(anagraf|codice fiscale|cf |nominativo|paziente|dipendente|matricola|sesso|data nascita|luogo nascita)/.test(text)
   )
     return "Anagrafiche";
-  if (/(effettuato|spunta|visita effettuata|prestazione effettuata)/.test(text))
+
+  if (/(effettuato|spunta|visita effettuata|prestazione effettuata|togliere effettuato|rimuovere effettuato)/.test(text))
     return "Effettuato / avanzamento";
+
   if (
-    /(costo|costi|fattur|fattura|importo|tariff|rimborso|nota spese)/.test(text)
+    /(costo|costi|fattur|fattura|importo|tariff|rimborso|nota spese|conteggio|economico)/.test(text)
   )
     return "Costi / fatturazione";
+
   if (
-    /(agenda|appuntamento|prenot|calendario|spost|data visita|pianifica)/.test(
-      text,
-    )
+    /(agenda|appuntamento|prenot|calendario|spost|data visita|pianifica|pianificazione|disdire|anticipare|posticipare)/.test(text)
   )
     return "Agenda / appuntamenti";
-  if (/(indicatore|stato pratica|avanzamento|workflow|iter)/.test(text))
+
+  if (/(indicatore|stato pratica|avanzamento|workflow|iter|stato visita|stato richiesta)/.test(text))
     return "Indicatori / stati";
+
   if (
-    /(errore|bug|blocco|non funziona|problema|impossibile|anomalia)/.test(text)
+    /(errore|bug|blocco|non funziona|problema|impossibile|anomalia|error|pagina bianca|timeout|caricamento)/.test(text)
   )
     return "Errore applicativo";
-  if (/(report|estrazione|stampa|xls|excel|pdf)/.test(text))
+
+  if (/(report|estrazione|stampa|xls|excel|pdf|elenco|statistica|tabulato)/.test(text))
     return "Report / estrazioni";
 
   return "Altro / da classificare";
+}
+
+function extractUST(ticket: WebvimeTicket) {
+  const sourceText = String(
+    `${ticket.problem || ""} ${ticket.description || ""} ${ticket.content || ""}`,
+  );
+
+  const normalizedText = sourceText
+    .replace(/&nbsp;/gi, " ")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const directPatterns = [
+    /\bUST\s+([A-ZÀ-Ú][A-Za-zÀ-Úà-ú'’\-\s]{2,45})\b/i,
+    /\bUnit[aà]\s+Sanitaria\s+Territoriale\s+([A-ZÀ-Ú][A-Za-zÀ-Úà-ú'’\-\s]{2,45})\b/i,
+  ];
+
+  for (const pattern of directPatterns) {
+    const match = normalizedText.match(pattern);
+    if (match?.[1]) {
+      const city = match[1]
+        .replace(/\b(Rete|Ferroviaria|Italiana|S\.?p\.?A\.?|Direzione|Sanit[aà]|Mail|Piazza|Via|Tel|Telefono|Oggetto|Buongiorno|Saluti).*$/i, "")
+        .replace(/[.,;:]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (city.length >= 2) return `UST ${city}`;
+    }
+  }
+
+  return null;
+}
+
+
+function extractWebvimeOrigin(ticket: WebvimeTicket) {
+  const ust = extractUST(ticket);
+  if (ust) return ust;
+
+  const sourceText = String(
+    `${ticket.problem || ""} ${ticket.description || ""} ${ticket.content || ""}`,
+  );
+
+  const normalizedText = sourceText
+    .replace(/&nbsp;/gi, " ")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const lower = normalizedText.toLowerCase();
+
+  if (
+    lower.includes("via f. a. pigafetta") ||
+    lower.includes("via pigafetta") ||
+    lower.includes("00154 roma") ||
+    lower.includes("direzione sanità") ||
+    lower.includes("direzione sanita")
+  ) {
+    return "UST Roma";
+  }
+
+  if (
+    lower.includes("56125 pisa") ||
+    lower.includes("unità sanitaria territoriale pisa") ||
+    lower.includes("unita sanitaria territoriale pisa")
+  ) {
+    return "UST Pisa";
+  }
+
+  if (
+    /(referto|referti|direzionesanita\.rfi\.it|non riesco ad accedere|accesso al referto|link referto|ottenere il referto)/i.test(
+      normalizedText,
+    )
+  ) {
+    return "Utente esterno";
+  }
+
+  if (/rete ferroviaria italiana|direzione sanit/i.test(normalizedText)) {
+    return "RFI / Direzione Sanità";
+  }
+
+  return "Provenienza n/d";
 }
 
 function topEntries(
@@ -247,12 +336,6 @@ export default function WebvimeBoard() {
   const [selectedTicket, setSelectedTicket] = useState<WebvimeTicket | null>(
     null,
   );
-  const [communicationRecipient, setCommunicationRecipient] = useState("");
-  const [communicationSubject, setCommunicationSubject] = useState("");
-  const [communicationBody, setCommunicationBody] = useState("");
-  const [communicationMessage, setCommunicationMessage] = useState("");
-  const [savingCommunication, setSavingCommunication] = useState(false);
-  const [copiedCommunication, setCopiedCommunication] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [helpItems, setHelpItems] = useState<HelpContent[]>([]);
@@ -586,6 +669,12 @@ export default function WebvimeBoard() {
     ).sort((a, b) => a.label.localeCompare(b.label));
 
     const classified = topEntries(source, classifyWebvimeRequest, 8);
+    const topOrigins = topEntries(
+      source,
+      (ticket) => extractWebvimeOrigin(ticket),
+      12,
+    );
+
     const topSites = topEntries(
       source,
       (ticket) => ticket.site || ticket.city || ticket.glpi_entity_path,
@@ -603,6 +692,7 @@ export default function WebvimeBoard() {
     );
 
     const mainCategory = classified[0];
+    const mainOrigin = topOrigins.find((entry) => entry.label !== "Provenienza n/d") || null;
     const mainSite = topSites[0];
     const mainEntity = topEntities[0];
 
@@ -610,9 +700,12 @@ export default function WebvimeBoard() {
       mainCategory
         ? `Categoria prevalente: ${mainCategory.label} (${mainCategory.count} ticket nel campione filtrato).`
         : "Nessuna categoria prevalente rilevata.",
+      mainOrigin
+        ? `Provenienza più ricorrente: ${mainOrigin.label} (${mainOrigin.count} ticket).`
+        : "Nessuna provenienza rilevata nei testi dei ticket filtrati.",
       mainSite
-        ? `Sede più ricorrente: ${mainSite.label} (${mainSite.count} ticket).`
-        : "Nessuna sede ricorrente rilevata.",
+        ? `Sede tecnica più ricorrente: ${mainSite.label} (${mainSite.count} ticket).`
+        : "Nessuna sede tecnica ricorrente rilevata.",
       mainEntity
         ? `Entità più presente: ${mainEntity.label} (${mainEntity.count} ticket).`
         : "Nessuna entità ricorrente rilevata.",
@@ -631,6 +724,7 @@ export default function WebvimeBoard() {
       olderThan30,
       averageClosureDays,
       classified,
+      topOrigins,
       topSites,
       topEntities,
       topTechnicians,
@@ -686,91 +780,7 @@ export default function WebvimeBoard() {
     filteredTickets.length === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
   const pageEnd = Math.min(safeCurrentPage * pageSize, filteredTickets.length);
 
-  useEffect(() => {
-    if (!selectedTicket) {
-      setCommunicationRecipient("");
-      setCommunicationSubject("");
-      setCommunicationBody("");
-      setCommunicationMessage("");
-      setCopiedCommunication(false);
-      return;
-    }
 
-    const ticketRef = selectedTicket.glpi_ticket_id || selectedTicket.id;
-    const subject = `Riscontro richiesta Webvime #${ticketRef}`;
-    const body = [
-      "Buongiorno,",
-      "",
-      `in riferimento alla richiesta Webvime #${ticketRef}, confermiamo la presa in carico della segnalazione.`,
-      "",
-      "Dai controlli effettuati risulta quanto segue:",
-      "- richiesta registrata correttamente;",
-      "- verifica in corso da parte del supporto operativo;",
-      "- eventuali aggiornamenti verranno comunicati appena disponibili.",
-      "",
-      "Resto a disposizione.",
-      "",
-      "Cordiali saluti",
-    ].join("\n");
-
-    setCommunicationRecipient("");
-    setCommunicationSubject(subject);
-    setCommunicationBody(body);
-    setCommunicationMessage("");
-    setCopiedCommunication(false);
-  }, [selectedTicket?.id, selectedTicket?.glpi_ticket_id]);
-
-  function buildCommunicationText() {
-    return [
-      communicationSubject ? `Oggetto: ${communicationSubject}` : "Oggetto: —",
-      communicationRecipient ? `Destinatario: ${communicationRecipient}` : "Destinatario: —",
-      "",
-      communicationBody || "",
-    ].join("\n");
-  }
-
-  async function copyCommunicationEmail() {
-    try {
-      await navigator.clipboard.writeText(buildCommunicationText());
-      setCopiedCommunication(true);
-      setCommunicationMessage("Testo email copiato negli appunti.");
-      window.setTimeout(() => setCopiedCommunication(false), 1800);
-    } catch {
-      setCommunicationMessage("Copia non riuscita. Seleziona e copia manualmente il testo.");
-    }
-  }
-
-  async function registerCommunication() {
-    if (!selectedTicket?.id) return;
-    if (!communicationBody.trim()) {
-      setCommunicationMessage("Scrivi un testo prima di registrare la comunicazione.");
-      return;
-    }
-
-    setSavingCommunication(true);
-    setCommunicationMessage("");
-
-    const payload = {
-      ticket_id: Number(selectedTicket.id),
-      channel: "email",
-      recipient: communicationRecipient.trim() || null,
-      subject: communicationSubject.trim() || null,
-      body: communicationBody.trim(),
-      created_by: "ATLAS Webvime",
-    };
-
-    const { error } = await supabase.from("ticket_communications").insert([payload]);
-
-    if (error) {
-      console.error("Communication save error", error);
-      setCommunicationMessage(error.message || "Errore registrazione comunicazione.");
-      setSavingCommunication(false);
-      return;
-    }
-
-    setCommunicationMessage("Comunicazione registrata nella cronologia ticket.");
-    setSavingCommunication(false);
-  }
 
   function exportCsv() {
     const header = [
@@ -778,6 +788,7 @@ export default function WebvimeBoard() {
       "ID GLPI",
       "Stato",
       "Esito",
+      "Provenienza rilevata",
       "Sede",
       "Ente",
       "Entity path",
@@ -791,6 +802,7 @@ export default function WebvimeBoard() {
       ticket.glpi_ticket_id,
       ticket.status,
       isClosed(ticket) ? "Chiuso" : "Aperto",
+      extractWebvimeOrigin(ticket) || "",
       ticket.site,
       ticket.entity,
       ticket.glpi_entity_path,
@@ -1019,9 +1031,10 @@ export default function WebvimeBoard() {
                         {shortText(ticket.problem, 120)}
                       </h3>
                       <p className="mt-2 text-sm font-bold text-slate-400">
-                        {ticket.glpi_entity_path ||
+                        {extractWebvimeOrigin(ticket) ||
+                          ticket.glpi_entity_path ||
                           ticket.entity ||
-                          "Root > Webvime"}
+                          "Webvime"}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black uppercase tracking-wide text-slate-500">
                         <span className="inline-flex items-center gap-1">
@@ -1164,8 +1177,8 @@ export default function WebvimeBoard() {
                   rows={webvimeAnalytics.classified}
                 />
                 <AnalyticsList
-                  title="Top sedi"
-                  rows={webvimeAnalytics.topSites}
+                  title="Provenienza richieste"
+                  rows={webvimeAnalytics.topOrigins}
                 />
                 <AnalyticsList
                   title="Top entità"
@@ -1241,152 +1254,24 @@ export default function WebvimeBoard() {
       )}
 
       {selectedTicket && (
-        <div
-          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
-          onMouseDown={() => setSelectedTicket(null)}
-        >
-          <div
-            className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#081523] p-5 text-white shadow-2xl"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">
-                  Dettaglio Webvime
-                </p>
-                <h3 className="mt-2 text-2xl font-black">
-                  Ticket GLPI #
-                  {selectedTicket.glpi_ticket_id || selectedTicket.id}
-                </h3>
-              </div>
-              <button
-                onClick={() => setSelectedTicket(null)}
-                className="rounded-2xl bg-white/10 p-3 text-white"
-              >
-                <XCircle size={20} />
-              </button>
-            </div>
-            <div className="mt-5 grid gap-3 md:grid-cols-4">
-              <Detail label="Stato" value={selectedTicket.status || "N/D"} />
-              <Detail
-                label="Tecnico"
-                value={selectedTicket.technician || "N/D"}
-              />
-              <Detail
-                label="Arrivo ATLAS"
-                value={formatDateTime(selectedTicket.imported_at)}
-              />
-              <Detail
-                label="Apertura"
-                value={formatDateTime(
-                  selectedTicket.opened_at || selectedTicket.created_at,
-                )}
-              />
-              <Detail
-                label="Chiusura"
-                value={formatDate(selectedTicket.closed_at)}
-              />
-            </div>
-            <div className="mt-5 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
-                Entity path
-              </p>
-              <p className="mt-2 text-sm font-bold text-slate-200">
-                {selectedTicket.glpi_entity_path ||
-                  selectedTicket.entity ||
-                  "Root > Webvime"}
-              </p>
-            </div>
-            <div className="mt-5 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
-                Contenuto ticket
-              </p>
-              <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-relaxed text-slate-200">
-                {selectedTicket.problem || "Nessun contenuto disponibile."}
-              </p>
-            </div>
-
-            <div className="mt-5">
-              <TicketAttachmentsPanel
-                ticketId={selectedTicket.id}
-                title="Allegati ticket Webvime"
-              />
-            </div>
-
-            <div className="mt-5 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-4">
-              <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-300">
-                    Comunicazione email
-                  </p>
-                  <h4 className="mt-1 text-xl font-black text-white">
-                    Bozza risposta Webvime
-                  </h4>
-                  <p className="mt-1 text-sm font-bold text-slate-400">
-                    Fase sicura: copia la risposta o registrala nella cronologia. L'invio SMTP Aruba lo colleghiamo nello step successivo.
-                  </p>
-                </div>
-                <Mail className="text-blue-300" size={26} />
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="grid gap-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-                  Destinatario
-                  <input
-                    value={communicationRecipient}
-                    onChange={(event) => setCommunicationRecipient(event.target.value)}
-                    placeholder="utente@dominio.it"
-                    className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold normal-case tracking-normal text-white outline-none focus:border-blue-500"
-                  />
-                </label>
-                <label className="grid gap-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-                  Oggetto
-                  <input
-                    value={communicationSubject}
-                    onChange={(event) => setCommunicationSubject(event.target.value)}
-                    className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold normal-case tracking-normal text-white outline-none focus:border-blue-500"
-                  />
-                </label>
-              </div>
-
-              <label className="mt-3 grid gap-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-                Testo email
-                <textarea
-                  value={communicationBody}
-                  onChange={(event) => setCommunicationBody(event.target.value)}
-                  rows={10}
-                  className="rounded-2xl border border-white/10 bg-slate-950/80 p-4 text-sm font-semibold normal-case leading-relaxed tracking-normal text-slate-100 outline-none focus:border-blue-500"
-                />
-              </label>
-
-              {communicationMessage && (
-                <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3 text-sm font-bold text-slate-200">
-                  {communicationMessage}
-                </div>
-              )}
-
-              <div className="mt-4 flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={copyCommunicationEmail}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500"
-                >
-                  <Copy size={16} />
-                  {copiedCommunication ? "Copiata" : "Copia email"}
-                </button>
-                <button
-                  type="button"
-                  onClick={registerCommunication}
-                  disabled={savingCommunication}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <ClipboardCheck size={16} />
-                  {savingCommunication ? "Registro..." : "Registra comunicazione"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <TicketWorkspace
+          ticket={selectedTicket}
+          open={Boolean(selectedTicket)}
+          onClose={() => {
+            setSelectedTicket(null);
+            loadWebvime();
+          }}
+          onStatusUpdated={(updatedTicket) => {
+            setSelectedTicket(updatedTicket);
+            setTickets((prev) =>
+              prev.map((ticket) =>
+                Number(ticket.id) === Number(updatedTicket.id)
+                  ? { ...ticket, ...updatedTicket }
+                  : ticket,
+              ),
+            );
+          }}
+        />
       )}
 
       {helpOpen && (
@@ -1897,13 +1782,3 @@ function Metric({ icon: Icon, label, value, tone }: any) {
   );
 }
 
-function Detail({ label, value }: { label: string; value: any }) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 break-words text-sm font-black text-white">{value}</p>
-    </div>
-  );
-}

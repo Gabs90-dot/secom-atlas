@@ -1,5 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { NextResponse, type NextRequest } from "next/server";
+
+import type { AtlasRole } from "@/lib/auth";
+import { requireAtlasUser } from "@/lib/server/requireAtlasUser";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,29 +24,44 @@ type EntityRow = {
   is_active?: boolean | null;
 };
 
+type RegistrationCodeRow = {
+  id?: string;
+  customer_id?: string | number | null;
+  customer_entity_id?: string | number | null;
+  [key: string]: unknown;
+};
+
+const CUSTOMER_REGISTRATION_READ_ROLES: readonly AtlasRole[] = ["super_admin", "admin", "manager"];
+const CUSTOMER_REGISTRATION_WRITE_ROLES: readonly AtlasRole[] = ["super_admin", "admin"];
+
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
-function getEnv(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing env ${name}`);
-  return value;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
-function adminClient() {
-  return createClient(
-    getEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    getEnv("SUPABASE_SERVICE_ROLE_KEY"),
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  );
+function toRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
 }
 
-function userClient(token: string) {
-  return createClient(getEnv("NEXT_PUBLIC_SUPABASE_URL"), getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"), {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+function legacyString(value: unknown): string {
+  return String(value || "").trim();
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function getTenantIdFromSearch(request: NextRequest): string | null {
+  const tenantId = request.nextUrl.searchParams.get("tenantId")?.trim();
+  return tenantId || null;
+}
+
+function getTenantIdFromBody(body: Record<string, unknown>): string | null {
+  const tenantId = legacyString(body.tenantId) || legacyString(body.tenant_id);
+  return tenantId || null;
 }
 
 function normalize(value: unknown) {
@@ -72,10 +90,7 @@ function cleanCodePart(value: unknown, fallback = "ACCESSO") {
   const tokens = text.split(" ").filter((part) => part.length >= 3);
   const chosen = tokens[tokens.length - 1] || tokens[0] || fallback;
 
-  return chosen
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 12) || fallback;
+  return chosen.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12) || fallback;
 }
 
 function customerPrefix(value: unknown) {
@@ -131,46 +146,11 @@ function entityMatchesCustomer(entity: EntityRow, customer: CustomerRow) {
 
   return customerKeywords(customer.name || "").some((keyword) => {
     const cleanKeyword = normalize(keyword);
-    return cleanKeyword.length > 0 && (` ${entityText} `).includes(` ${cleanKeyword} `);
+    return cleanKeyword.length > 0 && ` ${entityText} `.includes(` ${cleanKeyword} `);
   });
 }
 
-async function getRequester(request: NextRequest) {
-  const authorization = request.headers.get("authorization") || "";
-  const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-
-  if (!token) {
-    return { error: "Sessione non valida. Effettua di nuovo il login.", status: 401 as const };
-  }
-
-  const service = adminClient();
-  const auth = userClient(token);
-  const { data: authData, error: authError } = await auth.auth.getUser(token);
-
-  if (authError || !authData.user?.id) {
-    return { error: "Sessione non valida o scaduta.", status: 401 as const };
-  }
-
-  const { data: requester, error: requesterError } = await service
-    .from("tenant_users")
-    .select("id, tenant_id, user_id, email, role, status")
-    .eq("user_id", authData.user.id)
-    .maybeSingle();
-
-  if (requesterError) {
-    return { error: requesterError.message, status: 500 as const };
-  }
-
-  const allowedRoles = new Set(["super_admin", "admin", "manager"]);
-
-  if (!requester || requester.status !== "active" || !allowedRoles.has(String(requester.role))) {
-    return { error: "Non hai permessi sufficienti per gestire i codici invito.", status: 403 as const };
-  }
-
-  return { service, requester };
-}
-
-async function generateUniqueCode(service: ReturnType<typeof adminClient>, customer: CustomerRow, entity: EntityRow) {
+async function generateUniqueCode(service: SupabaseClient, customer: CustomerRow, entity: EntityRow) {
   const prefix = customerPrefix(customer.name);
   const entityName = entity.normalized_complete_name || entity.complete_name || entity.name || "";
   const location = cleanCodePart(entityName, "SEDE");
@@ -193,13 +173,17 @@ async function generateUniqueCode(service: ReturnType<typeof adminClient>, custo
 
 export async function GET(request: NextRequest) {
   try {
-    const resolved = await getRequester(request);
+    const auth = await requireAtlasUser(request, {
+      allowedRoles: CUSTOMER_REGISTRATION_READ_ROLES,
+      tenantId: getTenantIdFromSearch(request),
+    });
 
-    if ("error" in resolved) {
-      return jsonError(String(resolved.error || "Errore autorizzazione."), resolved.status ?? 400);
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    const { service, requester } = resolved;
+    const service = auth.serviceClient;
+    const tenantId = auth.requester.tenantId;
     const { searchParams } = new URL(request.url);
     const customerId = String(searchParams.get("customerId") || "").trim();
     const q = String(searchParams.get("q") || "").trim();
@@ -207,7 +191,7 @@ export async function GET(request: NextRequest) {
     const { data: customers, error: customersError } = await service
       .from("customers")
       .select("id, tenant_id, name")
-      .eq("tenant_id", requester.tenant_id)
+      .eq("tenant_id", tenantId)
       .order("name", { ascending: true });
 
     if (customersError) throw customersError;
@@ -245,8 +229,8 @@ export async function GET(request: NextRequest) {
         entities: entityRows.map((entity) => ({
           id: String(entity.id),
           customerId: String(selectedCustomer.id),
-          name: entity.name || "Entità senza nome",
-          completeName: entity.normalized_complete_name || entity.complete_name || entity.name || "Entità senza nome",
+          name: entity.name || "Entit\u00e0 senza nome",
+          completeName: entity.normalized_complete_name || entity.complete_name || entity.name || "Entit\u00e0 senza nome",
           glpiEntityId: entity.glpi_entity_id || null,
         })),
       });
@@ -255,14 +239,15 @@ export async function GET(request: NextRequest) {
     const { data: codes, error: codesError } = await service
       .from("customer_registration_codes")
       .select("*")
-      .eq("tenant_id", requester.tenant_id)
+      .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false })
       .limit(100);
 
     if (codesError) throw codesError;
 
+    const codeRows = (codes || []) as RegistrationCodeRow[];
     const customerMap = new Map(customerRows.map((customer) => [String(customer.id), customer.name || "Cliente"]));
-    const entityIds = Array.from(new Set((codes || []).map((code: any) => code.customer_entity_id).filter(Boolean)));
+    const entityIds = Array.from(new Set(codeRows.map((code) => code.customer_entity_id).filter(Boolean)));
 
     let entityMap = new Map<string, EntityRow>();
 
@@ -284,55 +269,54 @@ export async function GET(request: NextRequest) {
         name: customer.name || "Cliente senza nome",
       })),
       entities: [],
-      codes: (codes || []).map((code: any) => {
+      codes: codeRows.map((code) => {
         const entity = entityMap.get(String(code.customer_entity_id));
 
         return {
           ...code,
           customerName: customerMap.get(String(code.customer_id)) || "Cliente",
-          entityName: entity?.name || "Entità",
-          entityCompleteName: entity?.normalized_complete_name || entity?.complete_name || entity?.name || "Entità",
+          entityName: entity?.name || "Entit\u00e0",
+          entityCompleteName: entity?.normalized_complete_name || entity?.complete_name || entity?.name || "Entit\u00e0",
         };
       }),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("GET /api/admin/customer-registration-codes", error);
-    return jsonError(error?.message || "Errore caricamento codici invito.", 500);
+    return jsonError(getErrorMessage(error, "Errore caricamento codici invito."), 500);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const resolved = await getRequester(request);
+    const body = toRecord(await request.json());
+    const auth = await requireAtlasUser(request, {
+      allowedRoles: CUSTOMER_REGISTRATION_WRITE_ROLES,
+      tenantId: getTenantIdFromBody(body),
+    });
 
-    if ("error" in resolved) {
-      return jsonError(String(resolved.error || "Errore autorizzazione."), resolved.status ?? 400);
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    const { service, requester } = resolved;
-
-    if (!["super_admin", "admin"].includes(String(requester.role))) {
-      return jsonError("Solo Super Admin e Admin possono generare codici invito.", 403);
-    }
-
-    const body = await request.json();
-    const customerId = String(body?.customerId || "").trim();
-    const customerEntityId = String(body?.customerEntityId || "").trim();
-    const maxUses = Math.max(1, Number(body?.maxUses || 1));
-    const expiresAt = body?.expiresAt ? new Date(body.expiresAt).toISOString() : null;
-    const contactName = String(body?.contactName || "").trim() || null;
-    const contactEmail = String(body?.contactEmail || "").trim().toLowerCase() || null;
-    const notes = String(body?.notes || "").trim() || null;
+    const service = auth.serviceClient;
+    const tenantId = auth.requester.tenantId;
+    const customerId = legacyString(body.customerId);
+    const customerEntityId = legacyString(body.customerEntityId);
+    const maxUses = Math.max(1, Number(body.maxUses || 1));
+    const expiresAt = body.expiresAt ? new Date(String(body.expiresAt)).toISOString() : null;
+    const contactName = legacyString(body.contactName) || null;
+    const contactEmail = legacyString(body.contactEmail).toLowerCase() || null;
+    const notes = legacyString(body.notes) || null;
 
     if (!customerId || !customerEntityId) {
-      return jsonError("Cliente ed entità sono obbligatori.", 400);
+      return jsonError("Cliente ed entit\u00e0 sono obbligatori.", 400);
     }
 
     const { data: customer, error: customerError } = await service
       .from("customers")
       .select("id, tenant_id, name")
       .eq("id", customerId)
-      .eq("tenant_id", requester.tenant_id)
+      .eq("tenant_id", tenantId)
       .maybeSingle();
 
     if (customerError) throw customerError;
@@ -345,13 +329,13 @@ export async function POST(request: NextRequest) {
       .from("customer_entities")
       .select("id, tenant_id, glpi_entity_id, name, complete_name, normalized_complete_name, is_active")
       .eq("id", customerEntityId)
-      .eq("tenant_id", requester.tenant_id)
+      .eq("tenant_id", tenantId)
       .maybeSingle();
 
     if (entityError) throw entityError;
 
     if (!entity?.id || entity.is_active === false) {
-      return jsonError("Entità cliente non valida o non attiva.", 400);
+      return jsonError("Entit\u00e0 cliente non valida o non attiva.", 400);
     }
 
     const code = await generateUniqueCode(service, customer as CustomerRow, entity as EntityRow);
@@ -360,17 +344,17 @@ export async function POST(request: NextRequest) {
       .from("customer_registration_codes")
       .insert([
         {
-          tenant_id: requester.tenant_id,
+          tenant_id: tenantId,
           customer_id: customer.id,
           customer_entity_id: entity.id,
           site_id: null,
           code,
-          label: `${customer.name || "Cliente"} · ${entity.normalized_complete_name || entity.complete_name || entity.name || "Entità"}`,
+          label: `${customer.name || "Cliente"} \u00b7 ${entity.normalized_complete_name || entity.complete_name || entity.name || "Entit\u00e0"}`,
           max_uses: maxUses,
           used_count: 0,
           is_active: true,
           expires_at: expiresAt,
-          created_by: requester.user_id || null,
+          created_by: auth.requester.userId || null,
           notes,
           contact_name: contactName,
           contact_email: contactEmail,
@@ -392,29 +376,28 @@ export async function POST(request: NextRequest) {
         entityCompleteName: entity.normalized_complete_name || entity.complete_name || entity.name,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("POST /api/admin/customer-registration-codes", error);
-    return jsonError(error?.message || "Errore generazione codice invito.", 500);
+    return jsonError(getErrorMessage(error, "Errore generazione codice invito."), 500);
   }
 }
 
 export async function PATCH(request: NextRequest) {
   try {
-    const resolved = await getRequester(request);
+    const body = toRecord(await request.json());
+    const auth = await requireAtlasUser(request, {
+      allowedRoles: CUSTOMER_REGISTRATION_WRITE_ROLES,
+      tenantId: getTenantIdFromBody(body),
+    });
 
-    if ("error" in resolved) {
-      return jsonError(String(resolved.error || "Errore autorizzazione."), resolved.status ?? 400);
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    const { service, requester } = resolved;
-
-    if (!["super_admin", "admin"].includes(String(requester.role))) {
-      return jsonError("Solo Super Admin e Admin possono modificare i codici invito.", 403);
-    }
-
-    const body = await request.json();
-    const codeId = String(body?.codeId || "").trim();
-    const isActive = Boolean(body?.isActive);
+    const service = auth.serviceClient;
+    const tenantId = auth.requester.tenantId;
+    const codeId = legacyString(body.codeId);
+    const isActive = Boolean(body.isActive);
 
     if (!codeId) {
       return jsonError("Codice obbligatorio.", 400);
@@ -427,15 +410,15 @@ export async function PATCH(request: NextRequest) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", codeId)
-      .eq("tenant_id", requester.tenant_id)
+      .eq("tenant_id", tenantId)
       .select()
       .single();
 
     if (error) throw error;
 
     return NextResponse.json({ ok: true, code: data });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("PATCH /api/admin/customer-registration-codes", error);
-    return jsonError(error?.message || "Errore aggiornamento codice invito.", 500);
+    return jsonError(getErrorMessage(error, "Errore aggiornamento codice invito."), 500);
   }
 }

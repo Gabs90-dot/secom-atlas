@@ -1,5 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse, type NextRequest } from "next/server";
+
+import type { AtlasRole } from "@/lib/auth";
+import { requireAtlasUser, type LegacyAtlasRole } from "@/lib/server/requireAtlasUser";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +14,36 @@ type InvitePayload = {
   status?: string;
   mode?: "email_invite" | "temporary_password";
   temporaryPassword?: string;
+  expiresAt?: string | null;
+  contactName?: string;
+  contactEmail?: string;
+  notes?: string;
 };
 
+type ExistingTenantUserRow = {
+  id: string;
+  user_id: string | null;
+};
+
+type RoleRow = {
+  id: string;
+  key: string | null;
+};
+
+type TenantUserPayload = {
+  tenant_id: string;
+  user_id: string | null;
+  email: string;
+  display_name: string;
+  role: string;
+  role_id: string | null;
+  status: string;
+  updated_at: string;
+  must_change_password?: boolean;
+};
+
+const INVITE_USER_ALLOWED_ROLES: readonly AtlasRole[] = ["super_admin", "admin"];
+const INVITE_USER_LEGACY_ALLOWED_ROLES: readonly LegacyAtlasRole[] = ["owner"];
 const SAFE_DEFAULT_ROLE = "cliente_user";
 
 const INTERNAL_ALLOWED_ROLES = new Set([
@@ -27,8 +57,6 @@ const INTERNAL_ALLOWED_ROLES = new Set([
   "cliente_admin",
   "cliente_user",
 ]);
-
-const REQUESTER_ALLOWED_ROLES = new Set(["super_admin", "admin", "owner", "manager"]);
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -66,31 +94,6 @@ async function withTimeout<T>(promise: PromiseLike<T>, ms = 20000, label = "Oper
 }
 
 export async function POST(request: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
-    return jsonError("Configurazione Supabase incompleta: manca SUPABASE_SERVICE_ROLE_KEY o URL/ANON key.", 500);
-  }
-
-  const authorization = request.headers.get("authorization") || "";
-  const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-
-  if (!token) {
-    return jsonError("Sessione admin non valida. Effettua di nuovo il login.", 401);
-  }
-
-  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
-
-  const { data: authData, error: authError } = await userClient.auth.getUser(token);
-
-  if (authError || !authData.user?.id) {
-    return jsonError("Sessione non valida o scaduta.", 401);
-  }
-
   const body = (await request.json().catch(() => null)) as InvitePayload | null;
 
   const tenantId = String(body?.tenantId || "").trim();
@@ -109,43 +112,32 @@ export async function POST(request: NextRequest) {
     return jsonError("La password temporanea deve contenere almeno 8 caratteri.", 400);
   }
 
-  console.log("[invite-user] request", { tenantId, email, requestedRoleKey, status, mode });
-
-  const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
+  const auth = await requireAtlasUser(request, {
+    allowedRoles: INVITE_USER_ALLOWED_ROLES,
+    allowedLegacyRoles: INVITE_USER_LEGACY_ALLOWED_ROLES,
+    tenantId,
   });
 
-  const { data: requester, error: requesterError } = await withTimeout(
-    serviceClient
-      .from("tenant_users")
-      .select("id, role, status, tenant_id")
-      .eq("tenant_id", tenantId)
-      .eq("user_id", authData.user.id)
-      .maybeSingle(),
-    12000,
-    "Controllo permessi requester",
-  );
-
-  if (requesterError) {
-    return jsonError(requesterError.message, 500);
+  if (!auth.ok) {
+    return auth.response;
   }
 
-  if (!requester || requester.status !== "active" || !REQUESTER_ALLOWED_ROLES.has(String(requester.role))) {
-    return jsonError("Non hai permessi sufficienti per invitare utenti.", 403);
-  }
+  console.log("[invite-user] request", { tenantId, email, requestedRoleKey, status, mode });
 
+  const serviceClient = auth.serviceClient;
   let finalRoleKey = requestedRoleKey;
 
-  // Freno di sicurezza: solo admin/owner può creare altri admin/owner.
-  if (["super_admin", "admin", "owner"].includes(finalRoleKey) && !["super_admin", "admin", "owner"].includes(String(requester.role))) {
+  if (
+    ["super_admin", "admin", "owner"].includes(finalRoleKey) &&
+    !["super_admin", "admin", "owner"].includes(auth.requester.rawRole)
+  ) {
     finalRoleKey = SAFE_DEFAULT_ROLE;
   }
 
   let finalRoleId: string | null = null;
 
-  // Non fidarsi del roleId ricevuto dal client: lo validiamo lato server contro role key e tenant.
   if (body?.roleId) {
-    const { data: roleRow, error: roleError } = await withTimeout(
+    const { data: roleRowData, error: roleError } = await withTimeout(
       serviceClient
         .from("roles")
         .select("id, key")
@@ -160,14 +152,15 @@ export async function POST(request: NextRequest) {
       return jsonError(roleError.message, 500);
     }
 
+    const roleRow = roleRowData as RoleRow | null;
+
     if (roleRow?.key === finalRoleKey) {
       finalRoleId = roleRow.id;
     }
   }
 
-  // Se roleId è assente/non valido, provo a ricavarlo dalla key, ma senza mai cambiare roleKey.
   if (!finalRoleId) {
-    const { data: roleByKey, error: roleByKeyError } = await withTimeout(
+    const { data: roleByKeyData, error: roleByKeyError } = await withTimeout(
       serviceClient
         .from("roles")
         .select("id, key")
@@ -182,15 +175,17 @@ export async function POST(request: NextRequest) {
       return jsonError(roleByKeyError.message, 500);
     }
 
+    const roleByKey = roleByKeyData as RoleRow | null;
     finalRoleId = roleByKey?.id || null;
   }
 
   let invitedUserId: string | null = null;
-  let inviteMessage = mode === "temporary_password"
-    ? "Utente creato con password temporanea e profilo tenant collegato."
-    : "Invito inviato e profilo tenant creato.";
+  let inviteMessage =
+    mode === "temporary_password"
+      ? "Utente creato con password temporanea e profilo tenant collegato."
+      : "Invito inviato e profilo tenant creato.";
 
-  const { data: existing, error: existingError } = await withTimeout(
+  const { data: existingData, error: existingError } = await withTimeout(
     serviceClient
       .from("tenant_users")
       .select("id, user_id")
@@ -204,6 +199,8 @@ export async function POST(request: NextRequest) {
   if (existingError) {
     return jsonError(existingError.message, 500);
   }
+
+  const existing = existingData as ExistingTenantUserRow | null;
 
   if (mode === "temporary_password") {
     if (existing?.user_id) {
@@ -280,13 +277,13 @@ export async function POST(request: NextRequest) {
         return jsonError(msg || "Errore invito Supabase Auth", 400);
       }
 
-      inviteMessage = "Utente già presente in Auth: profilo tenant creato/aggiornato.";
+      inviteMessage = "Utente gia presente in Auth: profilo tenant creato/aggiornato.";
     } else {
       invitedUserId = inviteData?.user?.id || null;
     }
   }
 
-  const baseTenantPayload = {
+  const baseTenantPayload: TenantUserPayload = {
     tenant_id: tenantId,
     user_id: invitedUserId || existing?.user_id || null,
     email,
@@ -297,12 +294,12 @@ export async function POST(request: NextRequest) {
     updated_at: new Date().toISOString(),
   };
 
-  const tenantPayloadWithPasswordFlag = {
+  const tenantPayloadWithPasswordFlag: TenantUserPayload = {
     ...baseTenantPayload,
     must_change_password: mode === "temporary_password",
   };
 
-  async function upsertTenantUser(payload: any) {
+  async function upsertTenantUser(payload: TenantUserPayload) {
     const query = existing?.id
       ? serviceClient.from("tenant_users").update(payload).eq("id", existing.id).select().single()
       : serviceClient
@@ -316,8 +313,6 @@ export async function POST(request: NextRequest) {
 
   let { data: tenantUser, error: tenantUserError } = await upsertTenantUser(tenantPayloadWithPasswordFlag);
 
-  // Compatibility: if the DB has not yet been migrated, keep user creation working.
-  // Run sql/2026-06-09_add_must_change_password.sql to enable mandatory password change persistently.
   if (tenantUserError && String(tenantUserError.message || "").includes("must_change_password")) {
     const fallback = await upsertTenantUser(baseTenantPayload);
     tenantUser = fallback.data;

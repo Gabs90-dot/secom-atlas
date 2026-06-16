@@ -1,11 +1,24 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse, type NextRequest } from "next/server";
+
+import type { AtlasRole } from "@/lib/auth";
+import { requireAtlasUser, type LegacyAtlasRole } from "@/lib/server/requireAtlasUser";
 
 export const dynamic = "force-dynamic";
+
+const DELETE_USER_ALLOWED_ROLES: readonly AtlasRole[] = ["super_admin", "admin"];
+const DELETE_USER_LEGACY_ALLOWED_ROLES: readonly LegacyAtlasRole[] = ["owner"];
 
 type DeletePayload = {
   tenantId?: string;
   tenantUserId?: string;
+};
+
+type TargetTenantUser = {
+  id: string;
+  user_id: string | null;
+  email: string | null;
+  tenant_id: string | null;
+  role: string | null;
 };
 
 function jsonError(message: string, status = 400) {
@@ -13,31 +26,6 @@ function jsonError(message: string, status = 400) {
 }
 
 export async function POST(request: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
-    return jsonError("Configurazione Supabase incompleta: manca SUPABASE_SERVICE_ROLE_KEY o URL/ANON key.", 500);
-  }
-
-  const authorization = request.headers.get("authorization") || "";
-  const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-
-  if (!token) {
-    return jsonError("Sessione admin non valida. Effettua di nuovo il login.", 401);
-  }
-
-  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
-
-  const { data: authData, error: authError } = await userClient.auth.getUser(token);
-
-  if (authError || !authData.user?.id) {
-    return jsonError("Sessione non valida o scaduta.", 401);
-  }
-
   const body = (await request.json().catch(() => null)) as DeletePayload | null;
   const tenantId = body?.tenantId;
   const tenantUserId = body?.tenantUserId;
@@ -46,32 +34,23 @@ export async function POST(request: NextRequest) {
     return jsonError("Tenant e utente sono obbligatori.", 400);
   }
 
-  const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
+  const auth = await requireAtlasUser(request, {
+    allowedRoles: DELETE_USER_ALLOWED_ROLES,
+    allowedLegacyRoles: DELETE_USER_LEGACY_ALLOWED_ROLES,
+    tenantId,
   });
 
-  const { data: requester, error: requesterError } = await serviceClient
-    .from("tenant_users")
-    .select("id, role, status, tenant_id, user_id")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", authData.user.id)
-    .maybeSingle();
-
-  if (requesterError) {
-    return jsonError(requesterError.message, 500);
+  if (!auth.ok) {
+    return auth.response;
   }
 
-  const allowedRoles = new Set(["super_admin", "admin", "owner", "manager"]);
+  const serviceClient = auth.serviceClient;
 
-  if (!requester || requester.status !== "active" || !allowedRoles.has(String(requester.role))) {
-    return jsonError("Non hai permessi sufficienti per eliminare utenti.", 403);
-  }
-
-  if (requester.id === tenantUserId) {
+  if (auth.requester.tenantUserId === tenantUserId) {
     return jsonError("Non puoi eliminare la tua utenza mentre sei loggato.", 400);
   }
 
-  const { data: targetUser, error: targetError } = await serviceClient
+  const { data: targetUserData, error: targetError } = await serviceClient
     .from("tenant_users")
     .select("id, user_id, email, tenant_id, role")
     .eq("tenant_id", tenantId)
@@ -82,12 +61,14 @@ export async function POST(request: NextRequest) {
     return jsonError(targetError.message, 500);
   }
 
+  const targetUser = targetUserData as TargetTenantUser | null;
+
   if (!targetUser) {
     return jsonError("Utente tenant non trovato.", 404);
   }
 
-  if (targetUser.role === "super_admin" && requester.role !== "super_admin") {
-    return jsonError("Solo un Super Admin può eliminare un Super Admin.", 403);
+  if (targetUser.role === "super_admin" && auth.requester.rawRole !== "super_admin") {
+    return jsonError("Solo un Super Admin puo eliminare un Super Admin.", 403);
   }
 
   await serviceClient
@@ -111,7 +92,7 @@ export async function POST(request: NextRequest) {
     if (authDeleteError) {
       return jsonError(
         `Profilo tenant eliminato, ma errore eliminazione Auth: ${authDeleteError.message}`,
-        500
+        500,
       );
     }
   }

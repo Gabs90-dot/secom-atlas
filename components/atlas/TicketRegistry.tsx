@@ -267,7 +267,7 @@ function RegistryFilters({
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
             className={`${inputClass} w-full pl-10`}
-            placeholder="Cerca sede o descrizione"
+            placeholder="Cerca sede, descrizione, ID ATLAS o ID GLPI"
             value={filterSite}
             onChange={(e) => setFilterSite?.(e.target.value)}
           />

@@ -1,31 +1,57 @@
-import { NextRequest, NextResponse } from "next/server";
-import * as glpiSyncEngine from "@/services/glpiSyncEngine";
+import { NextResponse, type NextRequest } from "next/server";
+
+import type { AtlasRole } from "@/lib/auth";
+import { requireAtlasUser } from "@/lib/server/requireAtlasUser";
+import { syncGlpiDbToAtlas } from "@/services/glpiSyncEngine";
 
 export const runtime = "nodejs";
 
-function getSyncFunction() {
-  const syncFn = (glpiSyncEngine as any).syncGlpiDbToAtlas;
+type SyncGlpiDbToAtlas = typeof syncGlpiDbToAtlas;
 
-  if (typeof syncFn !== "function") {
+const GLPI_SYNC_ALLOWED_ROLES: readonly AtlasRole[] = ["super_admin", "admin"];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function legacyString(value: unknown): string {
+  return String(value || "").trim();
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function getTenantId(request: NextRequest, body: Record<string, unknown>) {
+  return (
+    legacyString(body.tenantId) ||
+    legacyString(body.tenant_id) ||
+    legacyString(request.nextUrl.searchParams.get("tenantId")) ||
+    process.env.ATLAS_DEFAULT_TENANT_ID ||
+    process.env.NEXT_PUBLIC_ATLAS_DEFAULT_TENANT_ID ||
+    ""
+  );
+}
+
+function getSyncFunction(): SyncGlpiDbToAtlas {
+  if (typeof syncGlpiDbToAtlas !== "function") {
     throw new Error(
       "Export syncGlpiDbToAtlas mancante in services/glpiSyncEngine.ts. Sostituisci quel file con glpiSyncEngine_FIXED.ts.",
     );
   }
 
-  return syncFn;
+  return syncGlpiDbToAtlas;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const syncGlpiDbToAtlas = getSyncFunction();
-
-    const body = await request.json().catch(() => ({}));
-
-    const tenantId =
-      body?.tenantId ||
-      body?.tenant_id ||
-      process.env.ATLAS_DEFAULT_TENANT_ID ||
-      process.env.NEXT_PUBLIC_ATLAS_DEFAULT_TENANT_ID;
+    const runSyncGlpiDbToAtlas = getSyncFunction();
+    const body = toRecord(await request.json().catch(() => ({})));
+    const tenantId = getTenantId(request, body);
 
     if (!tenantId) {
       return NextResponse.json(
@@ -38,25 +64,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const limit = Math.min(Number(body?.limit || 250), 1000);
-    const offset = Number(body?.offset || 0);
-    const glpiTicketId = body?.glpiTicketId || body?.glpi_ticket_id || body?.id;
+    const auth = await requireAtlasUser(request, {
+      allowedRoles: GLPI_SYNC_ALLOWED_ROLES,
+      tenantId,
+    });
 
-    const result = await syncGlpiDbToAtlas({
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const limit = Math.min(Number(body.limit || 250), 1000);
+    const offset = Number(body.offset || 0);
+    const glpiTicketId = body.glpiTicketId || body.glpi_ticket_id || body.id;
+
+    const result = await runSyncGlpiDbToAtlas({
       tenantId,
       limit,
       offset,
-      glpiTicketId,
+      glpiTicketId: typeof glpiTicketId === "string" || typeof glpiTicketId === "number" ? glpiTicketId : undefined,
     });
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("GLPI DB sync error:", error);
 
     return NextResponse.json(
       {
         ok: false,
-        error: error?.message || "Errore sync GLPI DB",
+        error: getErrorMessage(error, "Errore sync GLPI DB"),
       },
       { status: 500 },
     );

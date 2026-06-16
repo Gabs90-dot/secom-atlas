@@ -1,0 +1,5 @@
+plan_title,year,customer_name,site_name,entity_path,region,province,city,period_target,target_date,target_value,notes
+Ordinarie Carabinieri 2026,2026,Carabinieri,COMANDO PROVINCIALE DI ROMA RONINV,,Lazio,Roma,Roma,1,,1,
+Ordinarie Carabinieri 2026,2026,Carabinieri,COMANDO PROVINCIALE DI MILANO RONINV,,Lombardia,Milano,Milano,1,,1,
+Straordinarie Carabinieri 2026,2026,Carabinieri,,,,,,,,1,Piano a contatore: non richiede righe sede obbligatorie
+Aule SEPA RFI 2026,2026,RFI,AULA SEPA ESEMPIO,,Lazio,Roma,Roma,,2026-12-31,1,

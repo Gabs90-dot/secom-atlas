@@ -8,6 +8,18 @@ type SyncTicketToGlpiArgs = {
   showMessage: (text: string, type?: "success" | "error") => void;
 };
 
+type GlpiSyncResult = {
+  ok?: boolean;
+  glpiTicketId?: string | number | null;
+  glpiEntityId?: number | null;
+  error?: string;
+  code?: string;
+  stage?: string;
+  status?: number;
+};
+
+const GLPI_SYNC_TIMEOUT_MS = 15000;
+
 function normalizeGlpiValue(value: any) {
   return String(value || "")
     .normalize("NFD")
@@ -23,6 +35,12 @@ export async function resolveGlpiEntityId(
   editableContracts: any[],
   supabaseClient: any
 ) {
+  const directGlpiEntityId = Number(ticket?.glpiEntityId || ticket?.glpi_entity_id || 0);
+
+  if (Number.isSafeInteger(directGlpiEntityId) && directGlpiEntityId > 0) {
+    return directGlpiEntityId;
+  }
+
   const siteNorm = normalizeGlpiValue(ticket?.site);
   const entityNorm = normalizeGlpiValue(ticket?.entity);
   const regionNorm = normalizeGlpiValue(ticket?.region);
@@ -128,12 +146,50 @@ export async function resolveGlpiEntityId(
   return null;
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function buildGlpiSyncLogPayload(
+  ticket: {
+    id?: unknown;
+    title?: unknown;
+    problem?: unknown;
+    site?: unknown;
+    entity?: unknown;
+    region?: unknown;
+    ticketType?: unknown;
+    ticketCategory?: unknown;
+    ticketStatus?: unknown;
+    status?: unknown;
+  },
+  glpiEntityId: number | null,
+  materialCount: number,
+) {
+  return {
+    atlasTicketId: ticket?.id ?? null,
+    hasTitle: Boolean(String(ticket?.title || "").trim()),
+    hasProblem: Boolean(String(ticket?.problem || "").trim()),
+    hasSite: Boolean(String(ticket?.site || "").trim()),
+    hasEntity: Boolean(String(ticket?.entity || "").trim()),
+    hasRegion: Boolean(String(ticket?.region || "").trim()),
+    glpiEntityIdPresent: Boolean(glpiEntityId),
+    ticketType: ticket?.ticketType || ticket?.ticketCategory || null,
+    ticketStatus: ticket?.ticketStatus || ticket?.status || null,
+    materialCount,
+  };
+}
+
 export async function syncTicketToGlpi({
   ticket,
   editableContracts,
   supabaseClient,
   showMessage,
-}: SyncTicketToGlpiArgs) {
+}: SyncTicketToGlpiArgs): Promise<GlpiSyncResult | null> {
   try {
     const contract = getContractInfo(ticket?.site || "", ticket?.entity || "", editableContracts);
     const glpiEntityId = await resolveGlpiEntityId(ticket, editableContracts, supabaseClient);
@@ -144,14 +200,24 @@ export async function syncTicketToGlpi({
     const cost = materialCost(materialIds);
     const openedAt = ticket.openedAt || ticket.opened_at || new Date().toISOString();
 
-    console.log("ATLAS SITE:", ticket.site);
-    console.log("GLPI ENTITY ID:", glpiEntityId);
+    const logPayload = buildGlpiSyncLogPayload(ticket, glpiEntityId, materialIds.length);
+    console.log("GLPI sync payload summary", logPayload);
+
+    if (!glpiEntityId) {
+      console.warn("GLPI sync skipped: missing entity", logPayload);
+      showMessage("Ticket creato in ATLAS, ma non sincronizzato su GLPI: entitÃ  GLPI mancante.", "error");
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), GLPI_SYNC_TIMEOUT_MS);
 
     const response = await fetch("/api/glpi/create-ticket", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
+      signal: controller.signal,
       body: JSON.stringify({
         atlasTicketId: ticket.id,
         title: ticket.title,
@@ -185,19 +251,36 @@ export async function syncTicketToGlpi({
         glpiEntityId,
       }),
     });
+    window.clearTimeout(timeoutId);
 
-    const result = await response.json().catch(() => null);
+    const result = (await response.json().catch(() => null)) as GlpiSyncResult | null;
 
     if (!response.ok || !result?.ok) {
-      console.error("GLPI sync error", result);
-      showMessage("Ticket salvato in ATLAS, ma non sincronizzato con GLPI", "error");
+      console.error("GLPI sync failed", {
+        ...logPayload,
+        httpStatus: response.status,
+        stage: result?.stage || null,
+        code: result?.code || null,
+      });
+
+      if (response.status === 400 && result?.code === "missing_glpi_entity") {
+        showMessage("Ticket creato in ATLAS, ma non sincronizzato su GLPI: entitÃ  GLPI mancante.", "error");
+        return null;
+      }
+
+      showMessage(result?.error || "Ticket creato in ATLAS, ma non sincronizzato su GLPI.", "error");
       return null;
     }
 
     return result;
-  } catch (error) {
-    console.error("GLPI sync exception", error);
-    showMessage("Ticket salvato in ATLAS, ma GLPI non è raggiungibile", "error");
+  } catch (error: unknown) {
+    console.error("GLPI sync exception", getErrorMessage(error, "Errore sconosciuto"));
+    showMessage(
+      isAbortError(error)
+        ? "Ticket creato in ATLAS, ma la sincronizzazione GLPI ha superato il tempo massimo."
+        : "Ticket creato in ATLAS, ma GLPI non e raggiungibile.",
+      "error",
+    );
     return null;
   }
 }

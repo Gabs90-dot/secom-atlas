@@ -1,5 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import mysql from "mysql2/promise";
+
+import type { AtlasRole } from "@/lib/auth";
+import { requireAtlasUser } from "@/lib/server/requireAtlasUser";
+
+const GLPI_FOLLOWUP_ALLOWED_ROLES: readonly AtlasRole[] = ["super_admin", "admin", "manager", "dispatcher"];
+
+type TicketLookupRow = {
+  id: string | number;
+};
 
 function getEnv(name: string) {
   const value = process.env[name];
@@ -28,22 +37,75 @@ function htmlEscape(value: string) {
     .replaceAll("\n", "<br>");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function legacyString(value: unknown): string {
+  return String(value || "").trim();
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "Errore invio followup GLPI";
+}
+
 export async function POST(request: NextRequest) {
   let glpi: mysql.Connection | null = null;
 
   try {
-    const body = await request.json();
+    const body = toRecord(await request.json());
 
-    const ticketId = Number(body?.ticketId);
-    const content = String(body?.content || "").trim();
+    const ticketId = Number(body.ticketId);
+    const content = legacyString(body.content);
+    const tenantId = legacyString(body.tenantId);
 
-    if (!ticketId || !content) {
+    if (!tenantId || !ticketId || !content) {
       return NextResponse.json(
         {
           ok: false,
-          error: "ticketId o content mancanti",
+          error: "tenantId, ticketId o content mancanti",
         },
         { status: 400 },
+      );
+    }
+
+    const auth = await requireAtlasUser(request, {
+      allowedRoles: GLPI_FOLLOWUP_ALLOWED_ROLES,
+      tenantId,
+    });
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const { data: ticketData, error: ticketError } = await auth.serviceClient
+      .from("tickets")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("glpi_ticket_id", ticketId)
+      .maybeSingle();
+
+    if (ticketError) {
+      throw ticketError;
+    }
+
+    const atlasTicket = ticketData as TicketLookupRow | null;
+
+    if (!atlasTicket) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Ticket GLPI non trovato per il tenant.",
+        },
+        { status: 404 },
       );
     }
 
@@ -77,13 +139,13 @@ export async function POST(request: NextRequest) {
       ok: true,
       ticketId,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("GLPI add followup error:", error);
 
     return NextResponse.json(
       {
         ok: false,
-        error: error?.message || "Errore invio followup GLPI",
+        error: getErrorMessage(error),
       },
       { status: 500 },
     );

@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Package,
   PenLine,
+  RefreshCw,
   Send,
   Sparkles,
   UserRound,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import TicketAttachmentsPanel from "@/components/atlas/TicketAttachmentsPanel";
+import type { WorkOrder } from "@/types/work-orders";
 
 export type TicketWorkspaceProps = {
   ticket: any | null;
@@ -33,8 +35,16 @@ type WorkspaceTab =
   | "timeline"
   | "operativita"
   | "materiali"
+  | "bolla"
   | "allegati"
   | "ai";
+
+type EnsureWorkOrderResponse = {
+  ok: boolean;
+  created?: boolean;
+  data?: WorkOrder | null;
+  error?: string;
+};
 
 function normalize(value: any) {
   return String(value || "")
@@ -143,6 +153,109 @@ function ticketCustomerLabel(ticket: any) {
   );
 }
 
+function isWebvimeTicket(ticket: any) {
+  const text = normalize(
+    `${ticket?.site || ""} ${ticket?.entity || ""} ${ticket?.glpi_entity_path || ""} ${ticket?.source || ""} ${ticket?.problem || ""}`,
+  );
+
+  return (
+    text.includes("webvime") ||
+    String(ticket?.site || "").toLowerCase() === "webvime"
+  );
+}
+
+function cleanWebvimeText(ticket: any) {
+  return String(
+    `${ticket?.problem || ""} ${ticket?.description || ""} ${ticket?.content || ""}`,
+  )
+    .replace(/&nbsp;/gi, " ")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+
+function cleanConversationContent(content: string, compact: boolean) {
+  let text = String(content || "");
+  if (!compact) return text;
+
+  const cutPatterns = [
+    /If you have received this message by mistake[\s\S]*/i,
+    /Informazione ad uso interno[\s\S]*/i,
+    /Rispetta l.?ambiente[\s\S]*/i,
+    /Rete Ferroviaria Italiana S\.p\.A\.[\s\S]*/i,
+    /Direzione Sanit[aà][\s\S]*/i,
+  ];
+
+  for (const p of cutPatterns) {
+    text = text.replace(p, "");
+  }
+
+  return text.trim();
+}
+function extractWebvimeOrigin(ticket: any) {
+  const text = cleanWebvimeText(ticket);
+  const lower = text.toLowerCase();
+
+  const directPatterns = [
+    /\bUST\s+([A-ZÀ-Ú][A-Za-zÀ-Úà-ú'’\-\s]{2,45})\b/i,
+    /\bUnit[aà]\s+Sanitaria\s+Territoriale\s+([A-ZÀ-Ú][A-Za-zÀ-Úà-ú'’\-\s]{2,45})\b/i,
+  ];
+
+  for (const pattern of directPatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const city = match[1]
+        .replace(/\b(Rete|Ferroviaria|Italiana|S\.?p\.?A\.?|Direzione|Sanit[aà]|Mail|Piazza|Via|Tel|Telefono|Oggetto|Buongiorno|Saluti).*$/i, "")
+        .replace(/[.,;:]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (city.length >= 2) return `UST ${city}`;
+    }
+  }
+
+  if (
+    lower.includes("via f. a. pigafetta") ||
+    lower.includes("via pigafetta") ||
+    lower.includes("00154 roma") ||
+    lower.includes("direzione sanità") ||
+    lower.includes("direzione sanita")
+  ) {
+    return "UST Roma";
+  }
+
+  if (
+    lower.includes("56125 pisa") ||
+    lower.includes("unità sanitaria territoriale pisa") ||
+    lower.includes("unita sanitaria territoriale pisa")
+  ) {
+    return "UST Pisa";
+  }
+
+  if (
+    /(referto|referti|direzionesanita\.rfi\.it|non riesco ad accedere|accesso al referto|link referto)/i.test(text)
+  ) {
+    return "Utente esterno";
+  }
+
+  return "Provenienza n/d";
+}
+
+function workspaceHeaderTitle(ticket: any, fallbackSite: string) {
+  if (isWebvimeTicket(ticket)) return "Webvime";
+  return fallbackSite || "Sede n/d";
+}
+
+function workspaceHeaderSubtitle(ticket: any, fallbackCustomer: string) {
+  if (isWebvimeTicket(ticket)) {
+    return `RFI / Webvime · ${extractWebvimeOrigin(ticket)} · ${ticket?.technician || ticket?.glpi_technician_group || "Tecnico non assegnato"}`;
+  }
+
+  return `${fallbackCustomer} · ${ticket?.region || "Regione n/d"} · ${ticket?.technician || "Tecnico non assegnato"}`;
+}
+
 function eventVisual(eventType: string) {
   const value = normalize(eventType);
 
@@ -209,15 +322,40 @@ const lifecycleStatuses = [
   "Chiuso",
 ];
 
+const workOrderTemplateOptions = [
+  { key: "ordinaria", label: "Ordinaria" },
+  { key: "straordinaria", label: "Straordinaria" },
+  { key: "verifica_on_site", label: "Verifica on site" },
+  { key: "assistenza_software", label: "Assistenza software" },
+  { key: "sostituzione_materiale", label: "Sostituzione materiale" },
+  { key: "custom", label: "Modello personalizzato" },
+];
+
 export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated }: TicketWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
   const [events, setEvents] = useState<any[]>([]);
+  const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
+  const [workOrderLoading, setWorkOrderLoading] = useState(false);
+  const [workOrderError, setWorkOrderError] = useState("");
   const [currentStatus, setCurrentStatus] = useState("Aperto");
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingAction, setSavingAction] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
+  const [closeAfterReply, setCloseAfterReply] = useState(true);
+  const [syncingConversation, setSyncingConversation] = useState(false);
+  const [conversationMessage, setConversationMessage] = useState("");
+  const [compactConversation, setCompactConversation] = useState(true);
+  const [durationMinutes, setDurationMinutes] = useState("");
+  const [savingDuration, setSavingDuration] = useState(false);
+  const [durationMessage, setDurationMessage] = useState("");
+  const [reportBodyDraft, setReportBodyDraft] = useState("");
+  const [savingReportBody, setSavingReportBody] = useState(false);
+  const [reportBodyMessage, setReportBodyMessage] = useState("");
+  const [templateKeyDraft, setTemplateKeyDraft] = useState("custom");
+  const [savingTemplateKey, setSavingTemplateKey] = useState(false);
+  const [templateKeyMessage, setTemplateKeyMessage] = useState("");
 
   useEffect(() => {
     if (!ticket) return;
@@ -225,30 +363,115 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
     setActiveTab("overview");
   }, [ticket?.id]);
 
-  useEffect(() => {
-    async function loadEvents() {
-      if (!ticket?.id) {
-        setEvents([]);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("ticket_events")
-        .select("*")
-        .eq("ticket_id", Number(ticket.id))
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.log(error);
-        setEvents([]);
-        return;
-      }
-
-      setEvents(data || []);
+  async function loadTicketEvents() {
+    if (!ticket?.id) {
+      setEvents([]);
+      return;
     }
 
-    if (open) loadEvents();
+    const { data, error } = await supabase
+      .from("ticket_events")
+      .select("*")
+      .eq("ticket_id", Number(ticket.id))
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.log(error);
+      setEvents([]);
+      return;
+    }
+
+    setEvents(data || []);
+  }
+
+  useEffect(() => {
+    if (open) loadTicketEvents();
   }, [ticket?.id, open]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function ensureWorkOrder() {
+      if (!open || !ticket?.id) {
+        setWorkOrder(null);
+        setWorkOrderError("");
+        setWorkOrderLoading(false);
+        return;
+      }
+
+      const tenantId = String(ticket.tenantId || ticket.tenant_id || "").trim();
+
+      if (!tenantId) {
+        setWorkOrder(null);
+        setWorkOrderError("tenantId mancante: impossibile caricare la bolla.");
+        setWorkOrderLoading(false);
+        return;
+      }
+
+      setWorkOrderLoading(true);
+      setWorkOrderError("");
+
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+
+        if (!accessToken) {
+          throw new Error("Sessione scaduta. Fai logout/login e riprova.");
+        }
+
+        const response = await fetch("/api/work-orders/ensure", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            tenantId,
+            ticketId: Number(ticket.id),
+          }),
+        });
+
+        const result = (await response.json().catch(() => null)) as EnsureWorkOrderResponse | null;
+
+        if (!response.ok || !result?.ok) {
+          throw new Error(result?.error || "Errore caricamento bolla.");
+        }
+
+        if (!mounted) return;
+        setWorkOrder(result.data ?? null);
+      } catch (error: unknown) {
+        if (!mounted) return;
+        setWorkOrder(null);
+        setWorkOrderError(error instanceof Error && error.message ? error.message : "Errore caricamento bolla.");
+      } finally {
+        if (mounted) {
+          setWorkOrderLoading(false);
+        }
+      }
+    }
+
+    ensureWorkOrder();
+
+    return () => {
+      mounted = false;
+    };
+  }, [ticket?.id, open]);
+
+  useEffect(() => {
+    const rawDuration =
+      (workOrder as any)?.duration_minutes ??
+      (workOrder as any)?.intervention_duration_minutes ??
+      ticket?.intervention_duration_minutes ??
+      ticket?.duration_minutes ??
+      "";
+
+    setDurationMinutes(rawDuration ? String(rawDuration) : "");
+    setDurationMessage("");
+    setReportBodyDraft(String((workOrder as any)?.report_body || ""));
+    setReportBodyMessage("");
+    setTemplateKeyDraft(String((workOrder as any)?.template_key || "custom"));
+    setTemplateKeyMessage("");
+  }, [workOrder?.id, ticket?.id]);
 
   const normalizedTicket = useMemo(() => {
     if (!ticket) return null;
@@ -293,7 +516,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
     const communicationEvents = events
       .filter((event) =>
-        ["glpi_ticket_content", "glpi_followup", "glpi_solution", "atlas_reply_sent"].includes(
+        ["glpi_ticket_content", "glpi_followup", "glpi_solution"].includes(
           String(event.event_type || ""),
         ),
       )
@@ -317,7 +540,6 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
     const author = normalize(event.created_by || "");
 
     return (
-      type === "atlas_reply_sent" ||
       type === "glpi_solution" ||
       author.includes("operatore") ||
       author.includes("secom") ||
@@ -428,18 +650,67 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
   }
 
 
+  async function refreshGlpiConversation() {
+    if (!ticket?.id) return;
+
+    setConversationMessage("");
+    setSyncingConversation(true);
+
+    try {
+      if (ticket?.glpi_ticket_id && (ticket.tenantId || ticket.tenant_id)) {
+        const response = await fetch("/api/admin/glpi-sync-db", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            tenantId: ticket.tenantId || ticket.tenant_id,
+            glpiTicketId: ticket.glpi_ticket_id,
+          }),
+        });
+
+        const result = await response.json().catch(() => null);
+
+        if (!response.ok || !result?.ok) {
+          throw new Error(result?.error || "Sincronizzazione GLPI non riuscita.");
+        }
+      }
+
+      await loadTicketEvents();
+      setConversationMessage("Conversazione aggiornata.");
+      window.setTimeout(() => setConversationMessage(""), 2500);
+    } catch (error: any) {
+      console.log(error);
+      setConversationMessage(error?.message || "Errore aggiornamento conversazione.");
+    } finally {
+      setSyncingConversation(false);
+    }
+  }
+
+
   async function sendGlpiReply() {
     if (!ticket?.glpi_ticket_id || !replyDraft.trim()) return;
 
     setSendingReply(true);
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        alert("Sessione scaduta. Fai logout/login e riprova.");
+        setSendingReply(false);
+        return;
+      }
+
       const response = await fetch("/api/admin/glpi-add-followup", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
+          tenantId: ticket.tenantId || ticket.tenant_id,
           ticketId: ticket.glpi_ticket_id,
           content: replyDraft.trim(),
         }),
@@ -453,43 +724,136 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
         return;
       }
 
-      await createTicketEvent({
-        event_type: "atlas_reply_sent",
-        title: "Risposta inviata da ATLAS",
-        description: replyDraft.trim(),
-        metadata: {
-          source: "atlas_reply",
-          glpi_ticket_id: ticket.glpi_ticket_id,
-        },
-      });
+      if (closeAfterReply) {
+        await updateStatus("Chiuso");
+      }
 
       setReplyDraft("");
-
-      // Rilegge subito il ticket GLPI per recuperare il follow-up appena inserito.
-      await fetch("/api/admin/glpi-sync-db", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          tenantId: ticket.tenantId || ticket.tenant_id,
-          glpiTicketId: ticket.glpi_ticket_id,
-        }),
-      }).catch(() => null);
-
-      const { data } = await supabase
-        .from("ticket_events")
-        .select("*")
-        .eq("ticket_id", Number(ticket.id))
-        .order("created_at", { ascending: false });
-
-      setEvents(data || []);
+      await refreshGlpiConversation();
     } catch (error) {
       console.log(error);
       alert("Errore invio risposta GLPI");
     }
 
     setSendingReply(false);
+  }
+
+  async function saveWorkOrderDuration() {
+    if (!ticket?.id) return;
+
+    const parsed = Number(durationMinutes);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setDurationMessage("Inserisci una durata valida in minuti.");
+      return;
+    }
+
+    setSavingDuration(true);
+    setDurationMessage("");
+
+    try {
+      const minutes = Math.round(parsed);
+      const ticketId = Number(ticket.id);
+      const updates: PromiseLike<any>[] = [];
+
+      if (workOrder?.id) {
+        updates.push(
+          supabase
+            .from("work_orders")
+            .update({ duration_minutes: minutes })
+            .eq("id", workOrder.id),
+        );
+      }
+
+      updates.push(
+        supabase
+          .from("tickets")
+          .update({ intervention_duration_minutes: minutes })
+          .eq("id", ticketId),
+      );
+
+      const results = await Promise.all(updates);
+      const failed = results.find((result: any) => result?.error);
+
+      if (failed?.error) {
+        throw failed.error;
+      }
+
+      if (workOrder) {
+        setWorkOrder({ ...(workOrder as any), duration_minutes: minutes } as WorkOrder);
+      }
+
+      onStatusUpdated?.({
+        ...ticket,
+        intervention_duration_minutes: minutes,
+      });
+
+      setDurationMessage("Durata salvata. Comparira sulla bolla PDF e nel registro appena il registro legge il campo.");
+      window.setTimeout(() => setDurationMessage(""), 3500);
+    } catch (error: any) {
+      console.log(error);
+      setDurationMessage(error?.message || "Errore salvataggio durata. Controlla se hai eseguito la migrazione SQL.");
+    } finally {
+      setSavingDuration(false);
+    }
+  }
+
+  async function saveWorkOrderTemplateKey() {
+    if (!ticket?.id || !workOrder?.id) return;
+
+    setSavingTemplateKey(true);
+    setTemplateKeyMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("work_orders")
+        .update({ template_key: templateKeyDraft })
+        .eq("id", workOrder.id);
+
+      if (error) throw error;
+
+      setWorkOrder({ ...(workOrder as any), template_key: templateKeyDraft } as WorkOrder);
+      setTemplateKeyMessage("Modello bolla salvato. Il PDF usera il modello selezionato se non compili manualmente le attivita.");
+      window.setTimeout(() => setTemplateKeyMessage(""), 3500);
+    } catch (error: any) {
+      console.log(error);
+      setTemplateKeyMessage(error?.message || "Errore salvataggio modello bolla.");
+    } finally {
+      setSavingTemplateKey(false);
+    }
+  }
+
+  async function saveWorkOrderReportBody() {
+    if (!ticket?.id) return;
+
+    setSavingReportBody(true);
+    setReportBodyMessage("");
+
+    try {
+      if (!workOrder?.id) {
+        throw new Error("Bolla non ancora disponibile. Riapri il ticket o attendi il caricamento.");
+      }
+
+      const { error } = await supabase
+        .from("work_orders")
+        .update({ report_body: reportBodyDraft.trim() || null })
+        .eq("id", workOrder.id);
+
+      if (error) throw error;
+
+      setWorkOrder({ ...(workOrder as any), report_body: reportBodyDraft.trim() || null } as WorkOrder);
+      setReportBodyMessage("Attivita bolla salvate. Il PDF usera questo testo al posto del modello automatico.");
+      window.setTimeout(() => setReportBodyMessage(""), 3500);
+    } catch (error: any) {
+      console.log(error);
+      setReportBodyMessage(error?.message || "Errore salvataggio attivita bolla. Controlla SQL report_body.");
+    } finally {
+      setSavingReportBody(false);
+    }
+  }
+
+  function openWorkOrderPdf() {
+    if (!ticket?.id) return;
+    window.open(`/api/work-orders/pdf-by-ticket/${ticket.id}`, "_blank", "noopener,noreferrer");
   }
 
   async function updateStatus(nextStatus: string) {
@@ -546,6 +910,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
     { key: "timeline", label: "Timeline", icon: History },
     { key: "operativita", label: "Operatività", icon: PenLine },
     { key: "materiali", label: "Materiali", icon: Package },
+    { key: "bolla", label: "Bolla", icon: FileText },
     { key: "allegati", label: "Allegati", icon: FileText },
     { key: "ai", label: "Insight AI", icon: Sparkles },
   ];
@@ -558,10 +923,10 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
             <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-300">Ticket Workspace</p>
               <h2 className="mt-2 break-words text-2xl font-black text-white md:text-4xl">
-                #{normalizedTicket.id} · {normalizedTicket.site || "Sede n/d"}
+                #{normalizedTicket.id} · {workspaceHeaderTitle(normalizedTicket, normalizedTicket.site)}
               </h2>
               <p className="mt-2 break-words text-sm font-bold text-slate-400">
-                {normalizedTicket.customerLabel} · {normalizedTicket.region || "Regione n/d"} · {normalizedTicket.technician || "Tecnico non assegnato"}
+                {workspaceHeaderSubtitle(normalizedTicket, normalizedTicket.customerLabel)}
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(normalizedTicket.readableStatus)}`}>
@@ -696,10 +1061,10 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
           )}
 
           {activeTab === "conversazione" && (
-            <div className="grid min-h-[calc(100vh-260px)] gap-4 xl:grid-cols-[1fr_380px]">
+            <div className="grid min-h-[calc(100vh-260px)] gap-4">
               <section className="flex min-h-[560px] flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.045]">
                 <div className="border-b border-white/10 bg-slate-950/35 p-5">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
                         Conversazione ticket
@@ -707,16 +1072,26 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                       <h3 className="mt-2 text-xl font-black text-white">
                         Botta e risposta GLPI
                       </h3>
-                      <p className="mt-2 text-sm font-bold text-slate-400">
-                        Qui vedi richiesta iniziale, follow-up, soluzioni e risposte inviate da ATLAS nello stesso flusso conversazionale.
-                      </p>
+                      {conversationMessage && (
+                        <p className="mt-3 w-fit rounded-2xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-black text-blue-100">
+                          {conversationMessage}
+                        </p>
+                      )}
+                      <label className="mt-3 flex items-center gap-2 text-xs font-black text-slate-300">
+                        <input type="checkbox" checked={compactConversation} onChange={(e)=>setCompactConversation(e.target.checked)} />
+                        Nascondi firme e disclaimer
+                      </label>
                     </div>
 
-                    {normalizedTicket.glpi_ticket_id && (
-                      <span className="w-fit rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-xs font-black text-emerald-200">
-                        Collegato a GLPI #{normalizedTicket.glpi_ticket_id}
-                      </span>
-                    )}
+                    <button
+                      type="button"
+                      onClick={refreshGlpiConversation}
+                      disabled={syncingConversation || !normalizedTicket.glpi_ticket_id}
+                      className="inline-flex w-fit items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-2 text-xs font-black text-white hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <RefreshCw size={15} className={syncingConversation ? "animate-spin" : ""} />
+                      {syncingConversation ? "Aggiorno..." : "Aggiorna"}
+                    </button>
                   </div>
                 </div>
 
@@ -746,17 +1121,14 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                                   : "border-white/10 bg-slate-900/90 text-slate-100"
                               }`}
                             >
-                              <div className="mb-2 flex flex-wrap items-center gap-2">
+                              <div className="mb-2">
                                 <span className="rounded-full bg-black/20 px-2 py-1 text-[10px] font-black uppercase tracking-wide opacity-80">
                                   {conversationRoleLabel(event)}
-                                </span>
-                                <span className="rounded-full bg-black/20 px-2 py-1 text-[10px] font-black uppercase tracking-wide opacity-70">
-                                  {isSolution ? "Soluzione" : type === "atlas_reply_sent" ? "Risposta ATLAS" : type === "glpi_ticket_content" ? "Richiesta" : "Follow-up"}
                                 </span>
                               </div>
 
                               <p className="whitespace-pre-wrap text-sm font-bold leading-relaxed">
-                                {event.description || "—"}
+                                {cleanConversationContent(event.description || "—", compactConversation)}
                               </p>
 
                               <p className="mt-3 text-right text-[11px] font-black uppercase tracking-wide opacity-70">
@@ -769,73 +1141,45 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                     </div>
                   )}
                 </div>
-              </section>
 
-              <aside className="grid content-start gap-4">
-                <div className="rounded-[2rem] border border-emerald-500/20 bg-emerald-500/10 p-5">
-                  <div className="flex items-center gap-2">
-                    <Send className="text-emerald-300" size={18} />
-                    <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-300">
-                      Rispondi tramite GLPI
-                    </p>
-                  </div>
-
-                  <p className="mt-2 text-sm font-bold text-slate-300">
-                    La risposta viene aggiunta come follow-up GLPI. Sarà GLPI a gestire la notifica email al richiedente, mantenendo il botta e risposta nello stesso ticket.
-                  </p>
-
+                <div className="border-t border-white/10 bg-slate-950/35 p-5">
                   {!normalizedTicket.glpi_ticket_id ? (
-                    <div className="mt-4 rounded-3xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
-                      Questo ticket non ha un ID GLPI associato: non posso inviare follow-up a GLPI.
+                    <div className="rounded-3xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
+                      Questo ticket non ha un ID GLPI associato: non posso inviare una risposta.
                     </div>
                   ) : (
-                    <>
+                    <div className="grid gap-3">
                       <textarea
                         value={replyDraft}
                         onChange={(event) => setReplyDraft(event.target.value)}
                         placeholder="Scrivi risposta al richiedente..."
-                        className="mt-4 min-h-48 w-full rounded-3xl border border-white/10 bg-slate-950/60 p-4 text-sm font-bold text-white outline-none placeholder:text-slate-500"
+                        className="min-h-28 w-full rounded-3xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold text-white outline-none placeholder:text-slate-500"
                       />
 
-                      <button
-                        type="button"
-                        onClick={sendGlpiReply}
-                        disabled={sendingReply || !replyDraft.trim()}
-                        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Send size={16} />
-                        {sendingReply ? "Invio a GLPI..." : "Invia risposta GLPI"}
-                      </button>
-                    </>
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <label className="flex items-center gap-2 text-sm font-bold text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={closeAfterReply}
+                            onChange={(e) => setCloseAfterReply(e.target.checked)}
+                          />
+                          Chiudi ticket dopo la risposta
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={sendGlpiReply}
+                          disabled={sendingReply || !replyDraft.trim()}
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Send size={16} />
+                          {sendingReply ? "Invio..." : (closeAfterReply ? "Rispondi e chiudi" : "Rispondi")}
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
-
-                <div className="rounded-[2rem] border border-white/10 bg-white/[0.045] p-5">
-                  <p className="text-xs font-black uppercase tracking-[0.25em] text-slate-500">
-                    Contesto rapido
-                  </p>
-                  <div className="mt-4 grid gap-3 text-sm font-bold text-slate-300">
-                    <div className="rounded-2xl bg-slate-950/40 p-3">
-                      <span className="block text-xs font-black uppercase tracking-wide text-slate-500">Stato</span>
-                      <span className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusTone(normalizedTicket.readableStatus)}`}>
-                        {normalizedTicket.readableStatus}
-                      </span>
-                    </div>
-                    <div className="rounded-2xl bg-slate-950/40 p-3">
-                      <span className="block text-xs font-black uppercase tracking-wide text-slate-500">Cliente</span>
-                      <span className="mt-1 block break-words text-white">{normalizedTicket.customerLabel}</span>
-                    </div>
-                    <div className="rounded-2xl bg-slate-950/40 p-3">
-                      <span className="block text-xs font-black uppercase tracking-wide text-slate-500">Tecnico / gruppo</span>
-                      <span className="mt-1 block break-words text-white">{normalizedTicket.technician || normalizedTicket.glpi_technician_group || "Non assegnato"}</span>
-                    </div>
-                    <div className="rounded-2xl bg-slate-950/40 p-3">
-                      <span className="block text-xs font-black uppercase tracking-wide text-slate-500">Messaggi</span>
-                      <span className="mt-1 block text-white">{conversationEvents.length}</span>
-                    </div>
-                  </div>
-                </div>
-              </aside>
+              </section>
             </div>
           )}
 
@@ -958,20 +1302,20 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
               )}
 
               <div className="grid gap-3">
-                {events.filter((event) => ["note_added", "ticket_status_changed", "ticket_closed", "urgent_enabled", "urgent_disabled", "atlas_reply_sent"].includes(event.event_type)).length === 0 ? (
+                {events.filter((event) => ["note_added", "ticket_status_changed", "ticket_closed", "urgent_enabled", "urgent_disabled"].includes(event.event_type)).length === 0 ? (
                   <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-slate-400">
                     Nessuna attività operativa registrata nel workspace.
                   </div>
                 ) : (
                   events
-                    .filter((event) => ["note_added", "ticket_status_changed", "ticket_closed", "urgent_enabled", "urgent_disabled", "atlas_reply_sent"].includes(event.event_type))
+                    .filter((event) => ["note_added", "ticket_status_changed", "ticket_closed", "urgent_enabled", "urgent_disabled"].includes(event.event_type))
                     .map((event) => (
                       <div key={event.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-sm font-black text-white">{event.title || "Attività"}</p>
                           <span className="text-[11px] font-black uppercase tracking-wide text-blue-300">{formatDateTime(event.created_at)}</span>
                         </div>
-                        <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-relaxed text-slate-300">{event.description || "—"}</p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-relaxed text-slate-300">{cleanConversationContent(event.description || "—", compactConversation)}</p>
                       </div>
                     ))
                 )}
@@ -987,6 +1331,174 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                   ? (normalizedTicket.materialIds || []).join(" + ")
                   : "Nessun materiale collegato al ticket."}
               </p>
+            </div>
+          )}
+
+          {activeTab === "bolla" && (
+            <div className="grid gap-4">
+              <section className="rounded-[2rem] border border-white/10 bg-white/[0.055] p-5">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">Bolla</p>
+                    <h3 className="mt-2 text-xl font-black text-white">Rapporto di intervento</h3>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {workOrder?.status === "draft" && (
+                      <span className="w-fit rounded-full border border-amber-500/30 bg-amber-500/15 px-3 py-1 text-xs font-black text-amber-100">
+                        Bolla in bozza
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={openWorkOrderPdf}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-500"
+                    >
+                      <FileText size={15} />
+                      Genera PDF
+                    </button>
+                  </div>
+                </div>
+
+                {workOrderLoading && (
+                  <div className="mt-5 rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5 text-sm font-black text-blue-100">
+                    Caricamento bolla...
+                  </div>
+                )}
+
+                {!workOrderLoading && workOrderError && (
+                  <div className="mt-5 rounded-3xl border border-red-500/30 bg-red-500/15 p-5 text-sm font-bold text-red-100">
+                    {workOrderError}
+                  </div>
+                )}
+
+                {!workOrderLoading && !workOrderError && !workOrder && (
+                  <div className="mt-5 rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-slate-400">
+                    Nessuna bolla disponibile per questo ticket.
+                  </div>
+                )}
+
+                {!workOrderLoading && !workOrderError && workOrder && (
+                  <div className="mt-5 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">Stato bolla</p>
+                      <p className="mt-2 font-black text-white">{workOrder.status}</p>
+                    </div>
+                    <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">Numero rapporto</p>
+                      <p className="mt-2 font-black text-white">{workOrder.report_number || "Non assegnato"}</p>
+                    </div>
+                    <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4 md:col-span-2">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">Oggetto intervento</p>
+                      <p className="mt-2 whitespace-pre-wrap font-black text-white">{workOrder.intervention_object || "Oggetto non definito"}</p>
+                    </div>
+                    <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">Template</p>
+                      <p className="mt-2 break-words font-black text-white">{workOrder.template_key}</p>
+                    </div>
+                    <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">Tecnico</p>
+                      <p className="mt-2 break-words font-black text-white">{workOrder.technician_name || "Non assegnato"}</p>
+                    </div>
+                    <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">Data apertura</p>
+                      <p className="mt-2 font-black text-white">{formatDateTime(workOrder.opened_at)}</p>
+                    </div>
+
+                    <div className="rounded-3xl border border-violet-500/20 bg-violet-500/10 p-4 md:col-span-2">
+                      <p className="text-xs font-black uppercase tracking-wide text-violet-300">Modello bolla</p>
+                      <p className="mt-2 text-xs font-bold text-slate-300">
+                        Il modello decide oggetto, attivita standard, visibilita materiali e campi obbligatori. Il cliente non vede il nome del modello nel PDF.
+                      </p>
+                      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                        <label className="grid gap-2 text-sm font-black text-slate-300">
+                          Seleziona modello
+                          <select
+                            value={templateKeyDraft}
+                            onChange={(event) => setTemplateKeyDraft(event.target.value)}
+                            className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold text-white outline-none"
+                          >
+                            {workOrderTemplateOptions.map((option) => (
+                              <option key={option.key} value={option.key}>{option.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={saveWorkOrderTemplateKey}
+                          disabled={savingTemplateKey || templateKeyDraft === String((workOrder as any)?.template_key || "custom")}
+                          className="rounded-2xl bg-violet-600 px-5 py-3 text-sm font-black text-white hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {savingTemplateKey ? "Salvo..." : "Salva modello"}
+                        </button>
+                      </div>
+                      {templateKeyMessage && (
+                        <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-black text-slate-200">
+                          {templateKeyMessage}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-4 md:col-span-2">
+                      <p className="text-xs font-black uppercase tracking-wide text-blue-300">Durata intervento</p>
+                      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                        <label className="grid gap-2 text-sm font-black text-slate-300">
+                          Minuti effettivi da riportare in bolla
+                          <input
+                            type="number"
+                            min="0"
+                            step="5"
+                            value={durationMinutes}
+                            onChange={(event) => setDurationMinutes(event.target.value)}
+                            placeholder="Es. 90"
+                            className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm font-bold text-white outline-none placeholder:text-slate-500"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={saveWorkOrderDuration}
+                          disabled={savingDuration || !durationMinutes.trim()}
+                          className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {savingDuration ? "Salvo..." : "Salva durata"}
+                        </button>
+                      </div>
+                      {durationMessage && (
+                        <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-black text-slate-200">
+                          {durationMessage}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-4 md:col-span-2">
+                      <p className="text-xs font-black uppercase tracking-wide text-emerald-300">Attivita da riportare in bolla</p>
+                      <p className="mt-2 text-xs font-bold text-slate-300">
+                        Se lasci vuoto, il PDF usa le attivita standard del modello selezionato. Se scrivi qui, questo testo sovrascrive il modello solo per questo ticket.
+                      </p>
+                      <textarea
+                        value={reportBodyDraft}
+                        onChange={(event) => setReportBodyDraft(event.target.value)}
+                        placeholder="Esempio: Verifica richiesta utente e controllo preliminare apparato/postazione. Intervento eseguito secondo indicazioni operative del ticket. Eventuali note finali compilabili dal tecnico prima della chiusura."
+                        className="mt-3 min-h-36 w-full rounded-3xl border border-white/10 bg-slate-950/70 p-4 text-sm font-bold text-white outline-none placeholder:text-slate-500"
+                      />
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={saveWorkOrderReportBody}
+                          disabled={savingReportBody}
+                          className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {savingReportBody ? "Salvo..." : "Salva attivita bolla"}
+                        </button>
+                      </div>
+                      {reportBodyMessage && (
+                        <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-black text-slate-200">
+                          {reportBodyMessage}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </section>
             </div>
           )}
 

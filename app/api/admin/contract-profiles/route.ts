@@ -1,29 +1,36 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse, type NextRequest } from "next/server";
+
+import type { AtlasRole } from "@/lib/auth";
+import { requireAtlasUser } from "@/lib/server/requireAtlasUser";
 
 export const runtime = "nodejs";
 
-function getEnv(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing env ${name}`);
-  return value;
+const CONTRACT_PROFILE_ALLOWED_ROLES: readonly AtlasRole[] = ["super_admin", "admin", "manager", "commerciale"];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
-function getTenantId(request: NextRequest, body?: any) {
+function toRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function legacyString(value: unknown): string {
+  return String(value || "").trim();
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function getTenantId(request: NextRequest, body?: Record<string, unknown>) {
   return (
-    request.nextUrl.searchParams.get("tenantId") ||
-    body?.tenantId ||
-    body?.tenant_id ||
+    legacyString(request.nextUrl.searchParams.get("tenantId")) ||
+    legacyString(body?.tenantId) ||
+    legacyString(body?.tenant_id) ||
     process.env.ATLAS_DEFAULT_TENANT_ID ||
     process.env.NEXT_PUBLIC_ATLAS_DEFAULT_TENANT_ID ||
     ""
-  );
-}
-
-function supabaseAdmin() {
-  return createClient(
-    getEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    getEnv("SUPABASE_SERVICE_ROLE_KEY"),
   );
 }
 
@@ -38,10 +45,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const auth = await requireAtlasUser(request, {
+      allowedRoles: CONTRACT_PROFILE_ALLOWED_ROLES,
+      tenantId,
+    });
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     const search = request.nextUrl.searchParams.get("search") || "";
     const activeOnly = request.nextUrl.searchParams.get("activeOnly") !== "false";
 
-    let query = supabaseAdmin()
+    let query = auth.serviceClient
       .from("contract_profiles")
       .select("*")
       .eq("tenant_id", tenantId)
@@ -62,10 +78,10 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ ok: true, data: data || [] });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("CONTRACT PROFILES GET ERROR", error);
     return NextResponse.json(
-      { ok: false, error: error?.message || "Errore caricamento contratti" },
+      { ok: false, error: getErrorMessage(error, "Errore caricamento contratti") },
       { status: 500 },
     );
   }
@@ -74,7 +90,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
-    const tenantId = getTenantId(request, body);
+    const bodyRecord = toRecord(body);
+    const tenantId = getTenantId(request, bodyRecord);
 
     if (!tenantId) {
       return NextResponse.json(
@@ -83,16 +100,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const payload = {
-      ...body,
+    const auth = await requireAtlasUser(request, {
+      allowedRoles: CONTRACT_PROFILE_ALLOWED_ROLES,
+      tenantId,
+    });
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const payload: Record<string, unknown> = {
+      ...bodyRecord,
       tenant_id: tenantId,
       updated_at: new Date().toISOString(),
     };
 
-    delete (payload as any).tenantId;
-    delete (payload as any).id;
+    delete payload.tenantId;
+    delete payload.id;
 
-    const { data, error } = await supabaseAdmin()
+    const { data, error } = await auth.serviceClient
       .from("contract_profiles")
       .insert(payload)
       .select()
@@ -101,10 +127,10 @@ export async function POST(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ ok: true, data });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("CONTRACT PROFILES POST ERROR", error);
     return NextResponse.json(
-      { ok: false, error: error?.message || "Errore creazione contratto" },
+      { ok: false, error: getErrorMessage(error, "Errore creazione contratto") },
       { status: 500 },
     );
   }
@@ -113,8 +139,9 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
-    const tenantId = getTenantId(request, body);
-    const id = body?.id;
+    const bodyRecord = toRecord(body);
+    const tenantId = getTenantId(request, bodyRecord);
+    const id = bodyRecord.id;
 
     if (!tenantId || !id) {
       return NextResponse.json(
@@ -123,17 +150,26 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const payload = {
-      ...body,
+    const auth = await requireAtlasUser(request, {
+      allowedRoles: CONTRACT_PROFILE_ALLOWED_ROLES,
+      tenantId,
+    });
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const payload: Record<string, unknown> = {
+      ...bodyRecord,
       updated_at: new Date().toISOString(),
     };
 
-    delete (payload as any).tenantId;
-    delete (payload as any).tenant_id;
-    delete (payload as any).id;
-    delete (payload as any).created_at;
+    delete payload.tenantId;
+    delete payload.tenant_id;
+    delete payload.id;
+    delete payload.created_at;
 
-    const { data, error } = await supabaseAdmin()
+    const { data, error } = await auth.serviceClient
       .from("contract_profiles")
       .update(payload)
       .eq("tenant_id", tenantId)
@@ -144,10 +180,10 @@ export async function PATCH(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ ok: true, data });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("CONTRACT PROFILES PATCH ERROR", error);
     return NextResponse.json(
-      { ok: false, error: error?.message || "Errore aggiornamento contratto" },
+      { ok: false, error: getErrorMessage(error, "Errore aggiornamento contratto") },
       { status: 500 },
     );
   }

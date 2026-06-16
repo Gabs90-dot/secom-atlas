@@ -78,6 +78,25 @@ function buildTicketContent(payload: GlpiTicketPayload) {
   ].join("");
 }
 
+function buildSafePayloadSummary(payload: GlpiTicketPayload) {
+  return {
+    atlasTicketId: payload.atlasTicketId ?? null,
+    hasTitle: Boolean(payload.title?.trim()),
+    hasProblem: Boolean(payload.problem?.trim()),
+    hasSite: Boolean(payload.site?.trim()),
+    hasEntity: Boolean(payload.entity?.trim()),
+    hasRegion: Boolean(payload.region?.trim()),
+    glpiEntityIdPresent: Boolean(payload.glpiEntityId),
+    materialCount: payload.materialIds?.length || payload.materials?.length || 0,
+    ticketType: payload.ticketType || payload.ticketCategory || null,
+    ticketStatus: payload.ticketStatus || payload.status || null,
+  };
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export async function POST(request: Request) {
   const apiUrl = process.env.GLPI_API_URL;
   const appToken = process.env.GLPI_APP_TOKEN;
@@ -95,6 +114,20 @@ export async function POST(request: Request) {
 
   const payload = (await request.json()) as GlpiTicketPayload;
   const baseUrl = cleanBaseUrl(apiUrl);
+  const payloadSummary = buildSafePayloadSummary(payload);
+
+  if (!payload.glpiEntityId) {
+    console.warn("GLPI create-ticket rejected: missing entity", payloadSummary);
+    return NextResponse.json(
+      {
+        ok: false,
+        stage: "validatePayload",
+        code: "missing_glpi_entity",
+        error: "Entita GLPI mancante.",
+      },
+      { status: 400 }
+    );
+  }
 
   let sessionToken = "";
 
@@ -151,6 +184,11 @@ export async function POST(request: Request) {
     const ticketData = await ticketResponse.json().catch(() => null);
 
     if (!ticketResponse.ok) {
+      console.error("GLPI create-ticket failed", {
+        ...payloadSummary,
+        stage: "createTicket",
+        status: ticketResponse.status,
+      });
       return NextResponse.json(
         {
           ok: false,
@@ -168,11 +206,15 @@ export async function POST(request: Request) {
       glpiEntityId: payload.glpiEntityId ?? null,
       glpiResponse: ticketData,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    console.error("GLPI create-ticket exception", {
+      ...payloadSummary,
+      message: getErrorMessage(error, "Errore sconosciuto"),
+    });
     return NextResponse.json(
       {
         ok: false,
-        error: error?.message || "GLPI non raggiungibile dal server Next.js.",
+        error: getErrorMessage(error, "GLPI non raggiungibile dal server Next.js."),
       },
       { status: 502 }
     );

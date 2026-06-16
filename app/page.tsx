@@ -62,6 +62,7 @@ const CustomerPortal = dynamic(() => import("@/components/atlas/CustomerPortal")
 const UserManagementCenter = dynamic(() => import("@/components/atlas/UserManagementCenter"), { ssr: false });
 const GlpiImportCenter = dynamic(() => import("@/components/atlas/GlpiImportCenter"), { ssr: false });
 const DispatchCenter = dynamic(() => import("@/components/atlas/DispatchCenter"), { ssr: false });
+const OperationalPlansCenter = dynamic(() => import("@/components/atlas/OperationalPlansCenter"), { ssr: false });
 const GlobalActivityFeed = dynamic(() => import("@/components/atlas/GlobalActivityFeed"), { ssr: false });
 const WebvimeBoard = dynamic(() => import("@/components/atlas/WebvimeBoard"), { ssr: false });
 const TodoListPanel = dynamic(() => import("@/components/atlas/TodoListPanel"), { ssr: false });
@@ -712,6 +713,27 @@ type PublicCustomerOption = {
   name: string;
 };
 
+type TicketFormSourceCustomer = {
+  id?: string | number | null;
+  name?: string | null;
+};
+
+type TicketFormSourceSite = {
+  id?: string | number | null;
+  name?: string | null;
+  region?: string | null;
+  entity?: string | null;
+  city?: string | null;
+  customer_id?: string | null;
+  customerId?: string | null;
+  customer_entity_id?: string | null;
+  customerEntityId?: string | null;
+  glpi_entity_id?: string | number | null;
+  glpiEntityId?: string | number | null;
+  glpi_entity_path?: string | null;
+  complete_name?: string | null;
+};
+
 type CustomerRegistrationPayload = {
   email: string;
   password: string;
@@ -726,6 +748,16 @@ const CUSTOMER_AUTH_DEFAULT_ROLE = "cliente_user";
 
 function cleanEmail(value: string) {
   return value.trim().toLowerCase();
+}
+
+function toPositiveNumberOrNull(value: unknown) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function toNullableString(value: unknown) {
+  const text = String(value || "").trim();
+  return text ? text : null;
 }
 
 export default function Home() {
@@ -1121,6 +1153,8 @@ export default function Home() {
   const [entity, setEntity] = useState("");
   const [city, setCity] = useState("");
   const [siteId, setSiteId] = useState<number | null>(null);
+  const [selectedGlpiEntityId, setSelectedGlpiEntityId] = useState<number | null>(null);
+  const [selectedGlpiEntityPath, setSelectedGlpiEntityPath] = useState("");
 
   const [ticketTitle, setTicketTitle] = useState("");
   const [problem, setProblem] = useState("");
@@ -1134,6 +1168,7 @@ export default function Home() {
   const [ticketTypesById, setTicketTypesById] = useState<
     Record<string, AtlasTicketCategory>
   >({});
+  const [creatingTicket, setCreatingTicket] = useState(false);
 
   const [closingNotes, setClosingNotes] = useState("");
   const [futureNeeds, setFutureNeeds] = useState("");
@@ -1158,6 +1193,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<
     | "home"
     | "dispatch"
+    | "piani"
     | "webvime"
     | "todo"
     | "manuali"
@@ -1296,6 +1332,7 @@ export default function Home() {
   const [mobileView, setMobileView] = useState<
     | "home"
     | "dispatch"
+    | "piani"
     | "webvime"
     | "todo"
     | "manuali"
@@ -1460,10 +1497,10 @@ export default function Home() {
 
     async function loadCustomerEntities() {
       const { data, error } = await supabase
-        .from("customer_entities")
+        .from("v_customer_entities_active")
         .select("*")
         .eq("tenant_id", activeTenant?.id)
-        .order("complete_name", { ascending: true });
+        .order("display_name", { ascending: true });
 
       if (error) {
         console.log(error);
@@ -1476,13 +1513,13 @@ export default function Home() {
 
     async function loadTickets() {
       const { data, error } = await supabase
-        .from("tickets")
+        .from("v_operational_tickets")
         .select("*")
         .eq("tenant_id", activeTenant?.id)
-        .not("glpi_entity_path", "ilike", "%webvime%")
+        .or("glpi_entity_path.is.null,glpi_entity_path.not.ilike.%webvime%")
         .order("opened_at", { ascending: false, nullsFirst: false })
         .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
-        .range(0, 499);
+        .range(0, 999);
 
       if (error) {
         console.log(error);
@@ -1915,12 +1952,78 @@ site_id: t.site_id || null,
     localStorage.setItem("atlas-inventory", JSON.stringify(updated));
   }
 
-  const filteredSites = sites
-    .filter((s) => {
-      const text = `${s.name} ${s.city} ${s.entity}`.toLowerCase();
-      return text.includes(siteSearch.toLowerCase());
-    })
-    .slice(0, 10);
+  function mapCustomerEntityToSearchSite(entity: any) {
+    const completeName = entity.complete_name || entity.completeName || "";
+    const displayName =
+      entity.display_name ||
+      entity.canonical_name ||
+      entity.name ||
+      completeName ||
+      "Sede / entità cliente";
+
+    return {
+      id: null,
+      name: displayName,
+      city: entity.city || "",
+      region: entity.region || "",
+      entity: entity.root_name || entity.entity_type || "",
+      province: entity.province || "",
+      customer_id: entity.customer_id || entity.customerId || null,
+      customerId: entity.customer_id || entity.customerId || null,
+      customer_entity_id: entity.id || null,
+      customerEntityId: entity.id || null,
+      glpi_entity_id: entity.glpi_entity_id || null,
+      glpiEntityId: entity.glpi_entity_id || null,
+      glpi_entity_path: completeName,
+      complete_name: completeName,
+      is_customer_entity: true,
+    };
+  }
+
+  const filteredSites = useMemo(() => {
+    const q = normalizeFilterText(siteSearch);
+    if (q.length < 2) return [];
+
+    const siteResults = sites
+      .filter((s) =>
+        normalizeFilterText(`${s.name || ""} ${s.city || ""} ${s.entity || ""} ${s.region || ""} ${s.glpi_entity_path || ""}`).includes(q),
+      )
+      .map((site) => ({ ...site, is_customer_entity: false }));
+
+    const entityResults = customerEntities
+      .filter((entity) =>
+        normalizeFilterText(`
+          ${entity.display_name || ""}
+          ${entity.canonical_name || ""}
+          ${entity.raw_name || ""}
+          ${entity.name || ""}
+          ${entity.complete_name || ""}
+          ${entity.root_name || ""}
+          ${entity.region || ""}
+          ${entity.province || ""}
+          ${entity.city || ""}
+        `).includes(q),
+      )
+      .map(mapCustomerEntityToSearchSite);
+
+    const seen = new Set<string>();
+
+    return [...entityResults, ...siteResults]
+      .filter((item) => {
+        const key =
+          item.glpi_entity_id
+            ? `glpi:${item.glpi_entity_id}`
+            : item.id
+            ? `site:${item.id}`
+            : normalizeFilterText(`${item.name || ""}-${item.glpi_entity_path || item.complete_name || ""}`);
+
+        if (!key) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 12);
+  }, [siteSearch, sites, customerEntities]);
 
   const totalForecast = useMemo(
     () =>
@@ -1941,13 +2044,13 @@ site_id: t.site_id || null,
     setRefreshingTickets(true);
 
     const { data, error } = await supabase
-      .from("tickets")
+      .from("v_operational_tickets")
       .select("*")
       .eq("tenant_id", activeTenant?.id)
-      .not("glpi_entity_path", "ilike", "%webvime%")
+      .or("glpi_entity_path.is.null,glpi_entity_path.not.ilike.%webvime%")
       .order("opened_at", { ascending: false, nullsFirst: false })
       .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
-      .range(0, 49999);
+      .range(0, 999);
 
     if (error) {
       console.log(error);
@@ -2010,6 +2113,16 @@ site_id: t.site_id || null,
   }
 
   const filteredTickets = tickets.filter((t) => {
+    const searchText = normalizeFilterText(filterSite);
+    const openedAtRaw = String(t.openedAt || t.opened_at || "");
+    const openedAtTime = openedAtRaw ? new Date(openedAtRaw).getTime() : NaN;
+    const isFutureTicket =
+      Number.isFinite(openedAtTime) && openedAtTime > Date.now();
+
+    if (isFutureTicket && !searchText) {
+      return false;
+    }
+
     const matchTechnician =
       !filterTechnician || t.technician === filterTechnician;
 
@@ -2045,9 +2158,19 @@ site_id: t.site_id || null,
 
     const matchSite =
       !filterSite ||
-      normalizeFilterText(`${t.site || ""} ${t.city || ""} ${t.entity || ""} ${t.problem || ""} ${t.glpi_entity_path || ""}`).includes(
-        normalizeFilterText(filterSite),
-      );
+      normalizeFilterText(`
+        ${t.id || ""}
+        ${t.glpi_ticket_id || ""}
+        ${t.glpiTicketId || ""}
+        ${t.site || ""}
+        ${t.city || ""}
+        ${t.entity || ""}
+        ${t.region || ""}
+        ${t.problem || ""}
+        ${t.status || ""}
+        ${t.glpi_entity_path || ""}
+        ${t.glpiEntityPath || ""}
+      `).includes(searchText);
     const matchUrgent = !urgentOnly || Boolean(t.urgent);
 
     return (
@@ -2063,9 +2186,9 @@ site_id: t.site_id || null,
     const path = String(ticket.glpi_entity_path || ticket.glpiEntityPath || "");
     const parts = path
       .split(">")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .filter((part) => part.toLowerCase() !== "root");
+      .map((part: string) => part.trim())
+      .filter((part: string) => Boolean(part))
+      .filter((part: string) => part.toLowerCase() !== "root");
 
     return (
       parts[0] ||
@@ -2105,9 +2228,9 @@ site_id: t.site_id || null,
 
         const parts = String(rawPath)
           .split(">")
-          .map((part) => part.trim())
-          .filter(Boolean)
-          .filter((part) => part.toLowerCase() !== "root");
+          .map((part: string) => part.trim())
+          .filter((part: string) => Boolean(part))
+          .filter((part: string) => part.toLowerCase() !== "root");
 
         const category =
           parts[0] ||
@@ -2193,6 +2316,8 @@ site_id: t.site_id || null,
   }
 
   async function addTicket(customerId?: string) {
+    if (creatingTicket) return;
+
     if (!activeTenant?.id) {
       showMessage("Organizzazione non configurata", "error");
       return;
@@ -2206,122 +2331,207 @@ site_id: t.site_id || null,
       return;
     }
 
-    const cost = materialCost(selectedMaterials);
-    const dbStatus = atlasStatusToDbStatus[ticketStatus] || "Aperto";
+    setCreatingTicket(true);
 
-    const { data, error } = await supabase
-      .from("tickets")
-      .insert([
+    try {
+      const cost = materialCost(selectedMaterials);
+      const dbStatus = atlasStatusToDbStatus[ticketStatus] || "Aperto";
+      const selectedEntityFromState =
+        customerEntities.find(
+          (item) =>
+            selectedGlpiEntityId &&
+            Number(item.glpi_entity_id) === Number(selectedGlpiEntityId),
+        ) ||
+        customerEntities.find((item) => {
+          const q = normalizeFilterText(site || siteSearch);
+          if (!q) return false;
+
+          const text = normalizeFilterText(`
+            ${item.display_name || ""}
+            ${item.canonical_name || ""}
+            ${item.raw_name || ""}
+            ${item.name || ""}
+            ${item.complete_name || ""}
+          `);
+
+          return text.includes(q) || q.includes(normalizeFilterText(item.display_name || item.canonical_name || item.name));
+        });
+
+      const currentGlpiEntityId =
+        selectedGlpiEntityId ||
+        toPositiveNumberOrNull(selectedEntityFromState?.glpi_entity_id);
+      const currentGlpiEntityPath =
+        selectedGlpiEntityPath || selectedEntityFromState?.complete_name || "";
+      const currentRegion =
+        region && normalizeFilterText(region) !== "da definire"
+          ? region
+          : selectedEntityFromState?.region ||
+            currentGlpiEntityPath
+              .split(">")
+              .map((part: string) => part.trim())
+              .filter((part: string) => Boolean(part))
+              .filter((part: string) => part.toLowerCase() !== "root")[1] ||
+            "Da definire";
+      const currentEntity =
+        entity ||
+        selectedEntityFromState?.root_name ||
+        currentGlpiEntityPath
+          .split(">")
+          .map((part: string) => part.trim())
+          .filter((part: string) => Boolean(part))
+          .filter((part: string) => part.toLowerCase() !== "root")[0] ||
+        "";
+      const currentCity = city || selectedEntityFromState?.city || "";
+
+      const { data, error } = await supabase
+        .from("tickets")
+        .insert([
+          {
+            site,
+            region: currentRegion,
+            entity: currentEntity,
+            city: currentCity,
+            site_id: siteId,
+            glpi_entity_id: currentGlpiEntityId,
+            glpi_entity_path: currentGlpiEntityPath || null,
+            problem,
+            materials: selectedMaterials,
+            technician,
+            status: dbStatus,
+            cost,
+            slot: selectedSlot,
+            intervention_date: selectedDate || null,
+            opened_at: new Date().toISOString(),
+            expected_close_date: expectedCloseDate || null,
+            urgent: false,
+            customer_id: customerId || null,
+            tenant_id: activeTenant?.id || null,
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        console.log(error);
+        showMessage("Errore salvataggio ticket", "error");
+        return;
+      }
+
+      const newTicket = {
+        id: data.id,
+        title: ticketTitle,
+        site,
+        region: currentRegion,
+        entity: currentEntity,
+        city: currentCity,
+        problem,
+        materialIds: selectedMaterials,
+        technician,
+        status: dbStatus,
+        date: selectedDate || "",
+        slot: selectedSlot || "",
+        openedAt: data.opened_at || new Date().toISOString(),
+        expectedCloseDate: data.expected_close_date || expectedCloseDate || "",
+        closedAt: data.closed_at || "",
+        urgent: Boolean(data.urgent),
+        customerId: data.customer_id || customerId || null,
+        tenantId: data.tenant_id || activeTenant?.id || null,
+        tenant_id: data.tenant_id || activeTenant?.id || null,
+        glpiEntityId: currentGlpiEntityId,
+        glpi_entity_id: currentGlpiEntityId,
+        glpiEntityPath: currentGlpiEntityPath,
+        glpi_entity_path: currentGlpiEntityPath,
+        resolved: true,
+        closingNotes: "",
+        futureNeeds: "",
+        ticketType,
+        ticketCategory: ticketType,
+        ticketStatus,
+      };
+
+      const updatedTicketTypes = {
+        ...ticketTypesById,
+        [String(data.id)]: ticketType,
+      };
+      setTicketTypesById(updatedTicketTypes);
+      localStorage.setItem(
+        "atlas-ticket-types",
+        JSON.stringify(updatedTicketTypes),
+      );
+
+      setTickets((prev) => [newTicket, ...prev]);
+
+      setSite("");
+      setSiteSearch("");
+      setRegion("");
+      setEntity("");
+      setCity("");
+      setSiteId(null);
+      setTicketTitle("");
+      setProblem("");
+      setTechnician("");
+      setSelectedDate("");
+      setSelectedSlot("");
+      setExpectedCloseDate("");
+      setSelectedGlpiEntityId(null);
+                        setSelectedGlpiEntityPath("");
+      showMessage("Ticket creato in ATLAS, sincronizzazione GLPI in corso...");
+      const glpiResult = await syncTicketToGlpi(newTicket);
+
+      if (glpiResult?.glpiTicketId) {
+        const syncedTicket = {
+          ...newTicket,
+          glpi_ticket_id: glpiResult.glpiTicketId,
+          glpiTicketId: glpiResult.glpiTicketId,
+        };
+
+        await supabase
+          .from("tickets")
+          .update({ glpi_ticket_id: glpiResult.glpiTicketId })
+          .eq("id", data.id)
+          .eq("tenant_id", activeTenant?.id);
+
+        setTickets((prev) =>
+          prev.map((ticket) =>
+            String(ticket.id) === String(data.id) ? syncedTicket : ticket,
+          ),
+        );
+      }
+
+      await supabase.from("ticket_events").insert([
         {
-          site,
-          region: region || "Da definire",
-          entity,
-          city,
-          site_id: siteId,
-          problem,
-          materials: selectedMaterials,
-          technician,
-          status: dbStatus,
-          cost,
-          slot: selectedSlot,
-          intervention_date: selectedDate || null,
-          opened_at: new Date().toISOString(),
-          expected_close_date: expectedCloseDate || null,
-          urgent: false,
+          ticket_id: data.id,
           customer_id: customerId || null,
+          site_id: siteId || null,
+          event_type: "ticket_created",
+          title: "Ticket creato",
+          description: `${site} - ${ticketTitle}`,
+          created_by: "Operatore",
           tenant_id: activeTenant?.id || null,
+          metadata: {
+            status: dbStatus,
+            urgent: false,
+            ticket_type: ticketType,
+          },
         },
-      ])
-      .select()
-      .single();
+      ]);
 
-    if (error) {
-      console.log(error);
-      showMessage("Errore salvataggio ticket", "error");
-      return;
+      setSelectedMaterials([]);
+      setTicketType("ordinaria");
+      setTicketStatus("nuova");
+
+      if (glpiResult?.glpiTicketId) {
+        await refreshTickets();
+        showMessage(`Ticket salvato e inviato a GLPI #${glpiResult.glpiTicketId}`);
+      } else {
+        await refreshTickets();
+      }
+    } catch (error: unknown) {
+      console.error("Errore apertura chiamata ATLAS", error);
+      showMessage("Errore apertura chiamata. Controlla i dati e riprova.", "error");
+    } finally {
+      setCreatingTicket(false);
     }
-
-    const newTicket = {
-      id: data.id,
-      title: ticketTitle,
-      site,
-      region,
-      entity,
-      city,
-      problem,
-      materialIds: selectedMaterials,
-      technician,
-      status: dbStatus,
-      date: selectedDate || "",
-      slot: selectedSlot || "",
-      openedAt: data.opened_at || new Date().toISOString(),
-      expectedCloseDate: data.expected_close_date || expectedCloseDate || "",
-      closedAt: data.closed_at || "",
-      urgent: Boolean(data.urgent),
-      customerId: data.customer_id || customerId || null,
-      tenantId: data.tenant_id || activeTenant?.id || null,
-      tenant_id: data.tenant_id || activeTenant?.id || null,
-      resolved: true,
-      closingNotes: "",
-      futureNeeds: "",
-      ticketType,
-      ticketCategory: ticketType,
-      ticketStatus,
-    };
-
-    const updatedTicketTypes = {
-      ...ticketTypesById,
-      [String(data.id)]: ticketType,
-    };
-    setTicketTypesById(updatedTicketTypes);
-    localStorage.setItem(
-      "atlas-ticket-types",
-      JSON.stringify(updatedTicketTypes),
-    );
-
-    setTickets([newTicket, ...tickets]);
-
-    setSite("");
-    setSiteSearch("");
-    setRegion("");
-    setEntity("");
-    setCity("");
-    setSiteId(null);
-    setTicketTitle("");
-    setProblem("");
-    setTechnician("");
-    setSelectedDate("");
-    setSelectedSlot("");
-    setExpectedCloseDate("");
-    const glpiResult = await syncTicketToGlpi(newTicket);
-
-    await supabase.from("ticket_events").insert([
-      {
-        ticket_id: data.id,
-        customer_id: customerId || null,
-        site_id: siteId || null,
-        event_type: "ticket_created",
-        title: "Ticket creato",
-        description: `${site} - ${ticketTitle}`,
-        created_by: "Operatore",
-        tenant_id: activeTenant?.id || null,
-        metadata: {
-          status: dbStatus,
-          urgent: false,
-          ticket_type: ticketType,
-        },
-      },
-    ]);
-
-    setSelectedMaterials([]);
-    setTicketType("ordinaria");
-    setTicketStatus("nuova");
-
-    showMessage(
-      glpiResult?.glpiTicketId
-        ? `Ticket salvato e inviato a GLPI #${glpiResult.glpiTicketId}`
-        : "Ticket salvato su ATLAS",
-    );
   }
 
   async function planTicket(id: string) {
@@ -2570,18 +2780,19 @@ site_id: t.site_id || null,
 
   function mapCustomerEntityToCalendarSite(entity: any) {
     const completeName =
-      entity.normalized_complete_name ||
       entity.complete_name ||
-      entity.name ||
+      entity.completeName ||
       "";
 
     const parts = String(completeName)
       .split(">")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .filter((part) => part.toLowerCase() !== "root");
+      .map((part: string) => part.trim())
+      .filter((part: string) => Boolean(part))
+      .filter((part: string) => part.toLowerCase() !== "root");
 
     const label =
+      entity.display_name ||
+      entity.canonical_name ||
       parts[parts.length - 1] ||
       entity.name ||
       "Sede / entità cliente";
@@ -2590,12 +2801,14 @@ site_id: t.site_id || null,
       id: null,
       name: label,
       city: entity.city || "",
-      region: parts[1] || entity.region || "",
-      entity: parts[0] || entity.entity_type || "",
+      region: entity.region || parts[1] || "",
+      entity: entity.root_name || parts[0] || entity.entity_type || "",
       customer_id: entity.customer_id || entity.customerId || null,
       customerId: entity.customer_id || entity.customerId || null,
       customer_entity_id: entity.id || null,
       customerEntityId: entity.id || null,
+      glpi_entity_id: entity.glpi_entity_id || null,
+      glpiEntityId: entity.glpi_entity_id || null,
       glpi_entity_path: completeName,
       complete_name: completeName,
       is_customer_entity: true,
@@ -2617,9 +2830,17 @@ site_id: t.site_id || null,
 
     const entityResults = customerEntities
       .filter((entity) =>
-        `${entity.name || ""} ${entity.complete_name || ""} ${entity.normalized_complete_name || ""}`
-          .toLowerCase()
-          .includes(q),
+        normalizeFilterText(`
+          ${entity.display_name || ""}
+          ${entity.canonical_name || ""}
+          ${entity.raw_name || ""}
+          ${entity.name || ""}
+          ${entity.complete_name || ""}
+          ${entity.root_name || ""}
+          ${entity.region || ""}
+          ${entity.province || ""}
+          ${entity.city || ""}
+        `).includes(normalizeFilterText(q)),
       )
       .map(mapCustomerEntityToCalendarSite);
 
@@ -2806,9 +3027,31 @@ site_id: t.site_id || null,
       JSON.stringify(updatedTicketTypes),
     );
 
-    setTickets([newTicket, ...tickets]);
+    setTickets((prev) => [newTicket, ...prev]);
 
     const glpiResult = await syncTicketToGlpi(newTicket);
+
+    if (glpiResult?.glpiTicketId) {
+      const syncedTicket = {
+        ...newTicket,
+        glpi_ticket_id: glpiResult.glpiTicketId,
+        glpiTicketId: glpiResult.glpiTicketId,
+      };
+
+      await supabase
+        .from("tickets")
+        .update({ glpi_ticket_id: glpiResult.glpiTicketId })
+        .eq("id", data.id)
+        .eq("tenant_id", activeTenant?.id);
+
+      setTickets((prev) =>
+        prev.map((ticket) =>
+          String(ticket.id) === String(data.id) ? syncedTicket : ticket,
+        ),
+      );
+    }
+
+    await refreshTickets();
 
     setSelectedCalendarDay(null);
     setCalendarTechnician("");
@@ -3444,21 +3687,27 @@ site_id: t.site_id || null,
     })),
   ];
 
-  function openTicketFromCustomer(customer: any, selectedSite?: any) {
+  function openTicketFromCustomer(customer: TicketFormSourceCustomer | null, selectedSite?: TicketFormSourceSite | null) {
+    const sourceSiteName =
+      toNullableString(selectedSite?.name) ||
+      toNullableString(selectedSite?.complete_name) ||
+      toNullableString(customer?.name) ||
+      "";
+    const sourceEntity =
+      toNullableString(selectedSite?.entity) ||
+      toNullableString(customer?.name) ||
+      "";
+
     setTicketFormReturnTarget({ activeTab, mobileView });
-    setSiteSearch(selectedSite?.name || "");
-    setSite(selectedSite?.name || "");
+    setSiteSearch(sourceSiteName);
+    setSite(sourceSiteName);
     setRegion(selectedSite?.region || "");
-    setEntity(selectedSite?.entity || customer?.name || "");
+    setEntity(sourceEntity);
     setCity(selectedSite?.city || "");
-    setSiteId(selectedSite?.id || null);
-    setTicketTitle(
-      customer?.name
-        ? `Nuova chiamata - ${customer.name}`
-        : selectedSite?.name
-          ? `Nuova chiamata - ${selectedSite.name}`
-          : "",
-    );
+    setSiteId(toPositiveNumberOrNull(selectedSite?.id));
+    setSelectedGlpiEntityId(toPositiveNumberOrNull(selectedSite?.glpiEntityId || selectedSite?.glpi_entity_id));
+    setSelectedGlpiEntityPath(toNullableString(selectedSite?.glpi_entity_path || selectedSite?.complete_name) || "");
+    setTicketTitle("");
     setProblem("");
     setMobileView("operativo");
     setActiveTab("operativo");
@@ -3480,6 +3729,8 @@ site_id: t.site_id || null,
     setEntity("");
     setCity("");
     setSiteId(null);
+    setSelectedGlpiEntityId(null);
+    setSelectedGlpiEntityPath("");
     setTicketTitle("");
     setProblem("");
     setSelectedDate("");
@@ -3690,6 +3941,7 @@ site_id: t.site_id || null,
       items: [
         { key: "webvime", label: "Webvime", icon: Monitor },
         { key: "dispatch", label: "Centrale Operativa", icon: AlertTriangle },
+        { key: "piani", label: "Piani", icon: FileSpreadsheet },
         { key: "operativo", label: "Apri Chiamata", icon: CirclePlus },
         { key: "todo", label: "To Do List", icon: CheckCircle2, badge: todoNewCount },
         { key: "calendario", label: "Calendario", icon: CalendarDays },
@@ -3732,6 +3984,7 @@ site_id: t.site_id || null,
 
     if (key === "utenti" || key === "glpiImport") return isAdminLike;
     if (key === "webvime" || key === "todo") return currentUser.role !== "cliente";
+    if (key === "piani") return currentUser.role !== "cliente";
 
     return canViewModule(currentUser, key);
   }
@@ -5368,6 +5621,8 @@ site_id: t.site_id || null,
                                       setEntity(s.entity || "");
                                       setCity(s.city || "");
                                       setSiteId(s.id || null);
+                                      setSelectedGlpiEntityId(toPositiveNumberOrNull(s.glpiEntityId || s.glpi_entity_id));
+                                      setSelectedGlpiEntityPath(toNullableString(s.glpi_entity_path || s.complete_name) || "");
                                       setMobileView("operativo");
                                     }}
                                     className="rounded-2xl bg-slate-950/40 p-3 text-left"
@@ -6235,6 +6490,18 @@ site_id: t.site_id || null,
               <DispatchCenter tickets={tickets} technicians={technicians} />
             )}
 
+            {activeTab === "piani" && (
+              <div className="p-4 md:p-8">
+                <OperationalPlansCenter
+                  tenant={activeTenant}
+                  currentUser={currentUser}
+                  customers={customers}
+                  sites={sites}
+                  tickets={tickets}
+                />
+              </div>
+            )}
+
             {activeTab === "todo" && <TodoListPanel />}
 
             {activeTab === "activity" && <GlobalActivityFeed />}
@@ -6367,6 +6634,8 @@ site_id: t.site_id || null,
                         setEntity("");
                         setCity("");
                         setSiteId(null);
+                        setSelectedGlpiEntityId(null);
+                        setSelectedGlpiEntityPath("");
                       }}
                     />
 
@@ -6390,6 +6659,8 @@ site_id: t.site_id || null,
                               setEntity(s.entity || "");
                               setCity(s.city || "");
                               setSiteId(s.id || null);
+                              setSelectedGlpiEntityId(toPositiveNumberOrNull(s.glpiEntityId || s.glpi_entity_id));
+                              setSelectedGlpiEntityPath(toNullableString(s.glpi_entity_path || s.complete_name) || "");
                             }}
                           >
                             <div className="font-bold">{s.name}</div>
@@ -6411,7 +6682,7 @@ site_id: t.site_id || null,
 
                   <input
                     className={input}
-                    placeholder="Titolo chiamata"
+                    placeholder="Scrivi un titolo intervento"
                     value={ticketTitle}
                     onChange={(e) => setTicketTitle(e.target.value)}
                   />
@@ -6511,9 +6782,10 @@ site_id: t.site_id || null,
 
                   <button
                     onClick={() => addTicket()}
-                    className="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white hover:bg-blue-500"
+                    disabled={creatingTicket || !site || !ticketTitle.trim() || !problem.trim()}
+                    className="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Apri chiamata
+                    {creatingTicket ? "Apertura..." : "Apri chiamata"}
                   </button>
                 </div>
               </section>

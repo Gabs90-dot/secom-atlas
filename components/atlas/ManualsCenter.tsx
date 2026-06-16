@@ -97,6 +97,10 @@ export default function ManualsCenter({ tenant, currentUser, customers = [], cus
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [previewManual, setPreviewManual] = useState<ManualRow | null>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
 
   const filteredEntities = useMemo(() => {
     if (!form.customerId) return customerEntities;
@@ -243,19 +247,74 @@ export default function ManualsCenter({ tenant, currentUser, customers = [], cus
     }
   }
 
-  async function downloadManual(manual: ManualRow) {
-    if (!manual.file_path) return;
+  function getPreviewKind(manual: ManualRow) {
+    const mime = String(manual.file_mime_type || "").toLowerCase();
+    const name = String(manual.file_name || "").toLowerCase();
+
+    if (mime.includes("pdf") || name.endsWith(".pdf")) return "pdf";
+    if (mime.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(name)) return "image";
+    if (mime.startsWith("text/") || /\.(txt|csv|log|md)$/i.test(name)) return "text";
+    if (/\.(docx?|xlsx?|pptx?)$/i.test(name)) return "office";
+    return "download";
+  }
+
+  async function getSignedManualUrl(manual: ManualRow) {
+    if (!manual.file_path) return "";
 
     const { data, error } = await supabase.storage
       .from("atlas-manuals")
-      .createSignedUrl(manual.file_path, 60 * 5);
+      .createSignedUrl(manual.file_path, 60 * 15);
 
     if (error || !data?.signedUrl) {
-      setMessage(error?.message || "Impossibile aprire l'allegato.");
-      return;
+      throw new Error(error?.message || "Impossibile aprire l'allegato.");
     }
 
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    return data.signedUrl;
+  }
+
+  async function openManual(manual: ManualRow) {
+    if (!manual.file_path) return;
+
+    setPreviewManual(manual);
+    setPreviewUrl("");
+    setPreviewError("");
+    setPreviewLoading(true);
+
+    try {
+      const signedUrl = await getSignedManualUrl(manual);
+      const kind = getPreviewKind(manual);
+
+      if (kind === "download") {
+        window.open(signedUrl, "_blank", "noopener,noreferrer");
+        setPreviewManual(null);
+        return;
+      }
+
+      setPreviewUrl(signedUrl);
+    } catch (error: any) {
+      console.error(error);
+      setPreviewError(error?.message || "Impossibile aprire l'allegato.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function downloadManual(manual: ManualRow) {
+    if (!manual.file_path) return;
+
+    try {
+      const signedUrl = await getSignedManualUrl(manual);
+      const a = document.createElement("a");
+      a.href = signedUrl;
+      a.download = manual.file_name || "manuale";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error?.message || "Impossibile scaricare l'allegato.");
+    }
   }
 
   if (!tenant?.id) {
@@ -368,9 +427,14 @@ export default function ManualsCenter({ tenant, currentUser, customers = [], cus
 
                   <div className="flex shrink-0 flex-wrap gap-2">
                     {manual.file_path && (
-                      <button onClick={() => downloadManual(manual)} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-xs font-black text-white hover:bg-white/[0.1]">
-                        <Download size={16} /> Apri
-                      </button>
+                      <>
+                        <button onClick={() => openManual(manual)} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-xs font-black text-white hover:bg-white/[0.1]">
+                          <FileText size={16} /> Apri
+                        </button>
+                        <button onClick={() => downloadManual(manual)} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-xs font-black text-white hover:bg-white/[0.1]">
+                          <Download size={16} /> Scarica
+                        </button>
+                      </>
                     )}
                     <button onClick={() => openEdit(manual)} className="flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black text-white">
                       <Pencil size={16} /> Modifica
@@ -382,6 +446,61 @@ export default function ManualsCenter({ tenant, currentUser, customers = [], cus
           )}
         </div>
       </div>
+
+
+      {previewManual && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 px-4 py-6 backdrop-blur-sm">
+          <div className="flex h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#081523] shadow-2xl">
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-white/10 p-5">
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.28em] text-blue-300">Anteprima manuale</p>
+                <h3 className="mt-2 truncate text-2xl font-black text-white">{previewManual.title}</h3>
+                <p className="mt-1 truncate text-xs font-bold text-slate-400">
+                  {previewManual.file_name || "Allegato"} {previewManual.file_size ? `· ${formatFileSize(previewManual.file_size)}` : ""}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button onClick={() => downloadManual(previewManual)} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-xs font-black text-white hover:bg-white/[0.1]">
+                  <Download size={16} /> Scarica
+                </button>
+                <button onClick={() => { setPreviewManual(null); setPreviewUrl(""); setPreviewError(""); }} className="rounded-2xl bg-white/10 p-3 text-white hover:bg-white/15">
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 bg-slate-950/60 p-4">
+              {previewLoading ? (
+                <div className="flex h-full items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04] text-sm font-black text-slate-300">
+                  Caricamento anteprima...
+                </div>
+              ) : previewError ? (
+                <div className="flex h-full items-center justify-center rounded-3xl border border-red-500/30 bg-red-500/10 p-6 text-center text-sm font-black text-red-100">
+                  {previewError}
+                </div>
+              ) : previewUrl ? (
+                getPreviewKind(previewManual) === "image" ? (
+                  <div className="flex h-full items-center justify-center overflow-auto rounded-3xl border border-white/10 bg-black/30 p-4">
+                    <img src={previewUrl} alt={previewManual.file_name || previewManual.title} className="max-h-full max-w-full rounded-2xl object-contain" />
+                  </div>
+                ) : getPreviewKind(previewManual) === "office" ? (
+                  <iframe
+                    title={previewManual.title}
+                    src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(previewUrl)}`}
+                    className="h-full w-full rounded-3xl border border-white/10 bg-white"
+                  />
+                ) : (
+                  <iframe
+                    title={previewManual.title}
+                    src={previewUrl}
+                    className="h-full w-full rounded-3xl border border-white/10 bg-white"
+                  />
+                )
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
 
       {formOpen && (
         <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/65 px-4 py-6 backdrop-blur-sm">
