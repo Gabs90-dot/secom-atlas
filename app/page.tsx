@@ -5,17 +5,14 @@ import { systemsCatalog } from "@/lib/systemsCatalog";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import TicketForm from "@/components/atlas/TicketForm";
-import MobileBottomNav from "@/components/atlas/MobileBottomNav";
-import MobileMoreMenu from "@/components/atlas/MobileMoreMenu";
-import UserSessionBadge from "@/components/atlas/UserSessionBadge";
-import TenantSwitcher from "@/components/atlas/TenantSwitcher";
 import LoginScreen from "@/components/atlas/LoginScreen";
 import { useAtlasAuth } from "@/components/atlas/AuthProvider";
 import { canViewModule } from "@/lib/auth";
 import type { AtlasTenant } from "@/lib/tenant";
 import { getStoredTenantSlug, storeTenantSlug } from "@/lib/tenant";
-import AtlasSidebar from "@/components/atlas/layout/AtlasSidebar";
-import AtlasHeader from "@/components/atlas/layout/AtlasHeader";
+import AtlasAppFrame from "@/components/atlas/layout/AtlasAppFrame";
+import CloseTicketModal from "@/components/atlas/layout/CloseTicketModal";
+import { createAtlasTabGroups } from "@/components/atlas/layout/atlasNavigation";
 
 import {
   Activity,
@@ -58,7 +55,6 @@ const AtlasMap = dynamic(() => import("@/components/AtlasMap"), {
 });
 
 const TicketRegistry = dynamic(() => import("@/components/atlas/TicketRegistry"), { ssr: false });
-const TicketWorkspace = dynamic(() => import("@/components/atlas/TicketWorkspace"), { ssr: false });
 const CustomerCommandCenter = dynamic(() => import("@/components/atlas/CustomerCommandCenter"), { ssr: false });
 const CustomerInviteCodeCenter = dynamic(() => import("@/components/atlas/CustomerInviteCodeCenter"), { ssr: false });
 const CustomerPortal = dynamic(() => import("@/components/atlas/CustomerPortal"), { ssr: false });
@@ -4080,56 +4076,7 @@ site_id: t.site_id || null,
       </div>
     );
   }
-  const tabGroups = [
-    {
-      title: "Principale",
-      items: [
-        { key: "home", label: "Home", icon: HomeIcon },
-        { key: "clienti", label: "Clienti", icon: Users },
-        { key: "contatti", label: "Contatti", icon: Phone },
-      ],
-    },
-    {
-      title: "Operatività",
-      items: [
-        { key: "webvime", label: "Webvime", icon: Monitor },
-        { key: "dispatch", label: "Centrale Operativa", icon: AlertTriangle },
-        { key: "piani", label: "Piani", icon: FileSpreadsheet },
-        { key: "operativo", label: "Apri Chiamata", icon: CirclePlus },
-        { key: "todo", label: "To Do List", icon: CheckCircle2, badge: todoNewCount },
-        { key: "calendario", label: "Calendario", icon: CalendarDays },
-        { key: "registro", label: "Registro Ticket", icon: ListChecks },
-        { key: "manuali", label: "Manuali", icon: BookOpen },
-        { key: "customerPortal", label: "Portale Clienti", icon: Users },
-      ],
-    },
-    {
-      title: "Analisi",
-      items: [
-        { key: "analytics", label: "Analisi", icon: BarChart3 },
-        { key: "ai", label: "Insight AI", icon: Brain },
-        { key: "activity", label: "Timeline", icon: History },
-      ],
-    },
-    {
-      title: "Gestione",
-      items: [
-        { key: "contratti", label: "Contratti", icon: FileText },
-        { key: "budget", label: "Budget", icon: BarChart3 },
-        { key: "magazzino", label: "Magazzino", icon: Package },
-        { key: "sistemi", label: "Asset & Sistemi", icon: Monitor },
-        { key: "mappa", label: "Mappa", icon: Map },
-      ],
-    },
-    {
-      title: "Amministrazione",
-      items: [
-        { key: "utenti", label: "Utenti", icon: Users },
-        { key: "glpiImport", label: "Import GLPI", icon: Download },
-        { key: "designLab", label: "Design Lab", icon: Sparkles },
-      ],
-    },
-  ];
+  const tabGroups = createAtlasTabGroups(todoNewCount);
 
   const tabs = tabGroups.flatMap((group) => group.items);
 
@@ -4713,56 +4660,41 @@ site_id: t.site_id || null,
         }
       `}</style>
       {renderNotificationsDrawer()}
-      <TicketWorkspace
-        ticket={selectedTicketWorkspace}
-        open={Boolean(selectedTicketWorkspace)}
-        onClose={() => setSelectedTicketWorkspace(null)}
-        onStatusUpdated={updateTicketFromWorkspace}
-      />
-      <div className="flex min-h-screen">
-        <AtlasSidebar
-          theme={theme}
-          isExecutiveMode={isExecutiveMode}
-          logoImage={ATLAS_LOGO_CARD_IMAGE}
-          tabGroups={tabGroups}
-          activeTab={activeTab}
-          canAccessTab={canAccessTab}
-          onTabChange={(key) => setActiveTab(key as any)}
-        />
-
-        <div className="min-w-0 flex-1 overflow-x-hidden">
-          <AtlasHeader
-            theme={theme}
-            isExecutiveMode={isExecutiveMode}
-            tenants={tenants}
-            activeTenant={activeTenant}
-            currentUser={currentUser}
-            notificationCount={notificationItems.length}
-            siteSearch={siteSearch}
-            tabs={tabs}
-            activeTab={activeTab}
-            onTenantChange={handleTenantChange}
-            onLogout={handleLogout}
-            onOpenNotifications={() => setNotificationsOpen(true)}
-            onOpenMobileMenu={() => setMobileMoreOpen(true)}
-            onSwitchUiMode={switchUiMode}
-            onThemeChange={setTheme}
-            onSiteSearchChange={setSiteSearch}
-            onTabChange={(key) => setActiveTab(key as any)}
-            canAccessTab={canAccessTab}
-            operatorAvatar={operatorAvatar}
-            onOperatorAvatarUpload={handleOperatorAvatarUpload}
-          />
-
-          <MobileMoreMenu
-            mobileMoreOpen={mobileMoreOpen}
-            setMobileMoreOpen={setMobileMoreOpen}
-            mobileView={mobileView}
-            setMobileView={setMobileView}
-            todoNewCount={todoNewCount}
-          />
-
-          <main className="w-full max-w-full overflow-x-hidden space-y-6 p-5 pb-24 md:p-8">
+      <AtlasAppFrame
+        theme={theme}
+        isExecutiveMode={isExecutiveMode}
+        logoImage={ATLAS_LOGO_CARD_IMAGE}
+        tabGroups={tabGroups}
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={(key) => setActiveTab(key as any)}
+        canAccessTab={canAccessTab}
+        tenants={tenants}
+        activeTenant={activeTenant}
+        currentUser={currentUser}
+        notificationCount={notificationItems.length}
+        siteSearch={siteSearch}
+        onTenantChange={handleTenantChange}
+        onLogout={handleLogout}
+        onOpenNotifications={() => setNotificationsOpen(true)}
+        onOpenMobileMenu={() => setMobileMoreOpen(true)}
+        onSwitchUiMode={switchUiMode}
+        onThemeChange={setTheme}
+        onSiteSearchChange={setSiteSearch}
+        operatorAvatar={operatorAvatar}
+        onOperatorAvatarUpload={handleOperatorAvatarUpload}
+        mobileMoreOpen={mobileMoreOpen}
+        setMobileMoreOpen={setMobileMoreOpen}
+        mobileView={mobileView}
+        setMobileView={setMobileView}
+        todoNewCount={todoNewCount}
+        message={message}
+        messageType={messageType}
+        onClearMessage={() => setMessage("")}
+        selectedTicketWorkspace={selectedTicketWorkspace}
+        onCloseTicketWorkspace={() => setSelectedTicketWorkspace(null)}
+        onTicketWorkspaceStatusUpdated={updateTicketFromWorkspace}
+      >
             {tenantLoading && (
               <div className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm font-black text-blue-200">
                 Caricamento organizzazione in corso...
@@ -4772,36 +4704,6 @@ site_id: t.site_id || null,
               <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-4 text-sm font-black text-red-200">
                 Nessuna organizzazione attiva configurata. Controlla la
                 configurazione su Supabase.
-              </div>
-            )}
-            {message && (
-              <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
-                <div
-                  className={`w-full max-w-sm rounded-3xl border p-6 text-center shadow-2xl ${
-                    messageType === "success"
-                      ? "border-emerald-400/30 bg-emerald-950 text-emerald-100"
-                      : "border-red-400/30 bg-red-950 text-red-100"
-                  }`}
-                >
-                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-3xl">
-                    {messageType === "success" ? "✓" : "!"}
-                  </div>
-
-                  <p className="text-lg font-black">
-                    {messageType === "success"
-                      ? "Operazione completata"
-                      : "Attenzione"}
-                  </p>
-
-                  <p className="mt-2 text-sm font-bold opacity-90">{message}</p>
-
-                  <button
-                    onClick={() => setMessage("")}
-                    className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950"
-                  >
-                    OK
-                  </button>
-                </div>
               </div>
             )}
             <section className="w-full max-w-full overflow-x-hidden md:hidden">
@@ -7966,67 +7868,25 @@ site_id: t.site_id || null,
               />
             )}
 
-            {closingTicketId && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-                <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-[#0b1728] p-6 shadow-xl">
-                  <h2 className="mb-4 text-xl font-black">Chiudi intervento</h2>
-
-                  <textarea
-                    className={`mb-3 w-full ${input}`}
-                    placeholder="Note chiusura intervento"
-                    value={closingNotes}
-                    onChange={(e) => setClosingNotes(e.target.value)}
-                  />
-
-                  <textarea
-                    className={`mb-3 w-full ${input}`}
-                    placeholder="Necessità future / materiale da ordinare"
-                    value={futureNeeds}
-                    onChange={(e) => setFutureNeeds(e.target.value)}
-                  />
-
-                  <label className="mb-5 flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={resolved}
-                      onChange={(e) => setResolved(e.target.checked)}
-                    />
-                    Intervento risolto
-                  </label>
-
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => {
-                        setClosingTicketId(null);
-                        setClosingNotes("");
-                        setFutureNeeds("");
-                        setResolved(true);
-                      }}
-                      className="flex-1 rounded-xl bg-white/10 px-4 py-3 font-bold"
-                    >
-                      Annulla
-                    </button>
-
-                    <button
-                      onClick={() => closeTicket(closingTicketId)}
-                      className="flex-1 rounded-xl bg-blue-600 px-4 py-3 font-bold text-white"
-                    >
-                      Conferma chiusura
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <MobileBottomNav
-              mobileView={mobileView}
-              setMobileView={setMobileView}
-              setMobileMoreOpen={setMobileMoreOpen}
-              todoNewCount={todoNewCount}
+            <CloseTicketModal
+              ticketId={closingTicketId}
+              inputClass={input}
+              closingNotes={closingNotes}
+              futureNeeds={futureNeeds}
+              resolved={resolved}
+              onClosingNotesChange={setClosingNotes}
+              onFutureNeedsChange={setFutureNeeds}
+              onResolvedChange={setResolved}
+              onCancel={() => {
+                setClosingTicketId(null);
+                setClosingNotes("");
+                setFutureNeeds("");
+                setResolved(true);
+              }}
+              onConfirm={closeTicket}
             />
-          </main>
-        </div>
-      </div>
+
+      </AtlasAppFrame>
     </main>
   );
 }
