@@ -17,6 +17,7 @@ import SlaContractsManager from "@/components/atlas/layout/SlaContractsManager";
 import AtlasCustomersManager from "@/components/atlas/layout/AtlasCustomersManager";
 import AtlasCalendarManager from "@/components/atlas/layout/AtlasCalendarManager";
 import AtlasContactsManager from "@/components/atlas/layout/AtlasContactsManager";
+import AtlasMapManager from "@/components/atlas/layout/AtlasMapManager";
 import { createAtlasTabGroups } from "@/components/atlas/layout/atlasNavigation";
 
 import {
@@ -54,10 +55,6 @@ import {
   BookOpen,
   Sparkles,
 } from "lucide-react";
-
-const AtlasMap = dynamic(() => import("@/components/AtlasMap"), {
-  ssr: false,
-});
 
 const TicketRegistry = dynamic(() => import("@/components/atlas/TicketRegistry"), { ssr: false });
 const CustomerCommandCenter = dynamic(() => import("@/components/atlas/CustomerCommandCenter"), { ssr: false });
@@ -4943,62 +4940,20 @@ site_id: t.site_id || null,
               )}
 
               {mobileView === "mappa" && (
-                <div className="grid gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
-                  <h2 className="text-3xl font-black text-white">
-                    Mappa operativa
-                  </h2>
-                  <select
-                    className={input}
-                    value={filterTechnician}
-                    onChange={(e) => setFilterTechnician(e.target.value)}
-                  >
-                    <option value="">Tutti i tecnici</option>
-                    {technicians.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className={input}
-                    value={filterRegion}
-                    onChange={(e) => setFilterRegion(e.target.value)}
-                  >
-                    <option value="">Tutte le regioni</option>
-                    {availableRegions.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className={input}
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                  >
-                    <option value="">Tutti gli stati</option>
-                    <option value="Aperto">Aperto</option>
-                    <option value="Pianificato">Pianificato</option>
-                    <option value="Chiuso">Chiuso</option>
-                  </select>
-                  <div className="h-[440px] overflow-hidden rounded-3xl border border-white/10 bg-slate-900">
-                    <AtlasMap sites={sites} tickets={filteredTickets} />
-                  </div>
-                  <div className="flex flex-wrap gap-3 text-xs text-slate-300">
-                    <span>
-                      <b className="text-blue-400">●</b> Tecnico
-                    </span>
-                    <span>
-                      <b className="text-emerald-400">●</b> Sede operativa
-                    </span>
-                    <span>
-                      <b className="text-yellow-400">●</b> Cliente
-                    </span>
-                    <span>
-                      <b className="text-red-400">●</b> Intervento
-                    </span>
-                  </div>
-                </div>
+                <AtlasMapManager
+                  mode="mobile"
+                  input={input}
+                  sites={sites}
+                  filteredTickets={filteredTickets}
+                  technicians={technicians}
+                  filterTechnician={filterTechnician}
+                  setFilterTechnician={setFilterTechnician}
+                  filterRegion={filterRegion}
+                  setFilterRegion={setFilterRegion}
+                  filterStatus={filterStatus}
+                  setFilterStatus={setFilterStatus}
+                  availableRegions={availableRegions}
+                />
               )}
 
               {mobileView === "clienti" && (
@@ -5909,52 +5864,21 @@ site_id: t.site_id || null,
             )}
 
             {activeTab === "mappa" && (
-              <section className={card}>
-                <h2 className="mb-5 text-2xl font-black">Mappa operativa</h2>
-
-                <div className="mb-5 grid gap-4 md:grid-cols-3">
-                  <select
-                    className={input}
-                    value={filterTechnician}
-                    onChange={(e) => setFilterTechnician(e.target.value)}
-                  >
-                    <option value="">Tutti i tecnici</option>
-                    {technicians.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    className={input}
-                    value={filterRegion}
-                    onChange={(e) => setFilterRegion(e.target.value)}
-                  >
-                    <option value="">Tutte le regioni</option>
-                    {availableRegions.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    className={input}
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                  >
-                    <option value="">Tutti gli stati</option>
-                    <option value="Aperto">Aperto</option>
-                    <option value="Pianificato">Pianificato</option>
-                    <option value="Chiuso">Chiuso</option>
-                  </select>
-                </div>
-
-                <div className="h-[500px] overflow-hidden rounded-3xl border border-white/10">
-                  <AtlasMap sites={sites} tickets={filteredTickets} />
-                </div>
-              </section>
+              <AtlasMapManager
+                mode="desktop"
+                card={card}
+                input={input}
+                sites={sites}
+                filteredTickets={filteredTickets}
+                technicians={technicians}
+                filterTechnician={filterTechnician}
+                setFilterTechnician={setFilterTechnician}
+                filterRegion={filterRegion}
+                setFilterRegion={setFilterRegion}
+                filterStatus={filterStatus}
+                setFilterStatus={setFilterStatus}
+                availableRegions={availableRegions}
+              />
             )}
 
             {activeTab === "magazzino" && (
