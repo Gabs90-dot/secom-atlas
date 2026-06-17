@@ -12,6 +12,7 @@ import type { AtlasTenant } from "@/lib/tenant";
 import { getStoredTenantSlug, storeTenantSlug } from "@/lib/tenant";
 import AtlasAppFrame from "@/components/atlas/layout/AtlasAppFrame";
 import CloseTicketModal from "@/components/atlas/layout/CloseTicketModal";
+import AtlasModuleRenderer from "@/components/atlas/layout/AtlasModuleRenderer";
 import { createAtlasTabGroups } from "@/components/atlas/layout/atlasNavigation";
 
 import {
@@ -6399,79 +6400,41 @@ site_id: t.site_id || null,
               </section>
             )}
 
-            {activeTab === "home" && (
-              isExecutiveMode ? (
-                <ExecutiveDashboard
-                  customers={customers}
-                  sites={sites}
-                  tickets={tickets}
-                  customerEntities={customerEntities}
-                  onOpenTicket={openTicketFromCustomer}
-                  onNavigate={(view) => setActiveTab(view as any)}
-                />
-              ) : (
-                <section className="hidden min-h-[calc(100vh-160px)] items-center justify-center md:flex">
-                  <div className="w-full max-w-5xl">
-                    <CustomerCommandCenter
-                      customers={customers}
-                      sites={sites}
-                      tickets={tickets}
-                      customerEntities={customerEntities}
-                      onOpenTicket={openTicketFromCustomer}
-                    />
-                  </div>
-                </section>
-              )
-            )}
-
-            {activeTab === "webvime" && (isExecutiveMode ? <ExecutiveWebvime /> : <WebvimeBoard />)}
-
-            {activeTab === "dispatch" && (
-              <DispatchCenter tickets={tickets} technicians={technicians} />
-            )}
-
-            {activeTab === "piani" && (
-              <div className="p-4 md:p-8">
-                <OperationalPlansCenter
-                  tenant={activeTenant}
-                  currentUser={currentUser}
-                  customers={customers}
-                  sites={sites}
-                  tickets={tickets}
-                />
-              </div>
-            )}
-
-            {activeTab === "todo" && <TodoListPanel />}
-
-            {activeTab === "activity" && <GlobalActivityFeed />}
-
-            {activeTab === "analytics" && (
-              isExecutiveMode ? <ExecutiveAnalytics /> : <KPIDashboard tickets={tickets} technicians={technicians} />
-            )}
-
-            {activeTab === "ai" && (
-              <AIInsightsPanel
-                tickets={tickets}
-                customers={customers}
-                sites={sites}
-                technicians={technicians}
-              />
-            )}
-
-            {activeTab === "manuali" && (
-              <ManualsCenter tenant={activeTenant} currentUser={currentUser} customers={customers} customerEntities={customerEntities} />
-            )}
-
-            {activeTab === "customerPortal" && (
-              <CustomerPortal
-                user={currentUser}
-                tenant={activeTenant}
-                tickets={tickets}
-                sites={sites}
-                onOpenTicket={openTicketFromCustomer}
-              />
-            )}
+            <AtlasModuleRenderer
+              activeTab={activeTab}
+              isExecutiveMode={isExecutiveMode}
+              customers={customers}
+              sites={sites}
+              tickets={tickets}
+              customerEntities={customerEntities}
+              technicians={technicians}
+              currentUser={currentUser}
+              activeTenant={activeTenant}
+              filteredTickets={filteredTickets}
+              card={card}
+              uiMode={uiMode}
+              onUiModeChange={switchUiMode}
+              onOpenTicketFromCustomer={openTicketFromCustomer}
+              onSetActiveTab={setActiveTab}
+              exportCsv={exportCsv}
+              setClosingTicketId={setClosingTicketId}
+              filterTechnician={filterTechnician}
+              setFilterTechnician={setFilterTechnician}
+              filterRegion={filterRegion}
+              setFilterRegion={setFilterRegion}
+              filterStatus={filterStatus}
+              setFilterStatus={setFilterStatus}
+              filterSite={filterSite}
+              setFilterSite={setFilterSite}
+              urgentOnly={urgentOnly}
+              setUrgentOnly={setUrgentOnly}
+              availableRegions={availableRegions}
+              onToggleTicketUrgent={toggleTicketUrgent}
+              onOpenTicketWorkspace={openTicketWorkspace}
+              onRefreshTickets={refreshTickets}
+              refreshingTickets={refreshingTickets}
+              onDeleteTicketFromRegistry={deleteTicketFromRegistry}
+            />
 
             {activeTab === "operativo" && (
               <section className={`${card} hidden md:block`}>
@@ -7819,53 +7782,6 @@ site_id: t.site_id || null,
                   )}
                 </div>
               </section>
-            )}
-
-            {activeTab === "utenti" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
-              <div className="p-4 md:p-8">
-                <UserManagementCenter
-                  currentUser={currentUser}
-                  tenant={activeTenant}
-                />
-              </div>
-            )}
-
-            {activeTab === "glpiImport" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
-              <div className="p-4 md:p-8">
-                <GlpiImportCenter tenant={activeTenant} />
-              </div>
-            )}
-
-            {activeTab === "designLab" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
-              <div className="p-4 md:p-8">
-                <ExecutiveThemeLab uiMode={uiMode} onUiModeChange={switchUiMode} />
-              </div>
-            )}
-
-            {activeTab === "registro" && (
-              <TicketRegistry
-                variant="desktop"
-                tickets={filteredTickets}
-                exportCsv={exportCsv}
-                setClosingTicketId={setClosingTicketId}
-                card={card}
-                filterTechnician={filterTechnician}
-                setFilterTechnician={setFilterTechnician}
-                filterRegion={filterRegion}
-                setFilterRegion={setFilterRegion}
-                filterStatus={filterStatus}
-                setFilterStatus={setFilterStatus}
-                filterSite={filterSite}
-                setFilterSite={setFilterSite}
-                urgentOnly={urgentOnly}
-                setUrgentOnly={setUrgentOnly}
-                availableRegions={availableRegions}
-                onToggleUrgent={toggleTicketUrgent}
-                onOpenTicketDetail={openTicketWorkspace}
-                onRefreshTickets={refreshTickets}
-                refreshingTickets={refreshingTickets}
-                onDeleteTicket={deleteTicketFromRegistry}
-              />
             )}
 
             <CloseTicketModal
