@@ -15,6 +15,7 @@ import { canViewModule } from "@/lib/auth";
 import type { AtlasTenant } from "@/lib/tenant";
 import { getStoredTenantSlug, storeTenantSlug } from "@/lib/tenant";
 import AtlasSidebar from "@/components/atlas/layout/AtlasSidebar";
+import AtlasHeader from "@/components/atlas/layout/AtlasHeader";
 
 import {
   Activity,
@@ -3906,9 +3907,7 @@ site_id: t.site_id || null,
       }
 
       setTickets((prev) => prev.filter((item) => String(item.id) !== String(ticketId)));
-      setSelectedTicketWorkspace((prev: any) =>
-  prev && String(prev.id) === String(ticketId) ? null : prev
-);
+      setSelectedTicketWorkspace((prev: any) => (prev && String(prev.id) === String(ticketId) ? null : prev));
 
       if (result.glpiError) {
         showMessage(`Ticket eliminato da ATLAS. GLPI non eliminato: ${result.glpiError}`, "error");
@@ -4732,232 +4731,28 @@ site_id: t.site_id || null,
         />
 
         <div className="min-w-0 flex-1 overflow-x-hidden">
-          <header className="sticky top-0 z-40 border-b border-white/10 bg-[#06111f]/95 px-5 pb-4 pt-5 backdrop-blur md:hidden">
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setMobileMoreOpen(true)}
-                className="rounded-2xl p-2 text-white"
-                aria-label="Apri menu mobile"
-              >
-                <Menu size={26} />
-              </button>
-
-              <div className="flex min-w-0 items-center gap-3">
-                <img
-                  src="/secom-logo.png.png"
-                  alt="Secom"
-                  className="h-9 w-auto object-contain"
-                />
-                <h1 className="truncate text-base font-black text-white">
-                  Centrale Operativa ATLAS
-                </h1>
-              </div>
-
-              <div className="hidden sm:flex items-center gap-2">
-                <TenantSwitcher
-                  tenants={tenants}
-                  activeTenant={activeTenant}
-                  onTenantChange={handleTenantChange}
-                />
-                <UserSessionBadge
-                  user={currentUser}
-                  compact
-                  onLogout={handleLogout}
-                />
-              </div>
-
-              <button
-                onClick={() => setNotificationsOpen(true)}
-                className="relative rounded-2xl p-2 text-white"
-                aria-label="Notifiche"
-              >
-                <Bell size={24} />
-                {notificationItems.length > 0 && (
-                  <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-blue-500 px-1.5 py-0.5 text-center text-[10px] font-black text-white">
-                    {notificationItems.length}
-                  </span>
-                )}
-              </button>
-            </div>
-          </header>
-
-          <header
-            className={`hidden md:block sticky top-0 z-30 border-b backdrop-blur ${
-              theme === "dark"
-                ? "border-white/10 bg-[#07111f]/90"
-                : "border-slate-300 bg-white/95 shadow-sm"
-            }`}
-          >
-            <div className="px-4 py-3 md:px-8 md:py-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <img
-                    src="/secom-logo.png.png"
-                    alt="Secom"
-                    className="h-10 w-auto object-contain lg:hidden"
-                  />
-
-                  <div className="min-w-0">
-                    <h1 className="truncate text-lg font-black md:text-2xl">
-                      {isExecutiveMode ? "ATLAS Executive Command" : "Centrale Operativa ATLAS"}
-                    </h1>
-                    <p
-                      className={`hidden text-sm md:block ${
-                        theme === "dark" ? "text-slate-400" : "text-slate-600"
-                      }`}
-                    >
-                      {isExecutiveMode
-                        ? "Tema Executive attivo · shell premium su moduli ATLAS reali."
-                        : "Clienti, ticket, calendario e operatività."}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <TenantSwitcher
-                    tenants={tenants}
-                    activeTenant={activeTenant}
-                    onTenantChange={handleTenantChange}
-                  />
-
-                  {isExecutiveMode && (
-                    <label
-                      title="Carica foto profilo"
-                      className="relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-amber-200/30 bg-amber-300/10 text-sm font-black text-amber-50 shadow-[0_0_24px_rgba(251,191,36,0.12)] transition-all hover:border-amber-200/60 hover:bg-amber-300/20"
-                    >
-                      {operatorAvatar ? (
-                        <img
-                          src={operatorAvatar}
-                          alt="Foto profilo"
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <span>GP</span>
-                      )}
-                      {!operatorAvatar && (
-                        <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-slate-950 bg-cyan-400 text-[11px] font-black text-slate-950">+</span>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(event) => {
-                          void handleOperatorAvatarUpload(event.target.files?.[0]);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                    </label>
-                  )}
-
-                  <UserSessionBadge
-                    user={currentUser}
-                    onLogout={handleLogout}
-                  />
-
-                  <button
-                    onClick={() => setNotificationsOpen(true)}
-                    className={`relative shrink-0 rounded-2xl border px-3 py-2 text-xs font-black shadow-sm transition-all md:px-4 md:py-3 md:text-sm ${
-                      theme === "dark"
-                        ? "border-white/10 bg-white/[0.06] text-white"
-                        : "border-slate-200 bg-white text-slate-900"
-                    }`}
-                    aria-label="Notifiche"
-                  >
-                    <Bell size={18} />
-                    {notificationItems.length > 0 && (
-                      <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-blue-600 px-1.5 py-0.5 text-center text-[10px] font-black text-white">
-                        {notificationItems.length}
-                      </span>
-                    )}
-                  </button>
-
-                  {['super_admin', 'admin'].includes(currentUser?.role || '') && (
-                    <button
-                      onClick={() => switchUiMode(isExecutiveMode ? "classic" : "executive")}
-                      className={`shrink-0 rounded-2xl border px-3 py-2 text-xs font-black shadow-sm transition-all md:px-4 md:py-3 md:text-sm ${
-                        isExecutiveMode
-                          ? "border-amber-200/30 bg-amber-300/15 text-amber-100 shadow-[0_0_26px_rgba(251,191,36,0.14)]"
-                          : theme === "dark"
-                            ? "border-cyan-300/20 bg-cyan-400/10 text-cyan-100"
-                            : "border-blue-200 bg-blue-50 text-blue-700"
-                      }`}
-                    >
-                      {isExecutiveMode ? "Classic" : "Executive"}
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() =>
-                      setTheme(theme === "dark" ? "light" : "dark")
-                    }
-                    className={`shrink-0 rounded-2xl border px-3 py-2 text-xs font-black shadow-sm transition-all md:px-4 md:py-3 md:text-sm ${
-                      theme === "dark"
-                        ? "border-white/10 bg-white text-slate-900"
-                        : "border-slate-300 bg-slate-950 text-white"
-                    }`}
-                  >
-                    {theme === "dark" ? "☀️" : "🌙"}
-                    <span className="ml-2 hidden md:inline">
-                      {theme === "dark" ? "Light" : "Dark"}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-end">
-                <div className="relative w-full md:w-96">
-                  <Search
-                    size={18}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-                  />
-                  <input
-                    className={`w-full rounded-2xl border py-3 pl-10 pr-4 text-sm outline-none ${
-                      theme === "dark"
-                        ? "border-white/10 bg-white/[0.06] text-white placeholder:text-slate-500 focus:border-blue-400"
-                        : "border-slate-300 bg-white text-slate-950 placeholder:text-slate-500 focus:border-blue-600"
-                    }`}
-                    placeholder="Cerca sito, cliente, contratto..."
-                    value={siteSearch}
-                    onChange={(e) => setSiteSearch(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div
-              className={`border-t px-3 py-2 lg:hidden ${
-                theme === "dark" ? "border-white/10" : "border-slate-200"
-              }`}
-            >
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {tabs
-                  .filter((tab) =>
-                    canAccessTab(tab.key),
-                  )
-                  .map(({ key, label, icon: Icon, badge }: any) => (
-                    <button
-                      key={key}
-                      onClick={() => setActiveTab(key as any)}
-                      className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-black ${
-                        activeTab === key
-                          ? "border-blue-500 bg-blue-600 text-white"
-                          : theme === "dark"
-                            ? "border-white/10 bg-white/10 text-slate-300"
-                            : "border-slate-300 bg-white text-slate-800"
-                      }`}
-                    >
-                      <Icon size={15} />
-                      {label}
-                      {badge > 0 && (
-                        <span className="ml-1 min-w-4 rounded-full bg-red-600 px-1.5 py-0.5 text-center text-[9px] font-black text-white">
-                          {badge}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-              </div>
-            </div>
-          </header>
+          <AtlasHeader
+            theme={theme}
+            isExecutiveMode={isExecutiveMode}
+            tenants={tenants}
+            activeTenant={activeTenant}
+            currentUser={currentUser}
+            notificationCount={notificationItems.length}
+            siteSearch={siteSearch}
+            tabs={tabs}
+            activeTab={activeTab}
+            onTenantChange={handleTenantChange}
+            onLogout={handleLogout}
+            onOpenNotifications={() => setNotificationsOpen(true)}
+            onOpenMobileMenu={() => setMobileMoreOpen(true)}
+            onSwitchUiMode={switchUiMode}
+            onThemeChange={setTheme}
+            onSiteSearchChange={setSiteSearch}
+            onTabChange={(key) => setActiveTab(key as any)}
+            canAccessTab={canAccessTab}
+            operatorAvatar={operatorAvatar}
+            onOperatorAvatarUpload={handleOperatorAvatarUpload}
+          />
 
           <MobileMoreMenu
             mobileMoreOpen={mobileMoreOpen}
