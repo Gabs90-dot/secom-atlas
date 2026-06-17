@@ -102,7 +102,9 @@ function Metric({ label, value, icon: Icon, tone }: any) {
   );
 }
 
-export default function TodoListPanel() {
+type TodoListPanelProps = { executiveMode?: boolean };
+
+export default function TodoListPanel({ executiveMode = false }: TodoListPanelProps = {}) {
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -292,10 +294,10 @@ export default function TodoListPanel() {
   }
 
   return (
-    <section className="grid gap-5 rounded-[2rem] border border-white/10 bg-white/[0.055] p-5 shadow-2xl">
+    <section className={executiveMode ? "grid gap-5 rounded-[34px] border border-cyan-300/10 bg-[radial-gradient(circle_at_10%_0%,rgba(34,211,238,0.12),transparent_28%),radial-gradient(circle_at_92%_8%,rgba(251,191,36,0.09),transparent_24%),linear-gradient(135deg,rgba(2,7,19,0.96),rgba(7,19,33,0.92)_48%,rgba(3,7,17,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.38)] backdrop-blur-2xl md:p-7" : "grid gap-5 rounded-[2rem] border border-white/10 bg-white/[0.055] p-5 shadow-2xl"}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">ATLAS TASK CENTER</p>
+          <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">{executiveMode ? "ATLAS TASK COMMAND" : "ATLAS TASK CENTER"}</p>
           <h2 className="mt-2 text-3xl font-black text-white">To Do List aziendale</h2>
           <p className="mt-1 max-w-4xl text-sm font-bold text-slate-400">Richieste interne non GLPI: chiunque inserisce una cosa da fare, un operatore la prende in carico e la chiude con nota opzionale.</p>
         </div>

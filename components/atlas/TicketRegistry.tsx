@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowDownUp, CheckCircle2, Clock, Download, Filter, Flame, RefreshCw, Search, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { AlertTriangle, ArrowDownUp, CheckCircle2, Clock, Download, Filter, Flame, RefreshCw, Search, Trash2, XCircle } from "lucide-react";
 import { materials, technicians } from "@/lib/atlasConstants";
 import { euro, materialCost } from "@/lib/atlasUtils";
 import TicketAttachmentsPanel from "@/components/atlas/TicketAttachmentsPanel";
@@ -30,6 +30,8 @@ type TicketRegistryProps = {
   onOpenTicketDetail?: (ticket: any) => void;
   onRefreshTickets?: () => void;
   refreshingTickets?: boolean;
+  onDeleteTicket?: (ticket: any) => void;
+  executiveMode?: boolean;
 };
 
 function ticketMaterialsLabel(ticket: any) {
@@ -316,20 +318,38 @@ function RegistryFilters({
   );
 }
 
-function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClosingTicketId, onOpenDetail }: any) {
+function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClosingTicketId, onOpenDetail, onDeleteTicket }: any) {
   const overdue = isOverdue(ticket);
   const closed = isClosed(ticket);
   const readableStatus = displayStatus(ticket);
 
+  function openDetail() {
+    onOpenDetail?.(ticket);
+  }
+
+  function stopAndRun(event: MouseEvent, action?: () => void) {
+    event.preventDefault();
+    event.stopPropagation();
+    action?.();
+  }
+
   return (
-    <div
-      onClick={() => onOpenDetail?.(ticket)}
-      className={`min-w-0 cursor-pointer overflow-hidden rounded-3xl border p-4 transition-all ${
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={openDetail}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openDetail();
+        }
+      }}
+      className={`group min-w-0 cursor-pointer overflow-hidden rounded-3xl border p-4 outline-none transition-all focus-visible:ring-2 focus-visible:ring-cyan-300/70 ${
         ticket.urgent
           ? "border-red-500/60 bg-red-500/10 shadow-lg shadow-red-950/20"
           : overdue
           ? "border-amber-500/50 bg-amber-500/10"
-          : "border-white/10 bg-white/[0.055] hover:bg-white/[0.08]"
+          : "border-white/10 bg-white/[0.055] hover:border-cyan-300/25 hover:bg-white/[0.08]"
       }`}
     >
       <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -339,9 +359,20 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
             <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(readableStatus)}`}>{readableStatus}</span>
             {ticket.urgent && <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white"><Flame size={13} /> URGENTE</span>}
             {overdue && <span className="inline-flex items-center gap-1 rounded-full bg-amber-600 px-3 py-1 text-xs font-black text-white"><Clock size={13} /> SCADUTO</span>}
+            {onDeleteTicket && (
+              <button
+                type="button"
+                onClick={(event) => stopAndRun(event, () => onDeleteTicket(ticket))}
+                className="ml-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-red-300/25 bg-red-500/10 text-red-100 opacity-75 transition hover:border-red-200/60 hover:bg-red-500/18 hover:opacity-100 hover:shadow-[0_0_22px_rgba(248,113,113,0.18)]"
+                title="Elimina ticket"
+                aria-label="Elimina ticket"
+              >
+                <Trash2 size={15} />
+              </button>
+            )}
           </div>
 
-          <h3 className="max-w-full truncate text-lg font-black text-white">{ticket.site || "Sede n/d"}</h3>
+          <h3 className="max-w-full truncate text-lg font-black text-white group-hover:text-cyan-50">{ticket.site || "Sede n/d"}</h3>
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-200">
@@ -368,11 +399,8 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
 
           <button
             type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenDetail?.(ticket);
-            }}
-            className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white"
+            onClick={(event) => stopAndRun(event, openDetail)}
+            className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white transition hover:bg-blue-500 hover:shadow-[0_0_24px_rgba(59,130,246,0.20)]"
           >
             Apri dettaglio
           </button>
@@ -380,13 +408,15 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
           {!closed ? (
             <div className="grid gap-2">
               <button
-                onClick={(event) => { event.stopPropagation(); onToggleUrgent?.(ticket); }}
+                type="button"
+                onClick={(event) => stopAndRun(event, () => onToggleUrgent?.(ticket))}
                 className={`rounded-2xl px-4 py-3 text-sm font-black text-white ${ticket.urgent ? "bg-slate-700" : "bg-red-600"}`}
               >
                 {ticket.urgent ? "Togli urgenza" : "Rendi urgente"}
               </button>
               <button
-                onClick={(event) => { event.stopPropagation(); variant === "mobile" ? promptCloseTicket?.(String(ticket.id)) : setClosingTicketId?.(String(ticket.id)); }}
+                type="button"
+                onClick={(event) => stopAndRun(event, () => variant === "mobile" ? promptCloseTicket?.(String(ticket.id)) : setClosingTicketId?.(String(ticket.id)))}
                 className="rounded-2xl bg-emerald-700 px-4 py-3 text-sm font-black text-white"
               >
                 Chiudi intervento
@@ -399,12 +429,12 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
           )}
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
 export default function TicketRegistry(props: TicketRegistryProps) {
-  const { variant, tickets, exportCsv, setMobileView, card = "", onOpenTicketDetail, onRefreshTickets, refreshingTickets = false } = props;
+  const { variant, tickets, exportCsv, setMobileView, card = "", onOpenTicketDetail, onRefreshTickets, refreshingTickets = false, executiveMode = false } = props;
   const [boardFilter, setBoardFilter] = useState<"all" | "open" | "urgent" | "overdue" | "closed">("all");
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
@@ -412,7 +442,12 @@ export default function TicketRegistry(props: TicketRegistryProps) {
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
   const [currentPage, setCurrentPage] = useState(1);
-  const openTicketDetail = onOpenTicketDetail || setSelectedTicket;
+  function openTicketDetail(ticket: any) {
+    // Apertura robusta: il dettaglio interno si apre sempre.
+    // Se page.tsx ha anche un workspace esterno, lo notifichiamo senza dipendere da quello.
+    setSelectedTicket(ticket);
+    onOpenTicketDetail?.(ticket);
+  }
 
   const openCount = tickets.filter((ticket) => !isClosed(ticket)).length;
   const urgentCount = tickets.filter((ticket) => ticket.urgent && !isClosed(ticket)).length;
@@ -493,7 +528,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       : "";
 
   const board = (
-    <div className="grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden">
+    <div className={executiveMode ? "grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden rounded-[34px] border border-cyan-300/10 bg-[radial-gradient(circle_at_10%_0%,rgba(34,211,238,0.10),transparent_28%),linear-gradient(135deg,rgba(2,7,19,0.96),rgba(7,19,33,0.92)_48%,rgba(3,7,17,0.98))] p-4 shadow-[0_28px_100px_rgba(0,0,0,0.34)] md:p-5" : "grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden"}>
       {selectedTicket && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm">
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#081523] p-5 shadow-2xl md:p-7">
@@ -581,7 +616,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       <div className="sticky top-0 z-40 -mx-1 grid gap-4 border-b border-white/10 bg-[#0b1524]/95 p-4 shadow-2xl backdrop-blur-xl">
       <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 overflow-hidden">
-          <p className="break-words text-xs font-black uppercase tracking-[0.3em] text-blue-400">CRM Operations Board</p>
+          <p className="break-words text-xs font-black uppercase tracking-[0.3em] text-blue-400">{executiveMode ? "MISSION OPERATIONS BOARD" : "CRM Operations Board"}</p>
           <h2 className="mt-2 break-words text-3xl font-black text-white md:text-4xl">Registro interventi</h2>
           <p className="mt-2 break-words text-sm text-slate-400">Priorità, scadenze, filtri e chiusure operative in un’unica vista.</p>
         </div>
@@ -728,7 +763,8 @@ export default function TicketRegistry(props: TicketRegistryProps) {
             Nessuna chiamata trovata con questi filtri.
           </div>
         ) : (
-          paginatedTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} {...props} onOpenDetail={openTicketDetail} />)
+          paginatedTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} {...props} onOpenDetail={openTicketDetail}
+                onDeleteTicket={props.onDeleteTicket} />)
         )}
         </div>
       </div>

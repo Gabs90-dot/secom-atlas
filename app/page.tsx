@@ -14,6 +14,7 @@ import { useAtlasAuth } from "@/components/atlas/AuthProvider";
 import { canViewModule } from "@/lib/auth";
 import type { AtlasTenant } from "@/lib/tenant";
 import { getStoredTenantSlug, storeTenantSlug } from "@/lib/tenant";
+import AtlasSidebar from "@/components/atlas/layout/AtlasSidebar";
 
 import {
   Activity,
@@ -48,6 +49,7 @@ import {
   Clock,
   CheckCircle2,
   BookOpen,
+  Sparkles,
 } from "lucide-react";
 
 const AtlasMap = dynamic(() => import("@/components/AtlasMap"), {
@@ -69,6 +71,10 @@ const TodoListPanel = dynamic(() => import("@/components/atlas/TodoListPanel"), 
 const ManualsCenter = dynamic(() => import("@/components/atlas/ManualsCenter"), { ssr: false });
 const KPIDashboard = dynamic(() => import("@/components/atlas/KPIDashboard"), { ssr: false });
 const AIInsightsPanel = dynamic(() => import("@/components/atlas/AIInsightsPanel"), { ssr: false });
+const ExecutiveThemeLab = dynamic(() => import("@/components/atlas-executive/ExecutiveThemeLab"), { ssr: false });
+const ExecutiveDashboard = dynamic(() => import("@/components/atlas-executive/ExecutiveDashboard"), { ssr: false });
+const ExecutiveAnalytics = dynamic(() => import("@/components/atlas-executive/ExecutiveAnalytics"), { ssr: false });
+const ExecutiveWebvime = dynamic(() => import("@/components/atlas-executive/ExecutiveWebvime"), { ssr: false });
 
 
 
@@ -1213,6 +1219,7 @@ export default function Home() {
     | "contatti"
     | "utenti"
     | "glpiImport"
+    | "designLab"
   >("home");
 
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
@@ -1230,6 +1237,83 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("atlas-theme", theme);
   }, [theme]);
+
+  const [uiMode, setUiMode] = useState<"classic" | "executive">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("atlas-ui-mode");
+      return saved === "executive" ? "executive" : "classic";
+    }
+
+    return "classic";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("atlas-ui-mode", uiMode);
+  }, [uiMode]);
+
+  const [operatorAvatar, setOperatorAvatar] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem("atlas-operator-avatar-v1") || "";
+  });
+
+  async function resizeOperatorAvatar(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Impossibile leggere l'immagine."));
+      reader.onload = () => {
+        const image = new Image();
+        image.onerror = () => reject(new Error("Formato immagine non valido."));
+        image.onload = () => {
+          const size = 256;
+          const canvas = document.createElement("canvas");
+          canvas.width = size;
+          canvas.height = size;
+          const context = canvas.getContext("2d");
+          if (!context) {
+            reject(new Error("Canvas non disponibile."));
+            return;
+          }
+
+          const side = Math.min(image.width, image.height);
+          const sourceX = Math.max(0, (image.width - side) / 2);
+          const sourceY = Math.max(0, (image.height - side) / 2);
+          context.clearRect(0, 0, size, size);
+          context.drawImage(image, sourceX, sourceY, side, side, 0, 0, size, size);
+          resolve(canvas.toDataURL("image/jpeg", 0.86));
+        };
+        image.src = String(reader.result || "");
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleOperatorAvatarUpload(file?: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      showMessage("Carica un file immagine valido.", "error");
+      return;
+    }
+
+    try {
+      const dataUrl = await resizeOperatorAvatar(file);
+      setOperatorAvatar(dataUrl);
+      window.localStorage.setItem("atlas-operator-avatar-v1", dataUrl);
+      showMessage("Foto profilo aggiornata.", "success");
+    } catch (error: any) {
+      showMessage(error?.message || "Errore caricamento foto profilo.", "error");
+    }
+  }
+
+  function switchUiMode(mode: "classic" | "executive") {
+    setUiMode(mode);
+    localStorage.setItem("atlas-ui-mode", mode);
+
+    if (mode === "executive") {
+      setTheme("dark");
+      if (activeTab === "designLab") setActiveTab("home");
+      if (mobileView === "designLab") setMobileView("home");
+    }
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -1290,6 +1374,7 @@ export default function Home() {
   });
 
   const [clientSearch, setClientSearch] = useState("");
+  const [customerInvitePanelOpen, setCustomerInvitePanelOpen] = useState(false);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [contractOverrides, setContractOverrides] = useState<any>({});
   const [customSlaContracts, setCustomSlaContracts] = useState<AtlasSlaContractProfile[]>([]);
@@ -1351,11 +1436,11 @@ export default function Home() {
     | "contatti"
     | "magazzino"
     | "utenti"
+    | "designLab"
   >("home");
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [todoNewCount, setTodoNewCount] = useState(0);
-
   const [manualReminders, setManualReminders] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("atlas-reminders");
@@ -3767,6 +3852,75 @@ site_id: t.site_id || null,
   }
 
 
+
+  async function deleteTicketFromRegistry(ticket: any) {
+    const ticketId = ticket?.id;
+    if (!ticketId) {
+      showMessage("Ticket non valido: ID mancante.", "error");
+      return;
+    }
+
+    const glpiTicketId = ticket?.glpi_ticket_id || ticket?.glpiTicketId || null;
+    const ticketLabel = ticket?.site || ticket?.title || ticket?.problem || `#${ticketId}`;
+
+    const confirmed = window.confirm(
+      `Eliminare definitivamente il ticket ${ticketLabel}?\n\nQuesta azione rimuove il ticket dal registro ATLAS.` +
+        (glpiTicketId ? `\nTicket GLPI collegato: #${glpiTicketId}.` : ""),
+    );
+
+    if (!confirmed) return;
+
+    const deleteFromGlpi = glpiTicketId
+      ? window.confirm(`Vuoi provare a cancellare anche il ticket GLPI #${glpiTicketId}?\n\nOK = ATLAS + GLPI\nAnnulla = solo ATLAS`)
+      : false;
+
+    try {
+      showMessage("Eliminazione ticket in corso...");
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      if (!token) {
+        showMessage("Sessione scaduta: fai logout/login e riprova.", "error");
+        return;
+      }
+
+      const response = await fetch("/api/admin/delete-ticket", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ticketId,
+          tenantId: activeTenant?.id || ticket?.tenant_id || ticket?.tenantId || null,
+          glpiTicketId,
+          deleteFromGlpi,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || `Eliminazione fallita (${response.status}).`);
+      }
+
+      setTickets((prev) => prev.filter((item) => String(item.id) !== String(ticketId)));
+      setSelectedTicketWorkspace((prev: any) =>
+  prev && String(prev.id) === String(ticketId) ? null : prev
+);
+
+      if (result.glpiError) {
+        showMessage(`Ticket eliminato da ATLAS. GLPI non eliminato: ${result.glpiError}`, "error");
+        return;
+      }
+
+      showMessage(deleteFromGlpi ? "Ticket eliminato da ATLAS e richiesta GLPI eseguita." : "Ticket eliminato da ATLAS.");
+    } catch (error: any) {
+      showMessage(error?.message || "Errore eliminazione ticket.", "error");
+    }
+  }
+
   function openTicketWorkspace(ticket: any) {
     setSelectedTicketWorkspace(ticket);
   }
@@ -3973,52 +4127,60 @@ site_id: t.site_id || null,
       items: [
         { key: "utenti", label: "Utenti", icon: Users },
         { key: "glpiImport", label: "Import GLPI", icon: Download },
+        { key: "designLab", label: "Design Lab", icon: Sparkles },
       ],
     },
   ];
+
+  const tabs = tabGroups.flatMap((group) => group.items);
 
   function canAccessTab(key: string) {
     if (!currentUser) return false;
 
     const isAdminLike = ["super_admin", "admin"].includes(currentUser.role);
 
-    if (key === "utenti" || key === "glpiImport") return isAdminLike;
+    if (key === "utenti" || key === "glpiImport" || key === "designLab") return isAdminLike;
     if (key === "webvime" || key === "todo") return currentUser.role !== "cliente";
     if (key === "piani") return currentUser.role !== "cliente";
 
     return canViewModule(currentUser, key);
   }
 
-  const tabs = tabGroups.flatMap((group) => group.items);
+  const isExecutiveMode = uiMode === "executive";
 
-  const card =
-    theme === "dark"
+  const card = isExecutiveMode
+    ? "rounded-[30px] border border-cyan-300/10 bg-white/[0.055] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.26)] backdrop-blur-2xl"
+    : theme === "dark"
       ? "rounded-3xl border border-white/10 bg-white/[0.06] p-6 shadow-xl backdrop-blur"
       : "rounded-3xl border border-slate-300 bg-white p-6 shadow-[0_8px_30px_rgba(15,23,42,0.12)]";
 
-  const input =
-    theme === "dark"
+  const input = isExecutiveMode
+    ? "rounded-2xl border border-cyan-300/10 bg-black/30 p-3 text-white placeholder:text-slate-500 outline-none transition focus:border-cyan-300/45 focus:bg-black/40"
+    : theme === "dark"
       ? "rounded-xl border border-white/10 bg-slate-950/50 p-3 text-white placeholder:text-slate-500 outline-none focus:border-blue-400"
       : "rounded-xl border-2 border-slate-300 bg-white p-3 text-slate-950 placeholder:text-slate-500 outline-none focus:border-blue-600";
 
-  const lightInput =
-    theme === "dark"
+  const lightInput = isExecutiveMode
+    ? "rounded-2xl border border-cyan-300/10 bg-black/30 p-2 text-white outline-none transition focus:border-cyan-300/45 focus:bg-black/40"
+    : theme === "dark"
       ? "rounded-xl border border-white/10 bg-slate-950/50 p-2 text-white outline-none focus:border-blue-400"
       : "rounded-xl border-2 border-slate-300 bg-white p-2 text-slate-950 outline-none focus:border-blue-600";
 
-  const panel =
-    theme === "dark"
+  const panel = isExecutiveMode
+    ? "border-cyan-300/10 bg-white/[0.045] backdrop-blur-xl"
+    : theme === "dark"
       ? "border-white/10 bg-white/[0.04]"
       : "border-slate-300 bg-slate-50 shadow-sm";
 
-  const innerPanel =
-    theme === "dark"
+  const innerPanel = isExecutiveMode
+    ? "border border-cyan-300/10 bg-black/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+    : theme === "dark"
       ? "bg-slate-950/40"
       : "bg-white border border-slate-300 shadow-sm";
 
-  const mutedText = theme === "dark" ? "text-slate-400" : "text-slate-600";
+  const mutedText = isExecutiveMode ? "text-slate-400" : theme === "dark" ? "text-slate-400" : "text-slate-600";
 
-  const strongText = theme === "dark" ? "text-white" : "text-slate-950";
+  const strongText = isExecutiveMode ? "text-white" : theme === "dark" ? "text-white" : "text-slate-950";
 
   function renderSlaContractsManager(isMobile = false) {
     const selectedCount = Object.values(selectedSlaContractKeys).filter(Boolean).length;
@@ -4346,13 +4508,81 @@ site_id: t.site_id || null,
 
   return (
     <main
-      className={`atlas-shell atlas-theme-${theme} min-h-screen overflow-x-hidden transition-all duration-300 ${
-        theme === "dark"
-          ? "bg-[#07111f] text-slate-100"
-          : "bg-[#eef3f8] text-slate-900"
+      className={`atlas-shell atlas-theme-${theme} atlas-ui-${uiMode} min-h-screen overflow-x-hidden transition-all duration-300 ${
+        isExecutiveMode
+          ? "bg-[#020713] text-slate-100"
+          : theme === "dark"
+            ? "bg-[#07111f] text-slate-100"
+            : "bg-[#eef3f8] text-slate-900"
       }`}
     >
       <style jsx global>{`
+        .atlas-ui-executive {
+          background:
+            radial-gradient(circle at 18% 0%, rgba(34, 211, 238, 0.16), transparent 28%),
+            radial-gradient(circle at 82% 4%, rgba(251, 191, 36, 0.12), transparent 25%),
+            linear-gradient(135deg, #020713 0%, #071321 50%, #030711 100%) !important;
+        }
+
+        .atlas-ui-executive::before {
+          content: "";
+          position: fixed;
+          inset: 0;
+          z-index: 0;
+          pointer-events: none;
+          opacity: 0.22;
+          background-image:
+            linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+          background-size: 42px 42px;
+        }
+
+        .atlas-ui-executive > div,
+        .atlas-ui-executive .atlas-sidebar,
+        .atlas-ui-executive header,
+        .atlas-ui-executive main {
+          position: relative;
+          z-index: 1;
+        }
+
+        .atlas-ui-executive .atlas-sidebar {
+          background: rgba(2, 7, 19, 0.82) !important;
+          border-right-color: rgba(103, 232, 249, 0.12) !important;
+          box-shadow: 18px 0 70px rgba(0, 0, 0, 0.28) !important;
+          backdrop-filter: blur(24px);
+        }
+
+
+        .atlas-ui-executive .atlas-sidebar-nav::before,
+        .atlas-theme-light .atlas-sidebar-nav::before {
+          display: none !important;
+          content: none !important;
+        }
+
+        .atlas-ui-executive header {
+          background: rgba(2, 7, 19, 0.72) !important;
+          border-bottom-color: rgba(103, 232, 249, 0.12) !important;
+          box-shadow: 0 16px 60px rgba(0, 0, 0, 0.18);
+        }
+
+        .atlas-ui-executive section[class*="rounded"],
+        .atlas-ui-executive div[class*="rounded-3xl"],
+        .atlas-ui-executive div[class*="rounded-[2rem]"],
+        .atlas-ui-executive div[class*="rounded-[34px]"] {
+          border-color: rgba(103, 232, 249, 0.12) !important;
+        }
+
+        .atlas-ui-executive [class*="bg-white/"],
+        .atlas-ui-executive [class*="bg-white["] {
+          background-color: rgba(255, 255, 255, 0.055) !important;
+        }
+
+        .atlas-ui-executive button[class*="bg-blue-600"],
+        .atlas-ui-executive a[class*="bg-blue-600"] {
+          background: linear-gradient(135deg, rgba(34,211,238,0.88), rgba(37,99,235,0.95)) !important;
+          box-shadow: 0 0 28px rgba(34, 211, 238, 0.16);
+        }
+
         .atlas-theme-light {
           --atlas-light-bg: #eef3f8;
           --atlas-light-surface: #ffffff;
@@ -4392,17 +4622,6 @@ site_id: t.site_id || null,
         .atlas-theme-light .atlas-sidebar button[class*="bg-blue-600"] span {
           color: #ffffff !important;
           opacity: 1 !important;
-        }
-
-        .atlas-theme-light .atlas-sidebar-nav::before {
-          content: "";
-          position: absolute;
-          left: 0.625rem;
-          top: 0;
-          bottom: 5rem;
-          width: 1px;
-          background: linear-gradient(180deg, rgba(37,99,235,0.0), rgba(100,116,139,0.28), rgba(100,116,139,0.08));
-          pointer-events: none;
         }
 
         .atlas-theme-light [class*="bg-[#07111f]"],
@@ -4502,70 +4721,15 @@ site_id: t.site_id || null,
         onStatusUpdated={updateTicketFromWorkspace}
       />
       <div className="flex min-h-screen">
-        <aside
-          className={`atlas-sidebar hidden w-72 shrink-0 border-r p-6 pb-40 lg:block ${
-            theme === "dark"
-              ? "border-white/10 bg-[#081523]"
-              : "border-slate-300 bg-white shadow-xl shadow-slate-300/30"
-          }`}
-        >
-          <div className={`mb-8 rounded-[2rem] border bg-[#081523] ${
-            theme === "dark"
-              ? "border-emerald-400/70 shadow-[0_0_0_1px_rgba(34,197,94,0.22),0_0_15px_rgba(34,197,94,0.28)]"
-              : "border-slate-300 shadow-lg shadow-slate-300/40"
-          }`}>
-            <div className="overflow-hidden rounded-[2rem]">
-              <img
-                src={ATLAS_LOGO_CARD_IMAGE}
-                alt="Secom ATLAS Centrale operativa"
-                className="block w-full select-none object-contain"
-                draggable={false}
-              />
-            </div>
-          </div>
-
-          <nav className="atlas-sidebar-nav relative space-y-5 pb-32">
-            {tabGroups.map((group) => {
-              const visibleItems = group.items.filter((tab) =>
-                canAccessTab(tab.key),
-              );
-
-              if (visibleItems.length === 0) return null;
-
-              return (
-                <div key={group.title} className="space-y-2">
-                  <p className="px-2 text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
-                    {group.title}
-                  </p>
-
-                  {visibleItems.map(({ key, label, icon: Icon, badge }: any) => (
-                    <button
-                      key={key}
-                      onClick={() => setActiveTab(key as any)}
-                      className={`relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-2xl border px-4 py-3 text-left text-sm font-bold transition-all duration-300 ${
-                        activeTab === key
-                          ? theme === "dark"
-                            ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-50 shadow-[inset_0_0_0_1px_rgba(74,222,128,0.14),0_0_22px_rgba(34,197,94,0.18)]"
-                            : "border-blue-600 bg-blue-600 text-white shadow-lg shadow-blue-900/20"
-                          : theme === "dark"
-                            ? "border-white/10 bg-white/[0.025] text-slate-300 hover:border-emerald-400/55 hover:bg-emerald-500/10 hover:text-emerald-50"
-                            : "border-slate-300 bg-white text-slate-900 shadow-sm shadow-slate-200/70 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
-                      }`}
-                    >
-                      <Icon className="relative z-10" size={18} />
-                      <span className="relative z-10 min-w-0 flex-1">{label}</span>
-                      {badge > 0 && (
-                        <span className="relative z-10 ml-auto min-w-5 rounded-full bg-red-600 px-2 py-0.5 text-center text-[10px] font-black text-white">
-                          {badge}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              );
-            })}
-          </nav>
-        </aside>
+        <AtlasSidebar
+          theme={theme}
+          isExecutiveMode={isExecutiveMode}
+          logoImage={ATLAS_LOGO_CARD_IMAGE}
+          tabGroups={tabGroups}
+          activeTab={activeTab}
+          canAccessTab={canAccessTab}
+          onTabChange={(key) => setActiveTab(key as any)}
+        />
 
         <div className="min-w-0 flex-1 overflow-x-hidden">
           <header className="sticky top-0 z-40 border-b border-white/10 bg-[#06111f]/95 px-5 pb-4 pt-5 backdrop-blur md:hidden">
@@ -4635,14 +4799,16 @@ site_id: t.site_id || null,
 
                   <div className="min-w-0">
                     <h1 className="truncate text-lg font-black md:text-2xl">
-                      Centrale Operativa ATLAS
+                      {isExecutiveMode ? "ATLAS Executive Command" : "Centrale Operativa ATLAS"}
                     </h1>
                     <p
                       className={`hidden text-sm md:block ${
                         theme === "dark" ? "text-slate-400" : "text-slate-600"
                       }`}
                     >
-                      Clienti, ticket, calendario e operatività.
+                      {isExecutiveMode
+                        ? "Tema Executive attivo · shell premium su moduli ATLAS reali."
+                        : "Clienti, ticket, calendario e operatività."}
                     </p>
                   </div>
                 </div>
@@ -4653,6 +4819,36 @@ site_id: t.site_id || null,
                     activeTenant={activeTenant}
                     onTenantChange={handleTenantChange}
                   />
+
+                  {isExecutiveMode && (
+                    <label
+                      title="Carica foto profilo"
+                      className="relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-amber-200/30 bg-amber-300/10 text-sm font-black text-amber-50 shadow-[0_0_24px_rgba(251,191,36,0.12)] transition-all hover:border-amber-200/60 hover:bg-amber-300/20"
+                    >
+                      {operatorAvatar ? (
+                        <img
+                          src={operatorAvatar}
+                          alt="Foto profilo"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span>GP</span>
+                      )}
+                      {!operatorAvatar && (
+                        <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-slate-950 bg-cyan-400 text-[11px] font-black text-slate-950">+</span>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          void handleOperatorAvatarUpload(event.target.files?.[0]);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                  )}
+
                   <UserSessionBadge
                     user={currentUser}
                     onLogout={handleLogout}
@@ -4674,6 +4870,21 @@ site_id: t.site_id || null,
                       </span>
                     )}
                   </button>
+
+                  {['super_admin', 'admin'].includes(currentUser?.role || '') && (
+                    <button
+                      onClick={() => switchUiMode(isExecutiveMode ? "classic" : "executive")}
+                      className={`shrink-0 rounded-2xl border px-3 py-2 text-xs font-black shadow-sm transition-all md:px-4 md:py-3 md:text-sm ${
+                        isExecutiveMode
+                          ? "border-amber-200/30 bg-amber-300/15 text-amber-100 shadow-[0_0_26px_rgba(251,191,36,0.14)]"
+                          : theme === "dark"
+                            ? "border-cyan-300/20 bg-cyan-400/10 text-cyan-100"
+                            : "border-blue-200 bg-blue-50 text-blue-700"
+                      }`}
+                    >
+                      {isExecutiveMode ? "Classic" : "Executive"}
+                    </button>
+                  )}
 
                   <button
                     onClick={() =>
@@ -4849,6 +5060,11 @@ site_id: t.site_id || null,
                         label: "Import GLPI",
                         icon: Download,
                       },
+                      {
+                        key: "designLab",
+                        label: "Design Lab",
+                        icon: Sparkles,
+                      },
                     ].map(({ key, label, icon: Icon, badge }: any) => (
                       <button
                         key={key}
@@ -4869,18 +5085,29 @@ site_id: t.site_id || null,
               )}
 
               {mobileView === "home" && (
-                <div className="grid gap-5">
-                  <CustomerCommandCenter
+                isExecutiveMode ? (
+                  <ExecutiveDashboard
                     customers={customers}
                     sites={sites}
                     tickets={tickets}
                     customerEntities={customerEntities}
                     onOpenTicket={openTicketFromCustomer}
+                    onNavigate={(view) => setMobileView(view as any)}
                   />
-                </div>
+                ) : (
+                  <div className="grid gap-5">
+                    <CustomerCommandCenter
+                      customers={customers}
+                      sites={sites}
+                      tickets={tickets}
+                      customerEntities={customerEntities}
+                      onOpenTicket={openTicketFromCustomer}
+                    />
+                  </div>
+                )
               )}
 
-              {mobileView === "webvime" && <WebvimeBoard />}
+              {mobileView === "webvime" && (isExecutiveMode ? <ExecutiveWebvime /> : <WebvimeBoard />)}
 
               {mobileView === "dispatch" && (
                 <DispatchCenter tickets={tickets} technicians={technicians} />
@@ -4891,7 +5118,7 @@ site_id: t.site_id || null,
               {mobileView === "activity" && <GlobalActivityFeed />}
 
               {mobileView === "analytics" && (
-                <KPIDashboard tickets={tickets} technicians={technicians} />
+                isExecutiveMode ? <ExecutiveAnalytics /> : <KPIDashboard tickets={tickets} technicians={technicians} />
               )}
 
               {mobileView === "ai" && (
@@ -5210,6 +5437,10 @@ site_id: t.site_id || null,
                 <ManualsCenter tenant={activeTenant} currentUser={currentUser} customers={customers} customerEntities={customerEntities} />
               )}
 
+              {mobileView === "designLab" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
+                <ExecutiveThemeLab uiMode={uiMode} onUiModeChange={switchUiMode} />
+              )}
+
               {mobileView === "registro" && (
                 <TicketRegistry
                   variant="mobile"
@@ -5232,6 +5463,7 @@ site_id: t.site_id || null,
                   onOpenTicketDetail={openTicketWorkspace}
                   onRefreshTickets={refreshTickets}
                   refreshingTickets={refreshingTickets}
+                  onDeleteTicket={deleteTicketFromRegistry}
                 />
               )}
 
@@ -6471,20 +6703,31 @@ site_id: t.site_id || null,
             )}
 
             {activeTab === "home" && (
-              <section className="hidden min-h-[calc(100vh-160px)] items-center justify-center md:flex">
-                <div className="w-full max-w-5xl">
-                  <CustomerCommandCenter
-                    customers={customers}
-                    sites={sites}
-                    tickets={tickets}
-                    customerEntities={customerEntities}
-                    onOpenTicket={openTicketFromCustomer}
-                  />
-                </div>
-              </section>
+              isExecutiveMode ? (
+                <ExecutiveDashboard
+                  customers={customers}
+                  sites={sites}
+                  tickets={tickets}
+                  customerEntities={customerEntities}
+                  onOpenTicket={openTicketFromCustomer}
+                  onNavigate={(view) => setActiveTab(view as any)}
+                />
+              ) : (
+                <section className="hidden min-h-[calc(100vh-160px)] items-center justify-center md:flex">
+                  <div className="w-full max-w-5xl">
+                    <CustomerCommandCenter
+                      customers={customers}
+                      sites={sites}
+                      tickets={tickets}
+                      customerEntities={customerEntities}
+                      onOpenTicket={openTicketFromCustomer}
+                    />
+                  </div>
+                </section>
+              )
             )}
 
-            {activeTab === "webvime" && <WebvimeBoard />}
+            {activeTab === "webvime" && (isExecutiveMode ? <ExecutiveWebvime /> : <WebvimeBoard />)}
 
             {activeTab === "dispatch" && (
               <DispatchCenter tickets={tickets} technicians={technicians} />
@@ -6507,7 +6750,7 @@ site_id: t.site_id || null,
             {activeTab === "activity" && <GlobalActivityFeed />}
 
             {activeTab === "analytics" && (
-              <KPIDashboard tickets={tickets} technicians={technicians} />
+              isExecutiveMode ? <ExecutiveAnalytics /> : <KPIDashboard tickets={tickets} technicians={technicians} />
             )}
 
             {activeTab === "ai" && (
@@ -6992,7 +7235,49 @@ site_id: t.site_id || null,
                   />
                 </div>
 
-                <CustomerInviteCodeCenter />
+                <div className={`mb-5 overflow-hidden rounded-[26px] border ${
+                  uiMode === "executive"
+                    ? "border-cyan-300/15 bg-slate-950/30 shadow-[0_0_35px_rgba(34,211,238,0.06)]"
+                    : theme === "dark"
+                      ? "border-white/10 bg-white/[0.035]"
+                      : "border-slate-300 bg-slate-50"
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => setCustomerInvitePanelOpen((value) => !value)}
+                    className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-white/[0.035]"
+                  >
+                    <div className="min-w-0">
+                      <p className={`text-[10px] font-black uppercase tracking-[0.32em] ${uiMode === "executive" ? "text-cyan-200/70" : "text-blue-400"}`}>
+                        Accessi cliente
+                      </p>
+                      <h3 className="mt-1 text-lg font-black text-white">
+                        Codici invito portale
+                      </h3>
+                      <p className="mt-1 line-clamp-1 text-xs font-bold text-slate-400">
+                        Genera o consulta codici sede/comando solo quando serve, senza occupare l'elenco clienti.
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span className="hidden rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-slate-300 sm:inline-flex">
+                        {customerInvitePanelOpen ? "Aperto" : "Compatto"}
+                      </span>
+                      <span className={`rounded-2xl px-4 py-2 text-sm font-black ${
+                        customerInvitePanelOpen
+                          ? "border border-amber-300/30 bg-amber-300/10 text-amber-100"
+                          : "border border-cyan-300/20 bg-cyan-300/10 text-cyan-100"
+                      }`}>
+                        {customerInvitePanelOpen ? "Chiudi" : "Gestisci codici"}
+                      </span>
+                    </div>
+                  </button>
+
+                  {customerInvitePanelOpen && (
+                    <div className="border-t border-white/10 p-4">
+                      <CustomerInviteCodeCenter />
+                    </div>
+                  )}
+                </div>
 
                 <div className="space-y-4">
                   {Object.entries(clientCategories).map(
@@ -7854,6 +8139,12 @@ site_id: t.site_id || null,
               </div>
             )}
 
+            {activeTab === "designLab" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
+              <div className="p-4 md:p-8">
+                <ExecutiveThemeLab uiMode={uiMode} onUiModeChange={switchUiMode} />
+              </div>
+            )}
+
             {activeTab === "registro" && (
               <TicketRegistry
                 variant="desktop"
@@ -7876,6 +8167,7 @@ site_id: t.site_id || null,
                 onOpenTicketDetail={openTicketWorkspace}
                 onRefreshTickets={refreshTickets}
                 refreshingTickets={refreshingTickets}
+                onDeleteTicket={deleteTicketFromRegistry}
               />
             )}
 

@@ -16,6 +16,7 @@ type CustomerCommandCenterProps = {
   tickets: any[];
   customerEntities?: any[];
   onOpenTicket?: (customer: any, site?: any) => void;
+  executiveMode?: boolean;
 };
 
 function normalize(value: any) {
@@ -372,6 +373,7 @@ export default function CustomerCommandCenter({
   tickets,
   customerEntities = [],
   onOpenTicket,
+  executiveMode = false,
 }: CustomerCommandCenterProps) {
   const [search, setSearch] = useState("");
   const [selectedSite, setSelectedSite] = useState<any | null>(null);
@@ -656,9 +658,9 @@ export default function CustomerCommandCenter({
   }
 
   return (
-    <section className="mx-auto grid w-full max-w-5xl gap-5 rounded-[2rem] border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 md:p-8">
+    <section className={executiveMode ? "mx-auto grid w-full max-w-5xl gap-5 rounded-[34px] border border-cyan-300/10 bg-[radial-gradient(circle_at_12%_0%,rgba(34,211,238,0.14),transparent_30%),radial-gradient(circle_at_88%_10%,rgba(251,191,36,0.10),transparent_26%),linear-gradient(135deg,rgba(2,7,19,0.96),rgba(7,19,33,0.94)_48%,rgba(3,7,17,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.40)] backdrop-blur-2xl md:p-8" : "mx-auto grid w-full max-w-5xl gap-5 rounded-[2rem] border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 md:p-8"}>
       <div className="text-center">
-        <p className="text-xs font-black uppercase tracking-[0.35em] text-blue-400">ATLAS CRM</p>
+        <p className="text-xs font-black uppercase tracking-[0.35em] text-blue-400">{executiveMode ? "ATLAS COMMAND" : "ATLAS CRM"}</p>
         <h1 className="mt-3 text-3xl font-black text-white md:text-5xl">Cerca una sede o un cliente</h1>
         <p className="mx-auto mt-3 max-w-2xl text-sm font-medium text-slate-400 md:text-base">
           Parti dalla posizione reale: trovi contratto, chiamate e asset collegati, poi apri la chiamata corretta.

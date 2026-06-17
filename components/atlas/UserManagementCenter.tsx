@@ -21,6 +21,7 @@ import {
 type UserManagementCenterProps = {
   tenant: any | null;
   currentUser: any | null;
+  executiveMode?: boolean;
 };
 
 type TenantUser = {
@@ -122,7 +123,7 @@ function moduleLabel(module: string) {
   return labels[module] || module;
 }
 
-export default function UserManagementCenter({ tenant, currentUser }: UserManagementCenterProps) {
+export default function UserManagementCenter({ tenant, currentUser, executiveMode = false }: UserManagementCenterProps) {
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -460,8 +461,8 @@ export default function UserManagementCenter({ tenant, currentUser }: UserManage
   }
 
   return (
-    <section className="grid gap-5">
-      <div className="rounded-[2rem] border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 md:p-7">
+    <section className={executiveMode ? "grid gap-5 rounded-[34px] border border-cyan-300/10 bg-[radial-gradient(circle_at_10%_0%,rgba(34,211,238,0.12),transparent_28%),radial-gradient(circle_at_92%_8%,rgba(251,191,36,0.09),transparent_24%),linear-gradient(135deg,rgba(2,7,19,0.96),rgba(7,19,33,0.92)_48%,rgba(3,7,17,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.38)] backdrop-blur-2xl md:p-7" : "grid gap-5"}>
+      <div className={executiveMode ? "rounded-[30px] border border-cyan-300/10 bg-black/25 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:p-7" : "rounded-[2rem] border border-white/10 bg-white/[0.055] p-5 shadow-2xl shadow-black/20 md:p-7"}>
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.35em] text-blue-400">ATLAS IAM</p>
