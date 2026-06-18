@@ -19,11 +19,19 @@ const toneMap = {
 };
 
 const strokeMap = {
-  cyan: "rgba(34,211,238,0.86)",
-  gold: "rgba(251,191,36,0.86)",
-  green: "rgba(52,211,153,0.86)",
-  red: "rgba(251,113,133,0.86)",
-  blue: "rgba(96,165,250,0.86)",
+  cyan: "rgba(34,211,238,0.95)",
+  gold: "rgba(251,191,36,0.95)",
+  green: "rgba(52,211,153,0.95)",
+  red: "rgba(251,113,133,0.95)",
+  blue: "rgba(96,165,250,0.95)",
+};
+
+const fillMap = {
+  cyan: "rgba(34,211,238,0.12)",
+  gold: "rgba(251,191,36,0.12)",
+  green: "rgba(52,211,153,0.12)",
+  red: "rgba(251,113,133,0.12)",
+  blue: "rgba(96,165,250,0.12)",
 };
 
 function buildPath(values: number[]) {
@@ -50,6 +58,7 @@ export default function ExecutiveMetricCard({
   onClick,
 }: ExecutiveMetricCardProps) {
   const path = buildPath(sparkline);
+  const areaPath = `${path} L100 38 L0 38 Z`;
   return (
     <div
       role={onClick ? "button" : undefined}
@@ -77,18 +86,33 @@ export default function ExecutiveMetricCard({
         </div>
       </div>
 
-      <div className="relative z-10 mt-4 h-10 overflow-hidden rounded-2xl bg-black/22">
+      <div className="relative z-10 mt-4 h-11 overflow-hidden rounded-2xl border border-white/10 bg-black/[0.16]">
+        <div className="pointer-events-none absolute inset-x-3 top-1/2 h-px bg-white/[0.06]" />
+        <div className="pointer-events-none absolute inset-x-3 top-3 h-px bg-white/[0.035]" />
+        <div className="pointer-events-none absolute inset-x-3 bottom-3 h-px bg-white/[0.035]" />
         <svg viewBox="0 0 100 38" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
-          <defs>
-            <linearGradient id={`metricFill-${label.replace(/\s+/g, "-")}`} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={strokeMap[tone]} stopOpacity="0.28" />
-              <stop offset="100%" stopColor={strokeMap[tone]} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d={`${path} L100 38 L0 38 Z`} fill={`url(#metricFill-${label.replace(/\s+/g, "-")})`} />
-          <path d={path} fill="none" stroke={strokeMap[tone]} strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={areaPath} fill={fillMap[tone]} />
+          <path
+            d={path}
+            fill="none"
+            stroke={strokeMap[tone]}
+            strokeWidth="2.05"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+          <path
+            d={path}
+            fill="none"
+            stroke={strokeMap[tone]}
+            strokeWidth="5.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+            opacity="0.10"
+          />
+          <circle cx="96" cy="19" r="1.5" fill={strokeMap[tone]} opacity="0.85" />
         </svg>
-        <div className="absolute inset-x-0 bottom-0 h-px bg-current opacity-20" />
       </div>
     </div>
   );

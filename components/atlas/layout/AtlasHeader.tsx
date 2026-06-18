@@ -1,10 +1,37 @@
 "use client";
 
+import { useRef } from "react";
 import { Bell, Menu, Search } from "lucide-react";
 import TenantSwitcher from "@/components/atlas/TenantSwitcher";
 import UserSessionBadge from "@/components/atlas/UserSessionBadge";
 import OperatorAvatar from "./OperatorAvatar";
 import ThemeToggle from "./ThemeToggle";
+import VariableProximity from "./VariableProximity";
+
+
+function getDisplayName(user: any | null) {
+  const raw =
+    user?.full_name ||
+    user?.fullName ||
+    user?.name ||
+    user?.display_name ||
+    user?.email ||
+    "Operatore";
+
+  return String(raw).split("@")[0].replace(/[._-]+/g, " ").trim() || "Operatore";
+}
+
+function getFirstName(user: any | null) {
+  const displayName = getDisplayName(user);
+  return displayName.split(/\s+/).filter(Boolean)[0] || displayName || "Operatore";
+}
+
+function getDayGreeting() {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 14) return "Buongiorno";
+  if (hour >= 14 && hour < 17) return "Buon pomeriggio";
+  return "Buonasera";
+}
 
 type AtlasHeaderProps = {
   theme: string;
@@ -52,6 +79,9 @@ export default function AtlasHeader({
   onOperatorAvatarUpload,
 }: AtlasHeaderProps) {
   const canSwitchExecutive = ["super_admin", "admin"].includes(currentUser?.role || "");
+  const firstName = getFirstName(currentUser);
+  const dayGreeting = getDayGreeting();
+  const greetingContainerRef = useRef<HTMLDivElement | null>(null);
 
   return (
     <>
@@ -91,8 +121,8 @@ export default function AtlasHeader({
           theme === "dark" ? "border-white/10 bg-[#07111f]/90" : "border-slate-300 bg-white/95 shadow-sm"
         }`}
       >
-        <div className="px-4 py-3 md:px-8 md:py-4">
-          <div className="flex items-center justify-between gap-3">
+        <div className="relative px-4 py-3 md:px-8 md:py-4">
+          <div className="relative z-20 flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <img src="/secom-logo.png.png" alt="Secom" className="h-10 w-auto object-contain lg:hidden" />
 
@@ -105,10 +135,11 @@ export default function AtlasHeader({
                     ? "Tema Executive attivo · shell premium su moduli ATLAS reali."
                     : "Clienti, ticket, calendario e operatività."}
                 </p>
+
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-start gap-2">
               <TenantSwitcher tenants={tenants} activeTenant={activeTenant} onTenantChange={onTenantChange} />
 
               {isExecutiveMode && (
@@ -150,7 +181,7 @@ export default function AtlasHeader({
             </div>
           </div>
 
-          <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-end">
+          <div className="relative z-20 mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-end">
             <div className="relative w-full md:w-96">
               <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
@@ -165,6 +196,22 @@ export default function AtlasHeader({
               />
             </div>
           </div>
+
+          {isExecutiveMode && (
+            <div ref={greetingContainerRef} className="pointer-events-none absolute bottom-3 left-8 z-10 hidden lg:block">
+              <h2 className="text-[44px] font-black leading-none tracking-tight text-white drop-shadow-[0_0_20px_rgba(34,211,238,0.18)] xl:text-[50px] 2xl:text-[54px]">
+                <VariableProximity
+                  label={`${dayGreeting}, ${firstName}`}
+                  className="inline-block whitespace-nowrap text-white"
+                  fromFontVariationSettings="'wght' 650, 'opsz' 12"
+                  toFontVariationSettings="'wght' 1000, 'opsz' 40"
+                  containerRef={greetingContainerRef}
+                  radius={150}
+                  falloff="linear"
+                />
+              </h2>
+            </div>
+          )}
         </div>
 
         <div className={`border-t px-3 py-2 lg:hidden ${theme === "dark" ? "border-white/10" : "border-slate-200"}`}>

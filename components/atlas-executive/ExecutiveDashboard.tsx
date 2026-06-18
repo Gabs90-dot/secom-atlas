@@ -21,6 +21,7 @@ import ExecutiveMetricCard from "./ExecutiveMetricCard";
 import ExecutiveNetworkMap from "./ExecutiveNetworkMap";
 import ExecutiveRiskRadar from "./ExecutiveRiskRadar";
 import ExecutiveSignalFeed from "./ExecutiveSignalFeed";
+import BorderGlow from "@/components/atlas/ui/BorderGlow";
 
 type ExecutiveDashboardProps = {
   customers?: any[];
@@ -225,26 +226,26 @@ export default function ExecutiveDashboard({ customers = [], sites = [], tickets
 
     const customerResults = customers
       .filter((item) => buildSearchText(item).includes(q))
-      .slice(0, 4)
-      .map((item) => ({ type: "Cliente", label: item?.name || "Cliente", detail: item?.city || item?.region || "Anagrafica cliente", customer: item }));
+      .slice(0, 5)
+      .map((item) => ({
+        type: "Cliente",
+        label: item?.name || item?.customerName || item?.customer_name || "Cliente",
+        detail: [item?.city, item?.region].filter(Boolean).join(" · ") || "Anagrafica cliente",
+        customer: item,
+      }));
 
     const siteResults = sites
       .filter((item) => buildSearchText(item).includes(q))
-      .slice(0, 4)
-      .map((item) => ({ type: "Sede", label: item?.name || item?.site || "Sede", detail: [item?.city, item?.entity].filter(Boolean).join(" · ") || "Sede operativa", site: item }));
+      .slice(0, 6)
+      .map((item) => ({
+        type: "Sede",
+        label: item?.name || item?.site || "Sede",
+        detail: [item?.city, item?.entity, item?.region].filter(Boolean).join(" · ") || "Sede operativa",
+        site: item,
+      }));
 
-    const entityResults = customerEntities
-      .filter((item) => buildSearchText(item).includes(q))
-      .slice(0, 3)
-      .map((item) => ({ type: "Entità", label: item?.normalized_complete_name || item?.complete_name || item?.name || "Entità", detail: item?.city || item?.region || "Nodo cliente", entity: item }));
-
-    const ticketResults = tickets
-      .filter((item) => buildSearchText(item).includes(q))
-      .slice(0, 3)
-      .map((item) => ({ type: "Ticket", label: ticketTitle(item), detail: `${ticketCustomer(item)} · ${ticketStatus(item)}`, ticket: item }));
-
-    return [...customerResults, ...siteResults, ...entityResults, ...ticketResults].slice(0, 8);
-  }, [query, customers, sites, customerEntities, tickets]);
+    return [...customerResults, ...siteResults].slice(0, 8);
+  }, [query, customers, sites]);
 
   const networkNodes = useMemo(() => {
     const source = sites.length > 0 ? sites : customerEntities;
@@ -340,24 +341,20 @@ export default function ExecutiveDashboard({ customers = [], sites = [], tickets
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Cerca cliente, sede, ticket, contratto o nodo GLPI..."
+                placeholder="Cerca cliente o sede operativa..."
                 className="mt-1 w-full bg-transparent text-2xl font-black text-white outline-none placeholder:text-slate-500 md:text-3xl"
               />
-              <p className="mt-1 text-xs font-semibold text-slate-400">Esempi: Casoria · Carabinieri Roma · GLPI #2059045627 · Webvime</p>
+              <p className="mt-1 text-xs font-semibold text-slate-400">Esempi: Casoria · Carabinieri Roma · UST Roma · Provinciale Roma</p>
             </div>
-            <button
-              type="button"
-              onClick={() => realSearchResults[0]?.customer ? onOpenTicket?.(realSearchResults[0].customer) : realSearchResults[0]?.site ? onOpenTicket?.(null, realSearchResults[0].site) : onNavigate?.("registro")}
-              className="rounded-2xl border border-white/10 bg-white/[0.08] px-5 py-3 text-sm font-black text-white hover:border-cyan-300/30 hover:bg-cyan-300/10"
-            >
-              Esegui ↵
-            </button>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.055] px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-300">
+              {realSearchResults.length > 0 ? `${realSearchResults.length} risultati` : "Ricerca cliente"}
+            </div>
           </div>
 
           {query && (
             <div className="absolute left-5 right-5 top-[calc(100%-8px)] z-30 grid max-h-96 gap-2 overflow-y-auto rounded-[24px] border border-cyan-300/15 bg-[#040a15]/95 p-3 shadow-[0_30px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
               {realSearchResults.length === 0 ? (
-                <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 text-sm font-bold text-slate-400">Nessun risultato reale trovato.</div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 text-sm font-bold text-slate-400">Nessun cliente o sede trovato.</div>
               ) : (
                 realSearchResults.map((result, index) => (
                   <button
@@ -365,8 +362,6 @@ export default function ExecutiveDashboard({ customers = [], sites = [], tickets
                     onClick={() => {
                       if (result.customer) onOpenTicket?.(result.customer);
                       else if (result.site) onOpenTicket?.(null, result.site);
-                      else if (result.ticket) onNavigate?.("registro");
-                      else onNavigate?.("clienti");
                     }}
                     className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 text-left hover:border-cyan-300/25 hover:bg-cyan-300/10"
                   >
@@ -589,7 +584,24 @@ export default function ExecutiveDashboard({ customers = [], sites = [], tickets
                   </button>
                 </div>
               )}
-              {renderWidgetContent(item.id)}
+              {item.id === "command-bar" ? (
+                renderWidgetContent(item.id)
+              ) : (
+                <BorderGlow
+                  className="h-full p-[1px]"
+                  edgeSensitivity={18}
+                  glowColor="270 100 68"
+                  backgroundColor="rgba(3,10,20,0.98)"
+                  borderRadius={30}
+                  glowRadius={22}
+                  glowIntensity={0.46}
+                  coneSpread={22}
+                  colors={["#8B5CF6", "#06B6D4", "#5227FF"]}
+                  fillOpacity={0.04}
+                >
+                  <div className="h-full overflow-hidden rounded-[29px]">{renderWidgetContent(item.id)}</div>
+                </BorderGlow>
+              )}
             </section>
           );
         })}
