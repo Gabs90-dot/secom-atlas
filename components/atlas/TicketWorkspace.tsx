@@ -164,6 +164,10 @@ function isWebvimeTicket(ticket: any) {
   );
 }
 
+function getTicketTenantId(ticket: any) {
+  return ticket?.tenantId || ticket?.tenant_id || null;
+}
+
 function cleanWebvimeText(ticket: any) {
   return String(
     `${ticket?.problem || ""} ${ticket?.description || ""} ${ticket?.content || ""}`,
@@ -615,6 +619,9 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
   async function toggleUrgency() {
     if (!ticket?.id) return;
+    const tenantId = getTicketTenantId(ticket);
+
+    if (!tenantId) return;
 
     const nextUrgent = !Boolean(ticket.urgent);
     setSavingAction(true);
@@ -622,7 +629,8 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
     const { error } = await supabase
       .from("tickets")
       .update({ urgent: nextUrgent })
-      .eq("id", Number(ticket.id));
+      .eq("id", Number(ticket.id))
+      .eq("tenant_id", tenantId);
 
     if (error) {
       console.log(error);
@@ -658,10 +666,18 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
     try {
       if (ticket?.glpi_ticket_id && (ticket.tenantId || ticket.tenant_id)) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+
+        if (!accessToken) {
+          throw new Error("Sessione scaduta. Fai logout/login e riprova.");
+        }
+
         const response = await fetch("/api/admin/glpi-sync-db", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({
             tenantId: ticket.tenantId || ticket.tenant_id,
@@ -740,6 +756,12 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
   async function saveWorkOrderDuration() {
     if (!ticket?.id) return;
+    const tenantId = getTicketTenantId(ticket);
+
+    if (!tenantId) {
+      setDurationMessage("Tenant ticket non valido. Riapri il ticket e riprova.");
+      return;
+    }
 
     const parsed = Number(durationMinutes);
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -760,7 +782,8 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
           supabase
             .from("work_orders")
             .update({ duration_minutes: minutes })
-            .eq("id", workOrder.id),
+            .eq("id", workOrder.id)
+            .eq("tenant_id", tenantId),
         );
       }
 
@@ -768,7 +791,8 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
         supabase
           .from("tickets")
           .update({ intervention_duration_minutes: minutes })
-          .eq("id", ticketId),
+          .eq("id", ticketId)
+          .eq("tenant_id", tenantId),
       );
 
       const results = await Promise.all(updates);
@@ -799,6 +823,12 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
   async function saveWorkOrderTemplateKey() {
     if (!ticket?.id || !workOrder?.id) return;
+    const tenantId = getTicketTenantId(ticket);
+
+    if (!tenantId) {
+      setTemplateKeyMessage("Tenant ticket non valido. Riapri il ticket e riprova.");
+      return;
+    }
 
     setSavingTemplateKey(true);
     setTemplateKeyMessage("");
@@ -807,7 +837,8 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
       const { error } = await supabase
         .from("work_orders")
         .update({ template_key: templateKeyDraft })
-        .eq("id", workOrder.id);
+        .eq("id", workOrder.id)
+        .eq("tenant_id", tenantId);
 
       if (error) throw error;
 
@@ -824,6 +855,12 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
   async function saveWorkOrderReportBody() {
     if (!ticket?.id) return;
+    const tenantId = getTicketTenantId(ticket);
+
+    if (!tenantId) {
+      setReportBodyMessage("Tenant ticket non valido. Riapri il ticket e riprova.");
+      return;
+    }
 
     setSavingReportBody(true);
     setReportBodyMessage("");
@@ -836,7 +873,8 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
       const { error } = await supabase
         .from("work_orders")
         .update({ report_body: reportBodyDraft.trim() || null })
-        .eq("id", workOrder.id);
+        .eq("id", workOrder.id)
+        .eq("tenant_id", tenantId);
 
       if (error) throw error;
 
@@ -854,12 +892,20 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
   async function openWorkOrderPdf() {
     if (!ticket?.id) return;
 
+    const opened = window.open("", "_blank");
+    if (!opened) {
+      setReportBodyMessage("Popup bloccato dal browser.");
+      return;
+    }
+    opened.opener = null;
+
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       const tenantId = ticket?.tenantId || ticket?.tenant_id || null;
 
       if (!token || !tenantId) {
+        opened.close();
         setReportBodyMessage("Sessione o tenant non validi. Riapri ATLAS e riprova.");
         return;
       }
@@ -874,28 +920,27 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
       );
 
       if (!response.ok) {
+        opened.close();
         setReportBodyMessage("PDF non disponibile o non autorizzato per questo tenant.");
         return;
       }
 
       const pdfBlob = await response.blob();
       const url = URL.createObjectURL(pdfBlob);
-      const opened = window.open(url, "_blank", "noopener,noreferrer");
-
-      if (!opened) {
-        setReportBodyMessage("Popup bloccato dal browser.");
-        URL.revokeObjectURL(url);
-        return;
-      }
+      opened.location.href = url;
 
       window.setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch {
+      opened.close();
       setReportBodyMessage("Errore apertura PDF bolla.");
     }
   }
 
   async function updateStatus(nextStatus: string) {
     if (!ticket?.id || !nextStatus) return;
+    const tenantId = getTicketTenantId(ticket);
+
+    if (!tenantId) return;
 
     setSavingStatus(true);
     const previousStatus = currentStatus;
@@ -908,7 +953,8 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
         closed_at: closedAt,
         resolved: nextStatus === "Chiuso" ? true : ticket.resolved,
       })
-      .eq("id", Number(ticket.id));
+      .eq("id", Number(ticket.id))
+      .eq("tenant_id", tenantId);
 
     if (error) {
       console.log(error);

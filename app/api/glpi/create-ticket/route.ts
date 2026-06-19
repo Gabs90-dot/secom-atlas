@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
 
   const { data: ticketRow, error: ticketError } = await auth.serviceClient
     .from("tickets")
-    .select("id")
+    .select("id, glpi_entity_id")
     .eq("tenant_id", auth.requester.tenantId)
     .eq("id", atlasTicketId)
     .maybeSingle();
@@ -196,6 +196,21 @@ export async function POST(request: NextRequest) {
 
   if (!ticketRow) {
     return NextResponse.json({ ok: false, error: "Ticket ATLAS non trovato nel tenant richiesto." }, { status: 404 });
+  }
+
+  const ticketGlpiEntityId = parsePositiveInteger(ticketRow.glpi_entity_id);
+  if (!ticketGlpiEntityId) {
+    return NextResponse.json(
+      { ok: false, error: "Ticket ATLAS senza entita GLPI coerente." },
+      { status: 400 },
+    );
+  }
+
+  if (ticketGlpiEntityId !== glpiEntityId) {
+    return NextResponse.json(
+      { ok: false, error: "Entita GLPI non coerente con il ticket ATLAS." },
+      { status: 403 },
+    );
   }
 
   const { data: entityRow, error: entityError } = await auth.serviceClient

@@ -3001,6 +3001,7 @@ site_id: t.site_id || null,
           city: calendarSite.city || "",
           site_id: calendarSite.id || null,
           customer_id: calendarSite.customer_id || calendarSite.customerId || null,
+          glpi_entity_id: calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
           glpi_entity_path: calendarSite.glpi_entity_path || calendarSite.complete_name || null,
           problem: "Intervento pianificato da calendario",
           materials: [],
@@ -3034,6 +3035,8 @@ site_id: t.site_id || null,
       customer_id: data.customer_id || calendarSite.customer_id || calendarSite.customerId || null,
       siteId: data.site_id || calendarSite.id || null,
       site_id: data.site_id || calendarSite.id || null,
+      glpiEntityId: data.glpi_entity_id || calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
+      glpi_entity_id: data.glpi_entity_id || calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
       glpi_entity_path: data.glpi_entity_path || calendarSite.glpi_entity_path || calendarSite.complete_name || "",
       problem: "Intervento pianificato da calendario",
       materialIds: [],
@@ -3834,6 +3837,37 @@ site_id: t.site_id || null,
         return;
       }
 
+      const tenantId = activeTenant?.id || ticket?.tenant_id || ticket?.tenantId || null;
+
+      if (!tenantId) {
+        showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+        return;
+      }
+
+      let glpiDeleted = false;
+
+      if (deleteFromGlpi) {
+        const glpiResponse = await fetch("/api/admin/glpi-delete-ticket", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            ticketId: glpiTicketId,
+            tenantId,
+          }),
+        });
+
+        const glpiResult = await glpiResponse.json().catch(() => null);
+
+        if (!glpiResponse.ok || !glpiResult?.ok) {
+          throw new Error(glpiResult?.error || `Eliminazione GLPI fallita (${glpiResponse.status}).`);
+        }
+
+        glpiDeleted = true;
+      }
+
       const response = await fetch("/api/admin/delete-ticket", {
         method: "POST",
         headers: {
@@ -3842,9 +3876,8 @@ site_id: t.site_id || null,
         },
         body: JSON.stringify({
           ticketId,
-          tenantId: activeTenant?.id || ticket?.tenant_id || ticket?.tenantId || null,
+          tenantId,
           glpiTicketId,
-          deleteFromGlpi,
         }),
       });
 
@@ -3857,12 +3890,7 @@ site_id: t.site_id || null,
       setTickets((prev) => prev.filter((item) => String(item.id) !== String(ticketId)));
       setSelectedTicketWorkspace((prev: any) => (prev && String(prev.id) === String(ticketId) ? null : prev));
 
-      if (result.glpiError) {
-        showMessage(`Ticket eliminato da ATLAS. GLPI non eliminato: ${result.glpiError}`, "error");
-        return;
-      }
-
-      showMessage(deleteFromGlpi ? "Ticket eliminato da ATLAS e richiesta GLPI eseguita." : "Ticket eliminato da ATLAS.");
+      showMessage(glpiDeleted ? "Ticket eliminato da ATLAS e GLPI." : "Ticket eliminato da ATLAS.");
     } catch (error: any) {
       showMessage(error?.message || "Errore eliminazione ticket.", "error");
     }
@@ -4037,35 +4065,21 @@ site_id: t.site_id || null,
 
     const isAdminLike = ["super_admin", "admin"].includes(currentUser.role);
     const isCustomer = isCustomerRole(currentUser.role);
-    const customerBlockedTabs = new Set([
-      "webvime",
-      "todo",
-      "piani",
-      "glpiImport",
-      "utenti",
-      "designLab",
-      "admin",
-      "operativo",
-      "dispatch",
-      "calendario",
-      "registro",
-      "clienti",
-      "contratti",
-      "budget",
-      "magazzino",
-      "sistemi",
-      "mappa",
-      "contatti",
-      "analytics",
-      "ai",
-      "activity",
-      "manuali",
-    ]);
+
+    if (isCustomer) return key === "customerPortal" && canViewModule(currentUser, key);
 
     if (key === "utenti" || key === "glpiImport" || key === "designLab") return isAdminLike;
-    if (isCustomer && customerBlockedTabs.has(key)) return false;
 
     return canViewModule(currentUser, key);
+  }
+
+  const fallbackAuthorizedTab = isCustomerRole(currentUser?.role) ? "customerPortal" : "home";
+  const effectiveActiveTab = canAccessTab(activeTab) ? activeTab : fallbackAuthorizedTab;
+
+  function handleTabChange(key: string) {
+    if (canAccessTab(key)) {
+      setActiveTab(key as any);
+    }
   }
 
   const isExecutiveMode = uiMode === "executive";
@@ -4397,8 +4411,8 @@ site_id: t.site_id || null,
         logoImage={ATLAS_LOGO_CARD_IMAGE}
         tabGroups={tabGroups}
         tabs={tabs}
-        activeTab={activeTab}
-        onTabChange={(key) => setActiveTab(key as any)}
+        activeTab={effectiveActiveTab}
+        onTabChange={handleTabChange}
         canAccessTab={canAccessTab}
         tenants={tenants}
         activeTenant={activeTenant}
@@ -4469,7 +4483,7 @@ site_id: t.site_id || null,
                 uiMode,
                 switchUiMode,
                 renderSlaContractsManager,
-                activeTab,
+                activeTab: effectiveActiveTab,
                 setActiveTab,
                 setClosingTicketId,
                 siteSearch,

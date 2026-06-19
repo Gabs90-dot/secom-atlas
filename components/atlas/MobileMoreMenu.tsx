@@ -58,6 +58,7 @@ export default function MobileMoreMenu({
         <div className="grid gap-2">
           {[
             { key: "home", label: "Home", icon: HomeIcon },
+            { key: "customerPortal", label: "Portale Clienti", icon: Users },
             { key: "webvime", label: "Webvime", icon: Monitor },
             { key: "operativo", label: "Operativa", icon: Briefcase },
             { key: "todo", label: "To Do List", icon: CheckCircle2, badge: todoNewCount },
@@ -69,7 +70,7 @@ export default function MobileMoreMenu({
             { key: "mappa", label: "Mappa", icon: Map },
             { key: "sistemi", label: "Asset & Sistemi", icon: Monitor },
           ]
-            .filter((item) => item.key === "home" || canAccessTab(item.key))
+            .filter((item) => canAccessTab(item.key))
             .map(({ key, label, icon: Icon, badge }: any) => (
             <button
               key={key}

@@ -33,6 +33,7 @@ import CloseTicketModal from "@/components/atlas/layout/CloseTicketModal";
 
 const TicketRegistry = dynamic(() => import("@/components/atlas/TicketRegistry"), { ssr: false });
 const CustomerCommandCenter = dynamic(() => import("@/components/atlas/CustomerCommandCenter"), { ssr: false });
+const CustomerPortal = dynamic(() => import("@/components/atlas/CustomerPortal"), { ssr: false });
 const DispatchCenter = dynamic(() => import("@/components/atlas/DispatchCenter"), { ssr: false });
 const GlobalActivityFeed = dynamic(() => import("@/components/atlas/GlobalActivityFeed"), { ssr: false });
 const WebvimeBoard = dynamic(() => import("@/components/atlas/WebvimeBoard"), { ssr: false });
@@ -250,8 +251,13 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
   } = ctx;
 
   const canAccessMobileView = (key: string) =>
-    key === "home" || (typeof canAccessTab === "function" && canAccessTab(key));
-  const effectiveMobileView = canAccessMobileView(String(mobileView)) ? mobileView : "home";
+    typeof canAccessTab === "function" && canAccessTab(key);
+  const fallbackMobileView = canAccessMobileView("customerPortal")
+    ? "customerPortal"
+    : canAccessMobileView("home")
+      ? "home"
+      : "";
+  const effectiveMobileView = canAccessMobileView(String(mobileView)) ? String(mobileView) : fallbackMobileView;
 
   return (
     <>
@@ -364,6 +370,16 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
         />
       </div>
     )
+  )}
+
+  {effectiveMobileView === "customerPortal" && currentUser && (
+    <CustomerPortal
+      user={currentUser}
+      tenant={activeTenant}
+      tickets={tickets}
+      sites={sites}
+      onOpenTicket={openTicketFromCustomer}
+    />
   )}
 
   {effectiveMobileView === "webvime" && (isExecutiveMode ? <ExecutiveWebvime /> : <WebvimeBoard />)}

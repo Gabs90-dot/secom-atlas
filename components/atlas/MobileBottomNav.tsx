@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Monitor,
   MoreHorizontal,
+  Users,
 } from "lucide-react";
 
 type Props = {
@@ -31,6 +32,11 @@ export default function MobileBottomNav({
       icon: HomeIcon,
     },
     {
+      key: "customerPortal",
+      label: "Portale",
+      icon: Users,
+    },
+    {
       key: "webvime",
       label: "Webvime",
       icon: Monitor,
@@ -52,7 +58,7 @@ export default function MobileBottomNav({
     <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#07111f]/95 px-3 py-2 backdrop-blur md:hidden">
       <div className="flex items-center justify-between">
         {items
-          .filter((item) => item.key === "home" || canAccessTab(item.key))
+          .filter((item) => canAccessTab(item.key))
           .map(({ key, label, icon: Icon, badge }: any) => (
           <button
             key={key}
