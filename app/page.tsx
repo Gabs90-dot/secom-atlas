@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useEffect, useMemo, useState } from "react";
 import LoginScreen from "@/components/atlas/LoginScreen";
 import { useAtlasAuth } from "@/components/atlas/AuthProvider";
-import { canViewModule, isCustomerRole } from "@/lib/auth";
+import { canViewModule, isCustomerRole, type AtlasUser } from "@/lib/auth";
 import type { AtlasTenant } from "@/lib/tenant";
 import { getStoredTenantSlug, storeTenantSlug } from "@/lib/tenant";
 import AtlasAppFrame from "@/components/atlas/layout/AtlasAppFrame";
@@ -71,6 +71,13 @@ type AtlasSlaContractProfile = {
   childCustomers: string;
   isActive: boolean;
 };
+
+const CUSTOMER_SITE_SELECT =
+  "id,tenant_id,name,city,region,entity,province,customer_id,glpi_entity_path";
+const CUSTOMER_ENTITY_SELECT =
+  "id,tenant_id,customer_id,glpi_entity_id,display_name,canonical_name,name,complete_name,normalized_complete_name,root_name,entity_type,city,region,province,is_active";
+const CUSTOMER_TICKET_SELECT =
+  "id,tenant_id,glpi_ticket_id,site,region,entity,city,problem,materials,technician,status,intervention_date,resolved,future_needs,closing_notes,slot,opened_at,created_at,expected_close_date,closed_at,urgent,site_id,customer_id,glpi_entity_id,glpi_entity_path,ticket_type";
 
 const SLA_CONTRACT_FIELDS: Array<{ key: keyof AtlasSlaContractProfile; label: string; rows?: number; wide?: boolean }> = [
   { key: "category", label: "Categoria Cliente" },
@@ -701,6 +708,100 @@ function toNullableString(value: unknown) {
   return text ? text : null;
 }
 
+type CustomerDataScope = {
+  isCustomer: boolean;
+  customerId: string | null;
+  customerEntityId: string | null;
+  siteIds: string[];
+  hasScope: boolean;
+};
+
+function valueAsString(value: unknown) {
+  return String(value || "").trim();
+}
+
+function valueAsBoolean(value: unknown) {
+  return Boolean(value);
+}
+
+function buildCustomerDataScope(user: AtlasUser | null): CustomerDataScope {
+  const siteIds = Array.from(
+    new Set(
+      [
+        ...(user?.siteIds || []).map((value) => valueAsString(value)),
+        valueAsString(user?.siteId),
+      ].filter(Boolean),
+    ),
+  );
+  const customerId = valueAsString(user?.customerId) || null;
+  const customerEntityId = valueAsString(user?.customerEntityId) || null;
+
+  return {
+    isCustomer: isCustomerRole(user?.role),
+    customerId,
+    customerEntityId,
+    siteIds,
+    hasScope: Boolean(customerId || customerEntityId || siteIds.length),
+  };
+}
+
+function formatOperationalTicketRow(
+  row: Record<string, unknown>,
+  ticketTypesById: Record<string, AtlasTicketCategory>,
+  allowStoredTicketTypes = true,
+) {
+  const id = row.id;
+  const rowId = valueAsString(id);
+  let storedTicketType: AtlasTicketCategory | undefined;
+
+  if (allowStoredTicketTypes && typeof window !== "undefined") {
+    try {
+      storedTicketType = JSON.parse(localStorage.getItem("atlas-ticket-types") || "{}")?.[rowId];
+    } catch {
+      storedTicketType = undefined;
+    }
+  }
+
+  return {
+    id,
+    glpi_ticket_id: row.glpi_ticket_id || null,
+    glpiTicketId: row.glpi_ticket_id || null,
+    site: row.site,
+    glpi_entity_id: row.glpi_entity_id || null,
+    glpiEntityId: row.glpi_entity_id || null,
+    glpi_entity_path: row.glpi_entity_path || "",
+    glpiEntityPath: row.glpi_entity_path || "",
+    region: row.region,
+    entity: row.entity || "",
+    city: row.city || "",
+    problem: row.problem,
+    materialIds: Array.isArray(row.materials) ? row.materials : [],
+    technician: row.technician,
+    status: row.status,
+    date: row.intervention_date || "",
+    resolved: row.resolved,
+    futureNeeds: row.future_needs || "",
+    closingNotes: row.closing_notes || "",
+    slot: row.slot || "",
+    openedAt: row.opened_at || row.created_at || "",
+    importedAt: row.imported_at || "",
+    expectedCloseDate: row.expected_close_date || "",
+    closedAt: row.closed_at || "",
+    urgent: valueAsBoolean(row.urgent),
+    siteId: row.site_id || null,
+    site_id: row.site_id || null,
+    customerId: row.customer_id || null,
+    customer_id: row.customer_id || null,
+    tenantId: row.tenant_id || null,
+    tenant_id: row.tenant_id || null,
+    ticketType:
+      ticketTypesById[rowId] ||
+      storedTicketType ||
+      row.ticket_type ||
+      "ordinaria",
+  };
+}
+
 export default function Home() {
   const {
     user: currentUser,
@@ -708,6 +809,16 @@ export default function Home() {
     refreshUser,
     signOut,
   } = useAtlasAuth();
+  const customerDataScope = useMemo(
+    () => buildCustomerDataScope(currentUser),
+    [
+      currentUser?.role,
+      currentUser?.customerId,
+      currentUser?.customerEntityId,
+      currentUser?.siteId,
+      currentUser?.siteIds,
+    ],
+  );
 
   const [authMode, setAuthMode] = useState<"login" | "register" | "forgot">("login");
   const [customerOptions, setCustomerOptions] = useState<PublicCustomerOption[]>([]);
@@ -1319,7 +1430,7 @@ export default function Home() {
   const [contractFormOpen, setContractFormOpen] = useState(false);
   const [editingSlaContractKey, setEditingSlaContractKey] = useState<string | null>(null);
   const [slaContractForm, setSlaContractForm] = useState<AtlasSlaContractProfile>(() => createEmptySlaContractProfile());
-  const [inventory, setInventory] = useState<any[]>(initialInventory);
+  const [inventory, setInventory] = useState<any[]>([]);
   const [inventorySearch, setInventorySearch] = useState("");
   const [contacts, setContacts] = useState<any[]>([]);
   const [contactSearch, setContactSearch] = useState("");
@@ -1462,11 +1573,22 @@ export default function Home() {
   }, [currentUser?.role]);
 
   useEffect(() => {
+    if (authLoading) return;
+
+    if (customerDataScope.isCustomer) {
+      setContractOverrides({});
+      setCustomSlaContracts([]);
+      setInventory([]);
+      setContacts([]);
+      setTicketTypesById({});
+      return;
+    }
+
     const savedContracts = localStorage.getItem("atlas-contract-overrides");
     if (savedContracts) setContractOverrides(JSON.parse(savedContracts));
 
     const savedInventory = localStorage.getItem("atlas-inventory");
-    if (savedInventory) setInventory(JSON.parse(savedInventory));
+    setInventory(savedInventory ? JSON.parse(savedInventory) : initialInventory);
     const savedContacts = localStorage.getItem("atlas-contacts");
     if (savedContacts) setContacts(JSON.parse(savedContacts));
     const savedTicketTypes = localStorage.getItem("atlas-ticket-types");
@@ -1480,17 +1602,34 @@ export default function Home() {
         setCustomSlaContracts([]);
       }
     }
-  }, []);
+  }, [authLoading, customerDataScope.isCustomer]);
 
   useEffect(() => {
     if (!activeTenant?.id) return;
 
     async function loadSites() {
-      const { data, error } = await supabase
+      if (customerDataScope.isCustomer && !customerDataScope.hasScope) {
+        setSites([]);
+        return;
+      }
+
+      let query = supabase
         .from("sites")
-        .select("*")
-        .eq("tenant_id", activeTenant?.id)
-        .order("name");
+        .select(customerDataScope.isCustomer ? CUSTOMER_SITE_SELECT : "*")
+        .eq("tenant_id", activeTenant?.id);
+
+      if (customerDataScope.isCustomer) {
+        if (customerDataScope.siteIds.length) {
+          query = query.in("id", customerDataScope.siteIds);
+        } else if (customerDataScope.customerId) {
+          query = query.eq("customer_id", customerDataScope.customerId);
+        } else {
+          setSites([]);
+          return;
+        }
+      }
+
+      const { data, error } = await query.order("name");
 
       if (error) {
         console.log(error);
@@ -1501,11 +1640,21 @@ export default function Home() {
     }
 
     async function loadCustomers() {
-      const { data, error } = await supabase
+      if (customerDataScope.isCustomer && !customerDataScope.customerId) {
+        setCustomers([]);
+        return;
+      }
+
+      let query = supabase
         .from("customers")
-        .select("*")
-        .eq("tenant_id", activeTenant?.id)
-        .order("name", { ascending: true });
+        .select(customerDataScope.isCustomer ? "id,tenant_id,name,city,region,category,type" : "*")
+        .eq("tenant_id", activeTenant?.id);
+
+      if (customerDataScope.isCustomer && customerDataScope.customerId) {
+        query = query.eq("id", customerDataScope.customerId);
+      }
+
+      const { data, error } = await query.order("name", { ascending: true });
 
       if (error) {
         console.log(error);
@@ -1516,11 +1665,31 @@ export default function Home() {
     }
 
     async function loadCustomerEntities() {
-      const { data, error } = await supabase
+      if (customerDataScope.isCustomer && !customerDataScope.hasScope) {
+        setCustomerEntities([]);
+        return;
+      }
+
+      let query = supabase
         .from("v_customer_entities_active")
-        .select("*")
-        .eq("tenant_id", activeTenant?.id)
-        .order("display_name", { ascending: true });
+        .select(customerDataScope.isCustomer ? CUSTOMER_ENTITY_SELECT : "*")
+        .eq("tenant_id", activeTenant?.id);
+
+      if (customerDataScope.isCustomer) {
+        const filters = [
+          customerDataScope.customerEntityId ? `id.eq.${customerDataScope.customerEntityId}` : "",
+          customerDataScope.customerId ? `customer_id.eq.${customerDataScope.customerId}` : "",
+        ].filter(Boolean);
+
+        if (!filters.length) {
+          setCustomerEntities([]);
+          return;
+        }
+
+        query = query.or(filters.join(","));
+      }
+
+      const { data, error } = await query.order("display_name", { ascending: true });
 
       if (error) {
         console.log(error);
@@ -1532,11 +1701,32 @@ export default function Home() {
     }
 
     async function loadTickets() {
-      const { data, error } = await supabase
+      if (customerDataScope.isCustomer && !customerDataScope.hasScope) {
+        setTickets([]);
+        return;
+      }
+
+      let query = supabase
         .from("v_operational_tickets")
-        .select("*")
+        .select(customerDataScope.isCustomer ? CUSTOMER_TICKET_SELECT : "*")
         .eq("tenant_id", activeTenant?.id)
-        .or("glpi_entity_path.is.null,glpi_entity_path.not.ilike.%webvime%")
+        .or("glpi_entity_path.is.null,glpi_entity_path.not.ilike.%webvime%");
+
+      if (customerDataScope.isCustomer) {
+        const filters = [
+          customerDataScope.customerId ? `customer_id.eq.${customerDataScope.customerId}` : "",
+          ...customerDataScope.siteIds.map((siteIdValue) => `site_id.eq.${siteIdValue}`),
+        ].filter(Boolean);
+
+        if (!filters.length) {
+          setTickets([]);
+          return;
+        }
+
+        query = query.or(filters.join(","));
+      }
+
+      const { data, error } = await query
         .order("opened_at", { ascending: false, nullsFirst: false })
         .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
         .range(0, 999);
@@ -1547,44 +1737,9 @@ export default function Home() {
       }
 
       const formatted =
-        data?.map((t) => ({
-          id: t.id,
-          glpi_ticket_id: t.glpi_ticket_id || null,
-          glpiTicketId: t.glpi_ticket_id || null,
-          site: t.site,
-          glpi_entity_path: t.glpi_entity_path || "",
-          glpiEntityPath: t.glpi_entity_path || "",
-          region: t.region,
-          entity: t.entity || "",
-          city: t.city || "",
-          problem: t.problem,
-          materialIds: t.materials || [],
-          technician: t.technician,
-          status: t.status,
-          date: t.intervention_date || "",
-          resolved: t.resolved,
-          futureNeeds: t.future_needs || "",
-          closingNotes: t.closing_notes || "",
-          slot: t.slot || "",
-          openedAt: t.opened_at || t.created_at || "",
-          importedAt: t.imported_at || "",
-          expectedCloseDate: t.expected_close_date || "",
-          closedAt: t.closed_at || "",
-          urgent: Boolean(t.urgent),
-          siteId: t.site_id || null,
-site_id: t.site_id || null,
-          customerId: t.customer_id || null,
-          tenantId: t.tenant_id || null,
-          tenant_id: t.tenant_id || null,
-          ticketType:
-            (typeof window !== "undefined"
-              ? JSON.parse(
-                  localStorage.getItem("atlas-ticket-types") || "{}",
-                )?.[String(t.id)]
-              : undefined) ||
-            t.ticket_type ||
-            "ordinaria",
-        })) || [];
+        (data as unknown as Array<Record<string, unknown>> | null)?.map((t) =>
+          formatOperationalTicketRow(t, ticketTypesById, !customerDataScope.isCustomer),
+        ) || [];
 
       setTickets(formatted);
     }
@@ -1593,7 +1748,14 @@ site_id: t.site_id || null,
     loadSites();
     loadCustomers();
     loadCustomerEntities();
-  }, [activeTenant?.id]);
+  }, [
+    activeTenant?.id,
+    customerDataScope.isCustomer,
+    customerDataScope.hasScope,
+    customerDataScope.customerId,
+    customerDataScope.customerEntityId,
+    customerDataScope.siteIds.join("|"),
+  ]);
 
   function showMessage(text: string, type: "success" | "error" = "success") {
     setMessage(text);
@@ -2063,11 +2225,34 @@ site_id: t.site_id || null,
 
     setRefreshingTickets(true);
 
-    const { data, error } = await supabase
+    if (customerDataScope.isCustomer && !customerDataScope.hasScope) {
+      setTickets([]);
+      setRefreshingTickets(false);
+      return;
+    }
+
+    let query = supabase
       .from("v_operational_tickets")
-      .select("*")
+      .select(customerDataScope.isCustomer ? CUSTOMER_TICKET_SELECT : "*")
       .eq("tenant_id", activeTenant?.id)
-      .or("glpi_entity_path.is.null,glpi_entity_path.not.ilike.%webvime%")
+      .or("glpi_entity_path.is.null,glpi_entity_path.not.ilike.%webvime%");
+
+    if (customerDataScope.isCustomer) {
+      const filters = [
+        customerDataScope.customerId ? `customer_id.eq.${customerDataScope.customerId}` : "",
+        ...customerDataScope.siteIds.map((siteIdValue) => `site_id.eq.${siteIdValue}`),
+      ].filter(Boolean);
+
+      if (!filters.length) {
+        setTickets([]);
+        setRefreshingTickets(false);
+        return;
+      }
+
+      query = query.or(filters.join(","));
+    }
+
+    const { data, error } = await query
       .order("opened_at", { ascending: false, nullsFirst: false })
       .order("glpi_ticket_id", { ascending: false, nullsFirst: false })
       .range(0, 999);
@@ -2080,44 +2265,9 @@ site_id: t.site_id || null,
     }
 
     const formatted =
-      data?.map((t) => ({
-        id: t.id,
-        glpi_ticket_id: t.glpi_ticket_id || null,
-        glpiTicketId: t.glpi_ticket_id || null,
-        site: t.site,
-        glpi_entity_path: t.glpi_entity_path || "",
-        glpiEntityPath: t.glpi_entity_path || "",
-        region: t.region,
-        entity: t.entity || "",
-        city: t.city || "",
-        problem: t.problem,
-        materialIds: t.materials || [],
-        technician: t.technician,
-        status: t.status,
-        date: t.intervention_date || "",
-        resolved: t.resolved,
-        futureNeeds: t.future_needs || "",
-        closingNotes: t.closing_notes || "",
-        slot: t.slot || "",
-        openedAt: t.opened_at || t.created_at || "",
-        importedAt: t.imported_at || "",
-        expectedCloseDate: t.expected_close_date || "",
-        closedAt: t.closed_at || "",
-        urgent: Boolean(t.urgent),
-        siteId: t.site_id || null,
-        site_id: t.site_id || null,
-        customerId: t.customer_id || null,
-        tenantId: t.tenant_id || null,
-        tenant_id: t.tenant_id || null,
-        ticketType:
-          (typeof window !== "undefined"
-            ? JSON.parse(localStorage.getItem("atlas-ticket-types") || "{}")?.[
-                String(t.id)
-              ]
-            : undefined) ||
-          t.ticket_type ||
-          "ordinaria",
-      })) || [];
+      (data as unknown as Array<Record<string, unknown>> | null)?.map((t) =>
+        formatOperationalTicketRow(t, ticketTypesById, !customerDataScope.isCustomer),
+      ) || [];
 
     setTickets(formatted);
     setRefreshingTickets(false);
@@ -4197,6 +4347,8 @@ site_id: t.site_id || null,
     );
   }
 
+  const isCustomerDataSession = customerDataScope.isCustomer;
+
   return (
     <main
       className={`atlas-shell atlas-theme-${theme} atlas-ui-${uiMode} min-h-screen overflow-x-hidden transition-all duration-300 ${
@@ -4417,7 +4569,7 @@ site_id: t.site_id || null,
         tenants={tenants}
         activeTenant={activeTenant}
         currentUser={currentUser}
-        notificationCount={notificationItems.length}
+        notificationCount={isCustomerDataSession ? 0 : notificationItems.length}
         siteSearch={siteSearch}
         onTenantChange={handleTenantChange}
         onLogout={handleLogout}
@@ -4436,7 +4588,7 @@ site_id: t.site_id || null,
         message={message}
         messageType={messageType}
         onClearMessage={() => setMessage("")}
-        selectedTicketWorkspace={selectedTicketWorkspace}
+        selectedTicketWorkspace={isCustomerDataSession ? null : selectedTicketWorkspace}
         onCloseTicketWorkspace={() => setSelectedTicketWorkspace(null)}
         onTicketWorkspaceStatusUpdated={updateTicketFromWorkspace}
       >
@@ -4521,15 +4673,15 @@ site_id: t.site_id || null,
                 region,
                 technician,
                 setTechnician,
-                technicians,
+                technicians: isCustomerDataSession ? [] : technicians,
                 renderDateInput,
                 selectedDate,
                 setSelectedDate,
                 selectedSlot,
                 setSelectedSlot,
-                materials,
+                materials: isCustomerDataSession ? [] : materials,
                 toggleMaterial,
-                selectedMaterials,
+                selectedMaterials: isCustomerDataSession ? [] : selectedMaterials,
                 materialCost,
                 creatingTicket,
                 changeMonth,
@@ -4540,9 +4692,9 @@ site_id: t.site_id || null,
                 calendarDays,
                 formatLocalDate,
                 calendarMonth,
-                calendarVisibleTickets,
+                calendarVisibleTickets: isCustomerDataSession ? [] : calendarVisibleTickets,
                 mobileSelectedDate,
-                mobileSelectedTickets,
+                mobileSelectedTickets: isCustomerDataSession ? [] : mobileSelectedTickets,
                 selectedCalendarDay,
                 setSelectedCalendarDay,
                 startCalendarCreate,
@@ -4566,18 +4718,18 @@ site_id: t.site_id || null,
                 updateCalendarTicket,
                 budgetVisible,
                 setBudgetVisible,
-                totalBudget,
-                totalForecast,
-                remainingBudget,
+                totalBudget: isCustomerDataSession ? 0 : totalBudget,
+                totalForecast: isCustomerDataSession ? 0 : totalForecast,
+                remainingBudget: isCustomerDataSession ? 0 : remainingBudget,
                 getTicketType,
                 openBudgetForm,
-                budgets,
+                budgets: isCustomerDataSession ? [] : budgets,
                 mobileBudgetFormOpen,
                 setMobileBudgetFormOpen,
                 budgetForm,
                 setBudgetForm,
-                editableContracts,
-                INITIAL_BUDGET,
+                editableContracts: isCustomerDataSession ? [] : editableContracts,
+                INITIAL_BUDGET: isCustomerDataSession ? {} : INITIAL_BUDGET,
                 saveMobileBudget,
                 setBudgetClientSearch,
                 clientCategories,
@@ -4595,7 +4747,7 @@ site_id: t.site_id || null,
                 showMessage,
                 contactSearch,
                 setContactSearch,
-                filteredContacts,
+                filteredContacts: isCustomerDataSession ? [] : filteredContacts,
                 contactForm,
                 setContactForm,
                 editingContactId,
@@ -4604,7 +4756,7 @@ site_id: t.site_id || null,
                 setContactClientSearch,
                 contactClient,
                 setContactClient,
-                contactClientResults,
+                contactClientResults: isCustomerDataSession ? [] : contactClientResults,
                 mobileContactFilter,
                 setMobileContactFilter,
                 mobileContactFormOpen,
@@ -4616,7 +4768,7 @@ site_id: t.site_id || null,
                 resetContactForm,
                 editContact,
                 deleteContact,
-                inventory,
+                inventory: isCustomerDataSession ? [] : inventory,
                 inventorySearch,
                 setInventorySearch,
                 mobileInventoryFormOpen,

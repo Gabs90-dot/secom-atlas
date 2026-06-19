@@ -142,6 +142,7 @@ function belongsToCustomerScope(item: any, user: AtlasUser) {
     item.customerEntityId ||
       item.customer_entity_id ||
       item.entity_id ||
+      item.id ||
       item.glpi_entity_id ||
       "",
   );
