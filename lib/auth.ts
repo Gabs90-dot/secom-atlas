@@ -25,7 +25,7 @@ export type AtlasUser = {
   mustChangePassword?: boolean;
 };
 
-export function normalizeRole(role: any): AtlasRole {
+export function normalizeRole(role: unknown): AtlasRole {
   const value = String(role || "cliente_user").toLowerCase();
 if (value === "super_admin") return "super_admin";
   if (value === "admin") return "admin";
@@ -38,6 +38,11 @@ if (value === "super_admin") return "super_admin";
   if (value === "cliente") return "cliente_user";
 
   return "cliente_user";
+}
+
+export function isCustomerRole(role: unknown): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === "cliente_admin" || normalized === "cliente_user";
 }
 
 const fallbackPermissionsByRole: Record<AtlasRole, string[]> = {

@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useEffect, useMemo, useState } from "react";
 import LoginScreen from "@/components/atlas/LoginScreen";
 import { useAtlasAuth } from "@/components/atlas/AuthProvider";
-import { canViewModule } from "@/lib/auth";
+import { canViewModule, isCustomerRole } from "@/lib/auth";
 import type { AtlasTenant } from "@/lib/tenant";
 import { getStoredTenantSlug, storeTenantSlug } from "@/lib/tenant";
 import AtlasAppFrame from "@/components/atlas/layout/AtlasAppFrame";
@@ -1455,7 +1455,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (currentUser?.role === "cliente") {
+    if (isCustomerRole(currentUser?.role)) {
       setActiveTab("customerPortal");
       setMobileView("customerPortal");
     }
@@ -2555,6 +2555,11 @@ site_id: t.site_id || null,
   }
 
   async function planTicket(id: string) {
+    if (!activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     if (!selectedDate || !selectedSlot || !technician) {
       showMessage(
         "Seleziona tecnico, data e slot prima di pianificare",
@@ -2571,7 +2576,8 @@ site_id: t.site_id || null,
         slot: selectedSlot,
         status: "Pianificato",
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("tenant_id", activeTenant.id);
 
     if (error) {
       console.log(error);
@@ -2597,6 +2603,11 @@ site_id: t.site_id || null,
   }
 
   async function closeTicket(id: string) {
+    if (!activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const today = new Date().toISOString().slice(0, 10);
 
     const { error } = await supabase
@@ -2610,7 +2621,8 @@ site_id: t.site_id || null,
         future_needs: futureNeeds || "",
         resolved,
       })
-      .eq("id", Number(id));
+      .eq("id", Number(id))
+      .eq("tenant_id", activeTenant.id);
 
     if (error) {
       console.log("ERRORE CHIUSURA:", error);
@@ -2644,12 +2656,18 @@ site_id: t.site_id || null,
   }
 
   async function toggleTicketUrgent(ticket: any) {
+    if (!activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const nextUrgent = !Boolean(ticket.urgent);
 
     const { error } = await supabase
       .from("tickets")
       .update({ urgent: nextUrgent })
-      .eq("id", Number(ticket.id));
+      .eq("id", Number(ticket.id))
+      .eq("tenant_id", activeTenant.id);
 
     if (error) {
       console.log(error);
@@ -4018,10 +4036,34 @@ site_id: t.site_id || null,
     if (!currentUser) return false;
 
     const isAdminLike = ["super_admin", "admin"].includes(currentUser.role);
+    const isCustomer = isCustomerRole(currentUser.role);
+    const customerBlockedTabs = new Set([
+      "webvime",
+      "todo",
+      "piani",
+      "glpiImport",
+      "utenti",
+      "designLab",
+      "admin",
+      "operativo",
+      "dispatch",
+      "calendario",
+      "registro",
+      "clienti",
+      "contratti",
+      "budget",
+      "magazzino",
+      "sistemi",
+      "mappa",
+      "contatti",
+      "analytics",
+      "ai",
+      "activity",
+      "manuali",
+    ]);
 
     if (key === "utenti" || key === "glpiImport" || key === "designLab") return isAdminLike;
-    if (key === "webvime" || key === "todo") return currentUser.role !== "cliente";
-    if (key === "piani") return currentUser.role !== "cliente";
+    if (isCustomer && customerBlockedTabs.has(key)) return false;
 
     return canViewModule(currentUser, key);
   }
@@ -4390,6 +4432,7 @@ site_id: t.site_id || null,
                 activeTenant,
                 mobileView,
                 setMobileView,
+                canAccessTab,
                 todoNewCount,
                 currentUser,
                 isExecutiveMode,

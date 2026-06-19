@@ -13,6 +13,7 @@ type Props = {
   mobileView: string;
   setMobileView: (value: any) => void;
   setMobileMoreOpen: (value: boolean) => void;
+  canAccessTab: (key: string) => boolean;
   todoNewCount?: number;
 };
 
@@ -20,6 +21,7 @@ export default function MobileBottomNav({
   mobileView,
   setMobileView,
   setMobileMoreOpen,
+  canAccessTab,
   todoNewCount = 0,
 }: Props) {
   const items = [
@@ -49,7 +51,9 @@ export default function MobileBottomNav({
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#07111f]/95 px-3 py-2 backdrop-blur md:hidden">
       <div className="flex items-center justify-between">
-        {items.map(({ key, label, icon: Icon, badge }: any) => (
+        {items
+          .filter((item) => item.key === "home" || canAccessTab(item.key))
+          .map(({ key, label, icon: Icon, badge }: any) => (
           <button
             key={key}
             onClick={() => {

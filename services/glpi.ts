@@ -209,6 +209,15 @@ export async function syncTicketToGlpi({
       return null;
     }
 
+    const { data: sessionData } = await supabaseClient.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    const tenantId = ticket?.tenantId || ticket?.tenant_id || null;
+
+    if (!accessToken || !tenantId) {
+      showMessage("Ticket creato in ATLAS, ma non sincronizzato su GLPI: sessione o tenant non validi.", "error");
+      return null;
+    }
+
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), GLPI_SYNC_TIMEOUT_MS);
 
@@ -216,10 +225,12 @@ export async function syncTicketToGlpi({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
       },
       signal: controller.signal,
       body: JSON.stringify({
         atlasTicketId: ticket.id,
+        tenantId,
         title: ticket.title,
         name: ticket.title,
 

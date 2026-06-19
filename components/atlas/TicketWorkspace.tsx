@@ -851,9 +851,47 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
     }
   }
 
-  function openWorkOrderPdf() {
+  async function openWorkOrderPdf() {
     if (!ticket?.id) return;
-    window.open(`/api/work-orders/pdf-by-ticket/${ticket.id}`, "_blank", "noopener,noreferrer");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const tenantId = ticket?.tenantId || ticket?.tenant_id || null;
+
+      if (!token || !tenantId) {
+        setReportBodyMessage("Sessione o tenant non validi. Riapri ATLAS e riprova.");
+        return;
+      }
+
+      const response = await fetch(
+        `/api/work-orders/pdf-by-ticket/${ticket.id}?tenantId=${encodeURIComponent(String(tenantId))}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        setReportBodyMessage("PDF non disponibile o non autorizzato per questo tenant.");
+        return;
+      }
+
+      const pdfBlob = await response.blob();
+      const url = URL.createObjectURL(pdfBlob);
+      const opened = window.open(url, "_blank", "noopener,noreferrer");
+
+      if (!opened) {
+        setReportBodyMessage("Popup bloccato dal browser.");
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      setReportBodyMessage("Errore apertura PDF bolla.");
+    }
   }
 
   async function updateStatus(nextStatus: string) {

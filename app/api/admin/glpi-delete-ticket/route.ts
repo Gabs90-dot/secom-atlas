@@ -1,7 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { type AtlasRole } from "@/lib/auth";
+import { requireAtlasUser, type LegacyAtlasRole } from "@/lib/server/requireAtlasUser";
+
+const GLPI_DELETE_ALLOWED_ROLES: readonly AtlasRole[] = ["super_admin", "admin"];
+const GLPI_DELETE_ALLOWED_LEGACY_ROLES: readonly LegacyAtlasRole[] = ["owner"];
+
+type GlpiDeletePayload = {
+  ticketId?: unknown;
+  tenantId?: unknown;
+  tenant_id?: unknown;
+};
+
 function cleanBaseUrl(value?: string | null) {
   return String(value || "").replace(/\/+$/, "");
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error && error.message ? error.message : String(error);
+}
+
+function parsePositiveInteger(value: unknown) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 async function initGlpiSession(baseUrl: string, appToken: string) {
@@ -64,16 +85,41 @@ async function killGlpiSession(baseUrl: string, appToken: string, sessionToken: 
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get("authorization") || "";
-    if (!authHeader.toLowerCase().startsWith("bearer ")) {
-      return NextResponse.json({ ok: false, error: "Authorization Bearer mancante." }, { status: 401 });
-    }
-
-    const body = await request.json().catch(() => ({}));
-    const ticketId = body?.ticketId;
+    const body = (await request.json().catch(() => ({}))) as GlpiDeletePayload;
+    const ticketId = parsePositiveInteger(body.ticketId);
+    const tenantId = String(body.tenantId || body.tenant_id || "").trim();
 
     if (!ticketId) {
-      return NextResponse.json({ ok: false, error: "ticketId mancante." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "ticketId non valido." }, { status: 400 });
+    }
+
+    if (!tenantId) {
+      return NextResponse.json({ ok: false, error: "tenantId mancante." }, { status: 400 });
+    }
+
+    const auth = await requireAtlasUser(request, {
+      tenantId,
+      allowedRoles: GLPI_DELETE_ALLOWED_ROLES,
+      allowedLegacyRoles: GLPI_DELETE_ALLOWED_LEGACY_ROLES,
+    });
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const { data: localTicket, error: localTicketError } = await auth.serviceClient
+      .from("tickets")
+      .select("id")
+      .eq("tenant_id", auth.requester.tenantId)
+      .eq("glpi_ticket_id", ticketId)
+      .maybeSingle();
+
+    if (localTicketError) {
+      return NextResponse.json({ ok: false, error: "Errore verifica ticket tenant." }, { status: 500 });
+    }
+
+    if (!localTicket) {
+      return NextResponse.json({ ok: false, error: "Ticket GLPI non collegato al tenant richiesto." }, { status: 404 });
     }
 
     const baseUrl = cleanBaseUrl(process.env.GLPI_API_URL || process.env.NEXT_PUBLIC_GLPI_API_URL);
@@ -109,7 +155,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ ok: true, ticketId, result });
-  } catch (error: any) {
-    return NextResponse.json({ ok: false, error: error?.message || String(error) }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ ok: false, error: getErrorMessage(error) }, { status: 500 });
   }
 }

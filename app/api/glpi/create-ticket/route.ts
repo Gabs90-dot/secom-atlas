@@ -1,7 +1,21 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+
+import { type AtlasRole } from "@/lib/auth";
+import { requireAtlasUser, type LegacyAtlasRole } from "@/lib/server/requireAtlasUser";
+
+const GLPI_CREATE_ALLOWED_ROLES: readonly AtlasRole[] = [
+  "super_admin",
+  "admin",
+  "manager",
+  "dispatcher",
+  "tecnico",
+];
+const GLPI_CREATE_ALLOWED_LEGACY_ROLES: readonly LegacyAtlasRole[] = ["owner"];
 
 type GlpiTicketPayload = {
   atlasTicketId?: string | number;
+  tenantId?: string | null;
+  tenant_id?: string | null;
   site?: string;
   region?: string;
   entity?: string;
@@ -22,6 +36,20 @@ type GlpiTicketPayload = {
   contractEntity?: string;
   glpiEntityId?: number | null;
 };
+
+function htmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function parsePositiveInteger(value: unknown) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
 
 function cleanBaseUrl(value: string) {
   return value.replace(/\/+$/, "");
@@ -52,29 +80,29 @@ function normalizeCategory(value?: string) {
 
 function buildTicketContent(payload: GlpiTicketPayload) {
   const materials = payload.materials?.length
-    ? payload.materials.join(" + ")
+    ? payload.materials.map((material) => htmlEscape(material)).join(" + ")
     : "Nessun materiale indicato";
 
   return [
     `<strong>Ticket creato da ATLAS</strong>`,
-    `<br><br><strong>ID ATLAS:</strong> ${payload.atlasTicketId ?? "n/d"}`,
-    `<br><strong>Titolo:</strong> ${payload.title || "n/d"}`,
-    `<br><strong>Sede:</strong> ${payload.site || "n/d"}`,
-    `<br><strong>Ente:</strong> ${payload.entity || "n/d"}`,
-    `<br><strong>Città:</strong> ${payload.city || "n/d"}`,
-    `<br><strong>Regione:</strong> ${payload.region || "n/d"}`,
-    `<br><strong>Contratto rilevato:</strong> ${payload.contractName || "n/d"}`,
-    `<br><strong>Macro entità:</strong> ${payload.contractEntity || "n/d"}`,
-    `<br><strong>Categoria chiamata:</strong> ${(payload.ticketCategory || payload.ticketType || "ordinaria").toUpperCase()}`,
-    `<br><strong>Stato ATLAS:</strong> ${payload.ticketStatus || payload.status || "nuova"}`,
-    `<br><strong>Tecnico ATLAS:</strong> ${payload.technician || "Non assegnato"}`,
-    `<br><strong>Data/slot:</strong> ${payload.date || "n/d"} ${payload.slot || ""}`,
+    `<br><br><strong>ID ATLAS:</strong> ${htmlEscape(payload.atlasTicketId ?? "n/d")}`,
+    `<br><strong>Titolo:</strong> ${htmlEscape(payload.title || "n/d")}`,
+    `<br><strong>Sede:</strong> ${htmlEscape(payload.site || "n/d")}`,
+    `<br><strong>Ente:</strong> ${htmlEscape(payload.entity || "n/d")}`,
+    `<br><strong>Città:</strong> ${htmlEscape(payload.city || "n/d")}`,
+    `<br><strong>Regione:</strong> ${htmlEscape(payload.region || "n/d")}`,
+    `<br><strong>Contratto rilevato:</strong> ${htmlEscape(payload.contractName || "n/d")}`,
+    `<br><strong>Macro entità:</strong> ${htmlEscape(payload.contractEntity || "n/d")}`,
+    `<br><strong>Categoria chiamata:</strong> ${htmlEscape((payload.ticketCategory || payload.ticketType || "ordinaria").toUpperCase())}`,
+    `<br><strong>Stato ATLAS:</strong> ${htmlEscape(payload.ticketStatus || payload.status || "nuova")}`,
+    `<br><strong>Tecnico ATLAS:</strong> ${htmlEscape(payload.technician || "Non assegnato")}`,
+    `<br><strong>Data/slot:</strong> ${htmlEscape(payload.date || "n/d")} ${htmlEscape(payload.slot || "")}`,
     `<br><strong>Materiali:</strong> ${materials}`,
     `<br><strong>Costo stimato:</strong> ${Number(payload.cost || 0).toLocaleString("it-IT", {
       style: "currency",
       currency: "EUR",
     })}`,
-    `<br><br><strong>Descrizione intervento:</strong><br>${payload.problem || "Nessuna descrizione"}`,
+    `<br><br><strong>Descrizione intervento:</strong><br>${htmlEscape(payload.problem || "Nessuna descrizione")}`,
   ].join("");
 }
 
@@ -97,7 +125,7 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const apiUrl = process.env.GLPI_API_URL;
   const appToken = process.env.GLPI_APP_TOKEN;
   const userToken = process.env.GLPI_USER_TOKEN;
@@ -112,11 +140,37 @@ export async function POST(request: Request) {
     );
   }
 
-  const payload = (await request.json()) as GlpiTicketPayload;
+  const payload = (await request.json().catch(() => null)) as GlpiTicketPayload | null;
+
+  if (!payload) {
+    return NextResponse.json({ ok: false, error: "Payload non valido." }, { status: 400 });
+  }
+
   const baseUrl = cleanBaseUrl(apiUrl);
   const payloadSummary = buildSafePayloadSummary(payload);
+  const tenantId = String(payload.tenantId || payload.tenant_id || "").trim();
+  const atlasTicketId = parsePositiveInteger(payload.atlasTicketId);
+  const glpiEntityId = parsePositiveInteger(payload.glpiEntityId);
 
-  if (!payload.glpiEntityId) {
+  if (!tenantId) {
+    return NextResponse.json({ ok: false, error: "tenantId mancante." }, { status: 400 });
+  }
+
+  const auth = await requireAtlasUser(request, {
+    tenantId,
+    allowedRoles: GLPI_CREATE_ALLOWED_ROLES,
+    allowedLegacyRoles: GLPI_CREATE_ALLOWED_LEGACY_ROLES,
+  });
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  if (!atlasTicketId) {
+    return NextResponse.json({ ok: false, error: "atlasTicketId non valido." }, { status: 400 });
+  }
+
+  if (!glpiEntityId) {
     console.warn("GLPI create-ticket rejected: missing entity", payloadSummary);
     return NextResponse.json(
       {
@@ -128,6 +182,39 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+
+  const { data: ticketRow, error: ticketError } = await auth.serviceClient
+    .from("tickets")
+    .select("id")
+    .eq("tenant_id", auth.requester.tenantId)
+    .eq("id", atlasTicketId)
+    .maybeSingle();
+
+  if (ticketError) {
+    return NextResponse.json({ ok: false, error: "Errore verifica ticket ATLAS." }, { status: 500 });
+  }
+
+  if (!ticketRow) {
+    return NextResponse.json({ ok: false, error: "Ticket ATLAS non trovato nel tenant richiesto." }, { status: 404 });
+  }
+
+  const { data: entityRow, error: entityError } = await auth.serviceClient
+    .from("customer_entities")
+    .select("id")
+    .eq("tenant_id", auth.requester.tenantId)
+    .eq("glpi_entity_id", glpiEntityId)
+    .maybeSingle();
+
+  if (entityError) {
+    return NextResponse.json({ ok: false, error: "Errore verifica entita GLPI." }, { status: 500 });
+  }
+
+  if (!entityRow) {
+    return NextResponse.json({ ok: false, error: "Entita GLPI non autorizzata per il tenant richiesto." }, { status: 403 });
+  }
+
+  payload.atlasTicketId = atlasTicketId;
+  payload.glpiEntityId = glpiEntityId;
 
   let sessionToken = "";
 

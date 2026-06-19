@@ -1,7 +1,19 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
+import { type SupabaseClient } from "@supabase/supabase-js";
+
+import { type AtlasRole } from "@/lib/auth";
+import { requireAtlasUser, type LegacyAtlasRole } from "@/lib/server/requireAtlasUser";
 
 export const runtime = "nodejs";
+
+const PDF_ALLOWED_ROLES: readonly AtlasRole[] = [
+  "super_admin",
+  "admin",
+  "manager",
+  "dispatcher",
+  "tecnico",
+];
+const PDF_ALLOWED_LEGACY_ROLES: readonly LegacyAtlasRole[] = ["owner"];
 
 type DbRecord = Record<string, unknown>;
 
@@ -546,8 +558,18 @@ function buildPdf(ticket: DbRecord, workOrder: DbRecord | null, activities: DbRe
   return Buffer.concat([beforeXref, Buffer.from(xref, "binary")]);
 }
 
-async function getOptionalRows(supabase: any, table: string, column: string, value: string | number) {
-  const { data, error } = await supabase.from(table).select("*").eq(column, value);
+async function getOptionalRows(
+  supabase: SupabaseClient,
+  table: string,
+  column: string,
+  value: string | number,
+  tenantId: string,
+) {
+  const { data, error } = await supabase
+    .from(table)
+    .select("*")
+    .eq(column, value)
+    .eq("tenant_id", tenantId);
   if (error) return [];
   return (data || []) as DbRecord[];
 }
@@ -564,7 +586,7 @@ function inferServiceType(ticket: DbRecord, workOrder: DbRecord | null) {
   return "custom";
 }
 
-async function getReportTemplate(supabase: any, ticket: DbRecord, workOrder: DbRecord | null) {
+async function getReportTemplate(supabase: SupabaseClient, ticket: DbRecord, workOrder: DbRecord | null) {
   const tenantId = text(ticket, ["tenant_id", "tenantId"], "");
   if (!tenantId) return null;
 
@@ -635,7 +657,7 @@ function fallbackReportTemplate(serviceType: string): DbRecord {
   };
 }
 
-export async function GET(_request: Request, context: { params: Promise<{ ticketId: string }> | { ticketId: string } }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ ticketId: string }> | { ticketId: string } }) {
   try {
     const params = await Promise.resolve(context.params);
     const ticketId = Number(params.ticketId);
@@ -644,18 +666,23 @@ export async function GET(_request: Request, context: { params: Promise<{ ticket
       return NextResponse.json({ ok: false, error: "ticketId non valido" }, { status: 400 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+    const tenantId = request.nextUrl.searchParams.get("tenantId");
+    const auth = await requireAtlasUser(request, {
+      tenantId,
+      allowedRoles: PDF_ALLOWED_ROLES,
+      allowedLegacyRoles: PDF_ALLOWED_LEGACY_ROLES,
+    });
 
-    if (!supabaseUrl || !serviceKey) {
-      return NextResponse.json({ ok: false, error: "Configurazione Supabase server mancante" }, { status: 500 });
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+    const supabase = auth.serviceClient;
 
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
       .select("*")
+      .eq("tenant_id", auth.requester.tenantId)
       .eq("id", ticketId)
       .single();
 
@@ -666,11 +693,16 @@ export async function GET(_request: Request, context: { params: Promise<{ ticket
     const { data: workOrder } = await supabase
       .from("work_orders")
       .select("*")
+      .eq("tenant_id", auth.requester.tenantId)
       .eq("ticket_id", ticketId)
       .maybeSingle();
 
-    const activities = workOrder?.id ? await getOptionalRows(supabase, "work_order_activities", "work_order_id", String(workOrder.id)) : [];
-    const materials = workOrder?.id ? await getOptionalRows(supabase, "work_order_materials", "work_order_id", String(workOrder.id)) : [];
+    const activities = workOrder?.id
+      ? await getOptionalRows(supabase, "work_order_activities", "work_order_id", String(workOrder.id), auth.requester.tenantId)
+      : [];
+    const materials = workOrder?.id
+      ? await getOptionalRows(supabase, "work_order_materials", "work_order_id", String(workOrder.id), auth.requester.tenantId)
+      : [];
     const serviceType = inferServiceType(ticket as DbRecord, (workOrder || null) as DbRecord | null);
     const template = (await getReportTemplate(supabase, ticket as DbRecord, (workOrder || null) as DbRecord | null)) || fallbackReportTemplate(serviceType);
 

@@ -131,6 +131,7 @@ export default function AtlasAppFrame({
             setMobileMoreOpen={setMobileMoreOpen}
             mobileView={mobileView}
             setMobileView={setMobileView}
+            canAccessTab={canAccessTab}
             todoNewCount={todoNewCount}
           />
 
@@ -170,6 +171,7 @@ export default function AtlasAppFrame({
               mobileView={mobileView}
               setMobileView={setMobileView}
               setMobileMoreOpen={setMobileMoreOpen}
+              canAccessTab={canAccessTab}
               todoNewCount={todoNewCount}
             />
           </main>

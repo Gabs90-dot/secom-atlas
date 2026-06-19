@@ -55,6 +55,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     activeTenant,
     mobileView,
     setMobileView,
+    canAccessTab,
     todoNewCount,
     currentUser,
     isExecutiveMode,
@@ -248,6 +249,10 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     closeTicket,
   } = ctx;
 
+  const canAccessMobileView = (key: string) =>
+    key === "home" || (typeof canAccessTab === "function" && canAccessTab(key));
+  const effectiveMobileView = canAccessMobileView(String(mobileView)) ? mobileView : "home";
+
   return (
     <>
 {tenantLoading && (
@@ -262,7 +267,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
   </div>
 )}
 <section className="w-full max-w-full overflow-x-hidden md:hidden">
-  {mobileView !== "home" && (
+  {effectiveMobileView !== "home" && (
     <>
       <button
         onClick={() => setMobileView("home")}
@@ -317,11 +322,13 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
             label: "Design Lab",
             icon: Sparkles,
           },
-        ].map(({ key, label, icon: Icon, badge }: any) => (
+        ]
+          .filter((item) => canAccessMobileView(item.key))
+          .map(({ key, label, icon: Icon, badge }: any) => (
           <button
             key={key}
             onClick={() => setMobileView(key as any)}
-            className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-black ${mobileView === key ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
+            className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-black ${effectiveMobileView === key ? "border-blue-500 bg-blue-600 text-white" : "border-white/10 bg-white/[0.06] text-slate-300"}`}
           >
             <Icon size={15} />
             {label}
@@ -336,7 +343,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     </>
   )}
 
-  {mobileView === "home" && (
+  {effectiveMobileView === "home" && (
     isExecutiveMode ? (
       <ExecutiveDashboard
         customers={customers}
@@ -359,21 +366,21 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     )
   )}
 
-  {mobileView === "webvime" && (isExecutiveMode ? <ExecutiveWebvime /> : <WebvimeBoard />)}
+  {effectiveMobileView === "webvime" && (isExecutiveMode ? <ExecutiveWebvime /> : <WebvimeBoard />)}
 
-  {mobileView === "dispatch" && (
+  {effectiveMobileView === "dispatch" && (
     <DispatchCenter tickets={tickets} technicians={technicians} />
   )}
 
-  {mobileView === "todo" && <TodoListPanel />}
+  {effectiveMobileView === "todo" && <TodoListPanel />}
 
-  {mobileView === "activity" && <GlobalActivityFeed />}
+  {effectiveMobileView === "activity" && <GlobalActivityFeed />}
 
-  {mobileView === "analytics" && (
+  {effectiveMobileView === "analytics" && (
     isExecutiveMode ? <ExecutiveAnalytics /> : <KPIDashboard tickets={tickets} technicians={technicians} />
   )}
 
-  {mobileView === "ai" && (
+  {effectiveMobileView === "ai" && (
     <AIInsightsPanel
       tickets={tickets}
       customers={customers}
@@ -382,7 +389,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 
-  {mobileView === "operativo" && (
+  {effectiveMobileView === "operativo" && (
     <AtlasOperationsManager
       mode="mobile"
       input={input}
@@ -412,7 +419,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
       goBackFromTicketForm={goBackFromTicketForm}
     />
   )}
-  {mobileView === "calendario" && (
+  {effectiveMobileView === "calendario" && (
     <AtlasCalendarManager
       mode="mobile"
       input={input}
@@ -461,15 +468,15 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 
-  {mobileView === "manuali" && (
+  {effectiveMobileView === "manuali" && (
     <ManualsCenter tenant={activeTenant} currentUser={currentUser} customers={customers} customerEntities={customerEntities} />
   )}
 
-  {mobileView === "designLab" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
+  {effectiveMobileView === "designLab" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
     <ExecutiveThemeLab uiMode={uiMode} onUiModeChange={switchUiMode} />
   )}
 
-  {mobileView === "registro" && (
+  {effectiveMobileView === "registro" && (
     <TicketRegistry
       variant="mobile"
       tickets={filteredTickets}
@@ -495,7 +502,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 
-  {mobileView === "budget" && (
+  {effectiveMobileView === "budget" && (
     <AtlasBudgetManager
       mode="mobile"
       input={input}
@@ -522,7 +529,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 
-  {mobileView === "mappa" && (
+  {effectiveMobileView === "mappa" && (
     <AtlasMapManager
       mode="mobile"
       input={input}
@@ -539,7 +546,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 
-  {mobileView === "clienti" && (
+  {effectiveMobileView === "clienti" && (
     <AtlasCustomersManager
       mode="mobile"
       sites={sites}
@@ -558,9 +565,9 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 
-  {mobileView === "contratti" && renderSlaContractsManager(true)}
+  {effectiveMobileView === "contratti" && renderSlaContractsManager(true)}
 
-  {mobileView === "sistemi" && (
+  {effectiveMobileView === "sistemi" && (
     <AtlasSystemsManager
       mode="mobile"
       input={input}
@@ -573,7 +580,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 
-  {mobileView === "contatti" && (
+  {effectiveMobileView === "contatti" && (
 
     <AtlasContactsManager
       mode="mobile"
@@ -608,7 +615,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 
-  {mobileView === "magazzino" && (
+  {effectiveMobileView === "magazzino" && (
     <AtlasInventoryManager
       mode="mobile"
       theme={theme}

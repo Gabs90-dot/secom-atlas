@@ -20,6 +20,7 @@ type Props = {
   setMobileMoreOpen: (value: boolean) => void;
   mobileView: string;
   setMobileView: (value: any) => void;
+  canAccessTab: (key: string) => boolean;
   todoNewCount?: number;
 };
 
@@ -28,6 +29,7 @@ export default function MobileMoreMenu({
   setMobileMoreOpen,
   mobileView,
   setMobileView,
+  canAccessTab,
   todoNewCount = 0,
 }: Props) {
   if (!mobileMoreOpen) return null;
@@ -66,7 +68,9 @@ export default function MobileMoreMenu({
             { key: "contatti", label: "Contatti", icon: Phone },
             { key: "mappa", label: "Mappa", icon: Map },
             { key: "sistemi", label: "Asset & Sistemi", icon: Monitor },
-          ].map(({ key, label, icon: Icon, badge }: any) => (
+          ]
+            .filter((item) => item.key === "home" || canAccessTab(item.key))
+            .map(({ key, label, icon: Icon, badge }: any) => (
             <button
               key={key}
               onClick={() => {
