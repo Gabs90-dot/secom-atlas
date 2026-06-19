@@ -274,12 +274,10 @@ export default function BorderGlow({
     ? {
         background: "transparent",
         borderRadius: `${borderRadius}px`,
-        transform: "translate3d(0, 0, 0.01px)",
       }
     : {
         background: backgroundColor,
         borderRadius: `${borderRadius}px`,
-        transform: "translate3d(0, 0, 0.01px)",
         boxShadow:
           "rgba(0,0,0,0.1) 0 1px 2px, rgba(0,0,0,0.1) 0 2px 4px, rgba(0,0,0,0.1) 0 4px 8px, rgba(0,0,0,0.1) 0 8px 16px, rgba(0,0,0,0.1) 0 16px 32px, rgba(0,0,0,0.1) 0 32px 64px",
       };
@@ -296,25 +294,36 @@ export default function BorderGlow({
       className={rootClassName}
       style={rootStyle}
     >
-      <div
-        className={`pointer-events-none absolute inset-0 ${overlayZClass} rounded-[inherit]`}
-        style={{
-          border: "1px solid transparent",
-          background: [
-            `linear-gradient(${backgroundColor} 0 100%) padding-box`,
-            "linear-gradient(rgb(255 255 255 / 0%) 0% 100%) border-box",
-            ...borderBg,
-          ].join(", "),
-          opacity: borderOpacity,
-          maskImage: `conic-gradient(from ${angleDeg} at center, black ${coneSpread}%, transparent ${
-            coneSpread + 15
-          }%, transparent ${100 - coneSpread - 15}%, black ${100 - coneSpread}%)`,
-          WebkitMaskImage: `conic-gradient(from ${angleDeg} at center, black ${coneSpread}%, transparent ${
-            coneSpread + 15
-          }%, transparent ${100 - coneSpread - 15}%, black ${100 - coneSpread}%)`,
-          transition: isVisible ? "opacity 0.25s ease-out" : "opacity 0.75s ease-in-out",
-        }}
-      />
+      {borderOnly ? (
+        <div
+          className={`pointer-events-none absolute inset-0 ${overlayZClass} rounded-[inherit]`}
+          style={{
+            border: "1px solid transparent",
+            background: [
+              `linear-gradient(${backgroundColor} 0 100%) padding-box`,
+              "linear-gradient(rgb(255 255 255 / 0%) 0% 100%) border-box",
+              ...borderBg,
+            ].join(", "),
+            opacity: borderOpacity,
+            maskImage: `conic-gradient(from ${angleDeg} at center, black ${coneSpread}%, transparent ${
+              coneSpread + 15
+            }%, transparent ${100 - coneSpread - 15}%, black ${100 - coneSpread}%)`,
+            WebkitMaskImage: `conic-gradient(from ${angleDeg} at center, black ${coneSpread}%, transparent ${
+              coneSpread + 15
+            }%, transparent ${100 - coneSpread - 15}%, black ${100 - coneSpread}%)`,
+            transition: isVisible ? "opacity 0.25s ease-out" : "opacity 0.75s ease-in-out",
+          }}
+        />
+      ) : (
+        <div
+          className="pointer-events-none absolute inset-0 z-[1] rounded-[inherit]"
+          style={{
+            boxShadow: `inset 0 0 0 1px hsl(${glowColor} / 65%)`,
+            opacity: borderOpacity,
+            transition: isVisible ? "opacity 0.25s ease-out" : "opacity 0.75s ease-in-out",
+          }}
+        />
+      )}
 
       {!borderOnly && fillOpacity > 0 && (
         <div

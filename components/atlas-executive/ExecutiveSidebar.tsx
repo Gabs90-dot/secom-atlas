@@ -186,7 +186,7 @@ export default function ExecutiveSidebar({ view, onViewChange }: ExecutiveSideba
         onDragStart={() => setDraggingId(item.id)}
         onDragOver={(event) => editMode && event.preventDefault()}
         onDrop={() => dropOn(item.id)}
-        className={`group relative rounded-2xl ${draggingId === item.id ? "opacity-45" : "opacity-100"}`}
+        className={`group relative isolate overflow-hidden rounded-2xl ${draggingId === item.id ? "opacity-45" : "opacity-100"}`}
       >
         <button
           type="button"
@@ -196,7 +196,7 @@ export default function ExecutiveSidebar({ view, onViewChange }: ExecutiveSideba
           disabled={!canNavigate && !editMode}
           className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm font-black transition ${
             active
-              ? "border-amber-200/55 bg-[linear-gradient(90deg,rgba(251,191,36,0.24),rgba(34,211,238,0.08))] text-white shadow-[0_0_34px_rgba(251,191,36,0.22)]"
+              ? "border-amber-200/55 bg-[linear-gradient(90deg,rgba(251,191,36,0.24),rgba(34,211,238,0.08))] text-white shadow-[inset_0_0_26px_rgba(251,191,36,0.14)]"
               : "border-white/8 bg-white/[0.035] text-slate-400 hover:border-amber-200/25 hover:bg-white/[0.065] hover:text-white"
           } ${!canNavigate && !editMode ? "cursor-default opacity-65" : ""}`}
         >
@@ -251,7 +251,7 @@ export default function ExecutiveSidebar({ view, onViewChange }: ExecutiveSideba
   }));
 
   return (
-    <aside className="hidden h-full w-[282px] shrink-0 border-r border-cyan-300/10 bg-slate-950/70 text-white backdrop-blur-2xl xl:block">
+    <aside data-atlas-executive-glow-ignore className="relative isolate hidden h-full w-[282px] shrink-0 overflow-hidden border-r border-cyan-300/10 bg-slate-950/70 text-white backdrop-blur-2xl [contain:paint] xl:block">
       <div className="flex h-full min-h-0 flex-col p-5">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -338,7 +338,7 @@ export default function ExecutiveSidebar({ view, onViewChange }: ExecutiveSideba
           </div>
         )}
 
-        <nav className="min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-color:rgba(148,163,184,0.35)_transparent] [scrollbar-width:thin]">
+        <nav className="relative isolate min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-color:rgba(148,163,184,0.35)_transparent] [scrollbar-width:thin]">
           <div className="space-y-6 pb-5">
             {groupedItems.map((group) => {
               if (group.items.length === 0) return null;

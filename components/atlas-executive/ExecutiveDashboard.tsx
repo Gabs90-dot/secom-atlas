@@ -21,7 +21,6 @@ import ExecutiveMetricCard from "./ExecutiveMetricCard";
 import ExecutiveNetworkMap from "./ExecutiveNetworkMap";
 import ExecutiveRiskRadar from "./ExecutiveRiskRadar";
 import ExecutiveSignalFeed from "./ExecutiveSignalFeed";
-import BorderGlow from "@/components/atlas/ui/BorderGlow";
 
 type ExecutiveDashboardProps = {
   customers?: any[];
@@ -567,7 +566,7 @@ export default function ExecutiveDashboard({ customers = [], sites = [], tickets
               onDragOver={(event) => editMode && event.preventDefault()}
               onDrop={() => dropWidget(item.id)}
               onDragEnd={() => setDraggedWidgetId(null)}
-              className={`${definition.sizeClass} relative min-w-0 overflow-visible rounded-[30px] transition ${
+              className={`${definition.sizeClass} relative min-w-0 overflow-hidden rounded-[30px] transition ${
                 editMode ? "ring-2 ring-amber-200/20 ring-offset-4 ring-offset-[#020713]" : ""
               } ${draggedWidgetId === item.id ? "opacity-50" : ""}`}
             >
@@ -584,24 +583,9 @@ export default function ExecutiveDashboard({ customers = [], sites = [], tickets
                   </button>
                 </div>
               )}
-              {item.id === "command-bar" ? (
-                renderWidgetContent(item.id)
-              ) : (
-                <BorderGlow
-                  className="h-full p-[1px]"
-                  edgeSensitivity={18}
-                  glowColor="270 100 68"
-                  backgroundColor="rgba(3,10,20,0.98)"
-                  borderRadius={30}
-                  glowRadius={22}
-                  glowIntensity={0.46}
-                  coneSpread={22}
-                  colors={["#8B5CF6", "#06B6D4", "#5227FF"]}
-                  fillOpacity={0.04}
-                >
-                  <div className="h-full overflow-hidden rounded-[29px]">{renderWidgetContent(item.id)}</div>
-                </BorderGlow>
-              )}
+              <div className="h-full">
+                {renderWidgetContent(item.id)}
+              </div>
             </section>
           );
         })}

@@ -118,7 +118,8 @@ export default function AtlasSidebar({
 
   return (
     <aside
-      className={`atlas-sidebar hidden w-72 shrink-0 border-r p-6 pb-40 lg:block ${
+      data-atlas-executive-glow-ignore
+      className={`atlas-sidebar relative isolate hidden w-72 shrink-0 overflow-hidden border-r p-6 pb-40 [contain:paint] lg:block ${
         theme === "dark"
           ? "border-white/10 bg-[#081523]"
           : "border-slate-300 bg-white shadow-xl shadow-slate-300/30"
@@ -126,7 +127,7 @@ export default function AtlasSidebar({
     >
       <AtlasSidebarLogo theme={theme} isExecutiveMode={isExecutiveMode} logoImage={logoImage} />
 
-      <nav className="atlas-sidebar-nav relative space-y-5 pb-32">
+      <nav className="atlas-sidebar-nav relative isolate space-y-5 overflow-hidden pb-32">
         {tabGroups.map((group) => {
           const visibleItems = orderSidebarItems(
             group.items.filter((tab) => canAccessTab(tab.key)),

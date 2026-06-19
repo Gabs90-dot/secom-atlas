@@ -17,9 +17,8 @@ export default function ExecutiveGlassCard({
 }: ExecutiveGlassCardProps) {
   return (
     <section
-      className={`relative overflow-hidden rounded-[28px] border border-cyan-300/10 bg-white/[0.055] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.36)] backdrop-blur-2xl ${className}`}
+      className={`relative overflow-hidden rounded-[28px] border border-cyan-300/10 bg-[#0b1421] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.36)] ${className}`}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(212,175,55,0.1),transparent_36%)]" />
       {(title || eyebrow || action) && (
         <div className="relative z-10 mb-4 flex items-start justify-between gap-4">
           <div>

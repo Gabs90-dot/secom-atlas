@@ -68,7 +68,7 @@ export default function AtlasSidebarGroup({
                     ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-50 shadow-[inset_0_0_0_1px_rgba(74,222,128,0.14),0_0_22px_rgba(34,197,94,0.18)]"
                     : "border-blue-600 bg-blue-600 text-white shadow-lg shadow-blue-900/20"
                 : isExecutiveMode
-                  ? "border-white/10 bg-white/[0.018] text-slate-300 hover:border-amber-300/45 hover:bg-[linear-gradient(90deg,rgba(251,191,36,0.10),rgba(34,211,238,0.035))] hover:text-white hover:shadow-[0_0_24px_rgba(251,191,36,0.18)]"
+                  ? "border-white/10 bg-white/[0.018] text-slate-300 hover:border-amber-300/45 hover:bg-[linear-gradient(90deg,rgba(251,191,36,0.10),rgba(34,211,238,0.035))] hover:text-white hover:shadow-[inset_0_0_20px_rgba(251,191,36,0.12)]"
                   : theme === "dark"
                     ? "border-white/10 bg-white/[0.025] text-slate-300 hover:border-emerald-400/55 hover:bg-emerald-500/10 hover:text-emerald-50"
                     : "border-slate-300 bg-white text-slate-900 shadow-sm shadow-slate-200/70 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
