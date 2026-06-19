@@ -1,9 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useLayoutEffect, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, type ReactNode } from "react";
 import MobileBottomNav from "@/components/atlas/MobileBottomNav";
 import MobileMoreMenu from "@/components/atlas/MobileMoreMenu";
+import {
+  getMobileMoreTabGroups,
+  getMobilePrimaryTabs,
+} from "@/components/atlas/layout/atlasNavigation";
+import { useIsDesktopShell } from "@/components/atlas/layout/useAtlasShellMode";
 import AtlasHeader from "./AtlasHeader";
 import AtlasSidebar from "./AtlasSidebar";
 
@@ -82,6 +87,17 @@ export default function AtlasAppFrame({
   onCloseTicketWorkspace,
   onTicketWorkspaceStatusUpdated,
 }: AtlasAppFrameProps) {
+  const isDesktopShell = useIsDesktopShell();
+  const mobilePrimaryTabs = useMemo(
+    () => getMobilePrimaryTabs(tabGroups, canAccessTab),
+    [tabGroups, canAccessTab],
+  );
+  const mobileMoreGroups = useMemo(
+    () => getMobileMoreTabGroups(tabGroups, canAccessTab),
+    [tabGroups, canAccessTab],
+  );
+  const hasMobileMoreItems = mobileMoreGroups.some((group) => group.items.length > 0);
+
   useLayoutEffect(() => {
     const resetScroll = () => {
       window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -108,18 +124,21 @@ export default function AtlasAppFrame({
       />
 
       <div className="flex min-h-screen">
-        <AtlasSidebar
-          theme={theme}
-          isExecutiveMode={isExecutiveMode}
-          logoImage={logoImage}
-          tabGroups={tabGroups}
-          activeTab={activeTab}
-          canAccessTab={canAccessTab}
-          onTabChange={onTabChange}
-        />
+        {isDesktopShell && (
+          <AtlasSidebar
+            theme={theme}
+            isExecutiveMode={isExecutiveMode}
+            logoImage={logoImage}
+            tabGroups={tabGroups}
+            activeTab={activeTab}
+            canAccessTab={canAccessTab}
+            onTabChange={onTabChange}
+          />
+        )}
 
         <div className="min-w-0 flex-1 overflow-x-hidden">
           <AtlasHeader
+            isDesktopShell={isDesktopShell}
             theme={theme}
             isExecutiveMode={isExecutiveMode}
             tenants={tenants}
@@ -142,16 +161,22 @@ export default function AtlasAppFrame({
             onOperatorAvatarUpload={onOperatorAvatarUpload}
           />
 
-          <MobileMoreMenu
-            mobileMoreOpen={mobileMoreOpen}
-            setMobileMoreOpen={setMobileMoreOpen}
-            mobileView={mobileView}
-            setMobileView={setMobileView}
-            canAccessTab={canAccessTab}
-            todoNewCount={todoNewCount}
-          />
+          {!isDesktopShell && (
+            <MobileMoreMenu
+              mobileMoreOpen={mobileMoreOpen}
+              setMobileMoreOpen={setMobileMoreOpen}
+              mobileView={mobileView}
+              setMobileView={setMobileView}
+              groups={mobileMoreGroups}
+              tenants={tenants}
+              activeTenant={activeTenant}
+              currentUser={currentUser}
+              onTenantChange={onTenantChange}
+              onLogout={onLogout}
+            />
+          )}
 
-          <main className="w-full max-w-full overflow-x-hidden space-y-6 p-5 pb-24 md:p-8">
+          <main className="w-full max-w-full overflow-x-hidden space-y-6 p-5 pb-[calc(6.5rem+env(safe-area-inset-bottom))] lg:p-8 lg:pb-8">
             {message && (
               <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
                 <div
@@ -183,13 +208,15 @@ export default function AtlasAppFrame({
 
             {children}
 
-            <MobileBottomNav
-              mobileView={mobileView}
-              setMobileView={setMobileView}
-              setMobileMoreOpen={setMobileMoreOpen}
-              canAccessTab={canAccessTab}
-              todoNewCount={todoNewCount}
-            />
+            {!isDesktopShell && (
+              <MobileBottomNav
+                mobileView={mobileView}
+                setMobileView={setMobileView}
+                setMobileMoreOpen={setMobileMoreOpen}
+                items={mobilePrimaryTabs}
+                hasMoreItems={hasMobileMoreItems}
+              />
+            )}
           </main>
         </div>
       </div>

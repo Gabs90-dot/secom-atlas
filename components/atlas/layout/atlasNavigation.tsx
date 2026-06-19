@@ -18,9 +18,30 @@ import {
   Phone,
   Sparkles,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 
-export function createAtlasTabGroups(todoNewCount: number) {
+export type AtlasTabItem = {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  badge?: number;
+};
+
+export type AtlasTabGroup = {
+  title: string;
+  items: AtlasTabItem[];
+};
+
+export const MOBILE_PRIMARY_TAB_KEYS = [
+  "home",
+  "customerPortal",
+  "webvime",
+  "operativo",
+  "todo",
+] as const;
+
+export function createAtlasTabGroups(todoNewCount: number): AtlasTabGroup[] {
   return [
     {
       title: "Principale",
@@ -72,4 +93,42 @@ export function createAtlasTabGroups(todoNewCount: number) {
       ],
     },
   ];
+}
+
+export function getAuthorizedAtlasTabGroups(
+  tabGroups: AtlasTabGroup[],
+  canAccessTab: (key: string) => boolean,
+): AtlasTabGroup[] {
+  return tabGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => canAccessTab(item.key)),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+export function getMobilePrimaryTabs(
+  tabGroups: AtlasTabGroup[],
+  canAccessTab: (key: string) => boolean,
+): AtlasTabItem[] {
+  const authorizedTabs = getAuthorizedAtlasTabGroups(tabGroups, canAccessTab)
+    .flatMap((group) => group.items);
+
+  return MOBILE_PRIMARY_TAB_KEYS
+    .map((key) => authorizedTabs.find((item) => item.key === key))
+    .filter((item): item is AtlasTabItem => Boolean(item));
+}
+
+export function getMobileMoreTabGroups(
+  tabGroups: AtlasTabGroup[],
+  canAccessTab: (key: string) => boolean,
+): AtlasTabGroup[] {
+  const primaryKeys = new Set<string>(MOBILE_PRIMARY_TAB_KEYS);
+
+  return getAuthorizedAtlasTabGroups(tabGroups, canAccessTab)
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !primaryKeys.has(item.key)),
+    }))
+    .filter((group) => group.items.length > 0);
 }

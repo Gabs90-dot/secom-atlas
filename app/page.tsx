@@ -3975,6 +3975,7 @@ export default function Home() {
                 mobileView,
                 setMobileView,
                 canAccessTab,
+                tabGroups,
                 todoNewCount,
                 currentUser,
                 isExecutiveMode,

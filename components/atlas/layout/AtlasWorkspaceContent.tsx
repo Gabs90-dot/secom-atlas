@@ -1,24 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import {
-  AlertTriangle,
-  BarChart3,
-  Brain,
-  CalendarDays,
-  CheckCircle2,
-  ChevronLeft,
-  Download,
-  FileText,
-  History,
-  ListChecks,
-  Map,
-  Monitor,
-  Package,
-  Phone,
-  Sparkles,
-  Users,
-} from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 
 import AtlasBudgetManager from "@/components/atlas/layout/AtlasBudgetManager";
 import AtlasCalendarManager from "@/components/atlas/layout/AtlasCalendarManager";
@@ -30,6 +13,8 @@ import AtlasModuleRenderer from "@/components/atlas/layout/AtlasModuleRenderer";
 import AtlasOperationsManager from "@/components/atlas/layout/AtlasOperationsManager";
 import AtlasSystemsManager from "@/components/atlas/layout/AtlasSystemsManager";
 import CloseTicketModal from "@/components/atlas/layout/CloseTicketModal";
+import { getAuthorizedAtlasTabGroups } from "@/components/atlas/layout/atlasNavigation";
+import { useIsDesktopShell } from "@/components/atlas/layout/useAtlasShellMode";
 
 const TicketRegistry = dynamic(() => import("@/components/atlas/TicketRegistry"), { ssr: false });
 const CustomerCommandCenter = dynamic(() => import("@/components/atlas/CustomerCommandCenter"), { ssr: false });
@@ -58,7 +43,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     mobileView,
     setMobileView,
     canAccessTab,
-    todoNewCount,
+    tabGroups,
     currentUser,
     isExecutiveMode,
     customers,
@@ -251,14 +236,51 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     closeTicket,
   } = ctx;
 
+  const isDesktopShell = useIsDesktopShell();
   const canAccessMobileView = (key: string) =>
     typeof canAccessTab === "function" && canAccessTab(key);
+  const authorizedMobileTabs = getAuthorizedAtlasTabGroups(tabGroups || [], canAccessMobileView)
+    .flatMap((group) => group.items);
   const fallbackMobileView = canAccessMobileView("customerPortal")
     ? "customerPortal"
     : canAccessMobileView("home")
       ? "home"
       : "";
   const effectiveMobileView = canAccessMobileView(String(mobileView)) ? String(mobileView) : fallbackMobileView;
+  const sharedRendererProps = {
+    isExecutiveMode,
+    customers,
+    sites,
+    tickets,
+    customerEntities,
+    technicians,
+    currentUser,
+    activeTenant,
+    filteredTickets,
+    card,
+    uiMode,
+    onUiModeChange: switchUiMode,
+    onOpenTicketFromCustomer: openTicketFromCustomer,
+    onSetActiveTab: setActiveTab,
+    exportCsv,
+    setClosingTicketId,
+    filterTechnician,
+    setFilterTechnician,
+    filterRegion,
+    setFilterRegion,
+    filterStatus,
+    setFilterStatus,
+    filterSite,
+    setFilterSite,
+    urgentOnly,
+    setUrgentOnly,
+    availableRegions,
+    onToggleTicketUrgent: toggleTicketUrgent,
+    onOpenTicketWorkspace: openTicketWorkspace,
+    onRefreshTickets: refreshTickets,
+    refreshingTickets,
+    onDeleteTicketFromRegistry: deleteTicketFromRegistry,
+  };
 
   return (
     <>
@@ -273,7 +295,8 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     configurazione su Supabase.
   </div>
 )}
-<section className="w-full max-w-full overflow-x-hidden md:hidden">
+{!isDesktopShell && (
+<section className="w-full max-w-full overflow-x-hidden lg:hidden">
   {effectiveMobileView !== "home" && (
     <>
       <button
@@ -284,55 +307,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
         Torna alla home mobile
       </button>
       <div className="mb-5 flex w-full max-w-full min-w-0 gap-2 overflow-x-auto overscroll-x-contain border-b border-white/10 pb-4 [-ms-overflow-style:none] [scrollbar-width:none]">
-        {[
-          { key: "webvime", label: "Webvime", icon: Monitor, badge: 0 },
-          {
-            key: "dispatch",
-            label: "Dispatch",
-            icon: AlertTriangle,
-          },
-          { key: "activity", label: "Timeline", icon: History },
-          { key: "analytics", label: "Analisi", icon: BarChart3 },
-          { key: "ai", label: "Insight AI", icon: Brain },
-          {
-            key: "customerPortal",
-            label: "Customer Portal",
-            icon: Users,
-          },
-          {
-            key: "operativo",
-            label: "Operativo",
-            icon: AlertTriangle,
-          },
-          { key: "todo", label: "To Do", icon: CheckCircle2, badge: todoNewCount },
-          {
-            key: "calendario",
-            label: "Calendario",
-            icon: CalendarDays,
-          },
-          { key: "budget", label: "Budget", icon: BarChart3 },
-          { key: "mappa", label: "Mappa", icon: Map },
-          { key: "registro", label: "Registro", icon: ListChecks },
-          { key: "download", label: "Download", icon: Download },
-          { key: "clienti", label: "Clienti", icon: Users },
-          { key: "contratti", label: "Contratti", icon: FileText },
-          { key: "sistemi", label: "Sistemi", icon: Monitor },
-          { key: "magazzino", label: "Magazzino", icon: Package },
-          { key: "contatti", label: "Contatti", icon: Phone },
-          { key: "utenti", label: "Utenti", icon: Users },
-          {
-            key: "glpiImport",
-            label: "Import GLPI",
-            icon: Download,
-          },
-          {
-            key: "designLab",
-            label: "Design Lab",
-            icon: Sparkles,
-          },
-        ]
-          .filter((item) => canAccessMobileView(item.key))
-          .map(({ key, label, icon: Icon, badge }: any) => (
+        {authorizedMobileTabs.map(({ key, label, icon: Icon, badge }) => (
           <button
             key={key}
             onClick={() => setMobileView(key as any)}
@@ -340,7 +315,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
           >
             <Icon size={15} />
             {label}
-            {badge > 0 && (
+            {Number(badge || 0) > 0 && (
               <span className="ml-1 min-w-4 rounded-full bg-red-600 px-1.5 py-0.5 text-center text-[9px] font-black text-white">
                 {badge}
               </span>
@@ -390,6 +365,10 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
 
   {effectiveMobileView === "dispatch" && (
     <DispatchCenter tickets={tickets} technicians={technicians} />
+  )}
+
+  {effectiveMobileView === "piani" && (
+    <AtlasModuleRenderer activeTab="piani" {...sharedRendererProps} />
   )}
 
   {effectiveMobileView === "todo" && <TodoListPanel />}
@@ -498,6 +477,14 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
 
   {effectiveMobileView === "designLab" && ["super_admin", "admin"].includes(currentUser?.role || "") && (
     <ExecutiveThemeLab uiMode={uiMode} onUiModeChange={switchUiMode} />
+  )}
+
+  {effectiveMobileView === "utenti" && (
+    <AtlasModuleRenderer activeTab="utenti" {...sharedRendererProps} />
+  )}
+
+  {effectiveMobileView === "glpiImport" && (
+    <AtlasModuleRenderer activeTab="glpiImport" {...sharedRendererProps} />
   )}
 
   {effectiveMobileView === "registro" && (
@@ -665,7 +652,10 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 </section>
+)}
 
+{isDesktopShell && (
+<section className="w-full max-w-full overflow-x-hidden">
 {activeTab === "budget" && (
   <AtlasBudgetManager
     mode="desktop"
@@ -944,6 +934,8 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     editContact={editContact}
     deleteContact={deleteContact}
   />
+)}
+</section>
 )}
 
 <CloseTicketModal

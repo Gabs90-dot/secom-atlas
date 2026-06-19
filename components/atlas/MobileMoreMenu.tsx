@@ -1,28 +1,28 @@
 "use client";
 
-import {
-  CalendarDays,
-  ListChecks,
-  CheckCircle2,
-  Map,
-  Monitor,
-  Phone,
-  Users,
-  X,
-  ChevronRight,
-  Home as HomeIcon,
-  Briefcase,
-  BookOpen,
-  Download,
-} from "lucide-react";
+import { ChevronRight, LogOut, X } from "lucide-react";
+import { getRoleLabel, normalizeRole } from "@/lib/auth";
+import type { AtlasTenant } from "@/lib/tenant";
+import { storeTenantSlug } from "@/lib/tenant";
+import type { AtlasTabGroup } from "@/components/atlas/layout/atlasNavigation";
 
 type Props = {
   mobileMoreOpen: boolean;
   setMobileMoreOpen: (value: boolean) => void;
   mobileView: string;
   setMobileView: (value: any) => void;
-  canAccessTab: (key: string) => boolean;
-  todoNewCount?: number;
+  groups: AtlasTabGroup[];
+  tenants: AtlasTenant[];
+  activeTenant: AtlasTenant | null;
+  currentUser: {
+    display_name?: string | null;
+    full_name?: string | null;
+    name?: string | null;
+    email?: string | null;
+    role?: string | null;
+  } | null;
+  onTenantChange: (tenant: AtlasTenant) => void;
+  onLogout: () => void;
 };
 
 export default function MobileMoreMenu({
@@ -30,14 +30,26 @@ export default function MobileMoreMenu({
   setMobileMoreOpen,
   mobileView,
   setMobileView,
-  canAccessTab,
-  todoNewCount = 0,
+  groups,
+  tenants,
+  activeTenant,
+  currentUser,
+  onTenantChange,
+  onLogout,
 }: Props) {
   if (!mobileMoreOpen) return null;
 
+  const displayName =
+    currentUser?.display_name ||
+    currentUser?.full_name ||
+    currentUser?.name ||
+    currentUser?.email ||
+    "Operatore";
+  const roleLabel = getRoleLabel(normalizeRole(currentUser?.role));
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden">
-      <div className="h-full w-[82%] max-w-sm border-r border-white/10 bg-[#07111f] p-6 shadow-2xl overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm lg:hidden">
+      <div className="h-full w-[82%] max-w-sm overflow-y-auto border-r border-white/10 bg-[#07111f] px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-[calc(1.5rem+env(safe-area-inset-top))] shadow-2xl">
         <button
           onClick={() => setMobileMoreOpen(false)}
           className="mb-8 rounded-2xl p-2 text-slate-300"
@@ -56,53 +68,92 @@ export default function MobileMoreMenu({
           </p>
         </div>
 
-        <div className="grid gap-2">
-          {[
-            { key: "home", label: "Home", icon: HomeIcon },
-            { key: "customerPortal", label: "Portale Clienti", icon: Users },
-            { key: "webvime", label: "Webvime", icon: Monitor },
-            { key: "operativo", label: "Operativa", icon: Briefcase },
-            { key: "todo", label: "To Do List", icon: CheckCircle2, badge: todoNewCount },
-            { key: "calendario", label: "Calendario", icon: CalendarDays },
-            { key: "registro", label: "Registro Ticket", icon: ListChecks },
-            { key: "manuali", label: "Manuali", icon: BookOpen },
-            { key: "download", label: "Download", icon: Download },
-            { key: "clienti", label: "Clienti", icon: Users },
-            { key: "contatti", label: "Contatti", icon: Phone },
-            { key: "mappa", label: "Mappa", icon: Map },
-            { key: "sistemi", label: "Asset & Sistemi", icon: Monitor },
-          ]
-            .filter((item) => canAccessTab(item.key))
-            .map(({ key, label, icon: Icon, badge }: any) => (
-            <button
-              key={key}
-              onClick={() => {
-                setMobileView(key);
+        <div className="grid gap-5">
+          {groups.map((group) => (
+            <div key={group.title} className="grid gap-2">
+              <p className="px-4 text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+                {group.title}
+              </p>
+              {group.items.map(({ key, label, icon: Icon, badge }) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setMobileView(key);
+                    setMobileMoreOpen(false);
+                  }}
+                  className={`flex items-center justify-between rounded-2xl px-4 py-4 text-left font-bold transition-all ${
+                    mobileView === key
+                      ? "bg-blue-600/25 text-blue-300"
+                      : "text-slate-300"
+                  }`}
+                >
+                  <span className="flex items-center gap-4">
+                    <span className="relative">
+                      <Icon size={22} />
+                      {Number(badge || 0) > 0 && (
+                        <span className="absolute -right-3 -top-2 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-black text-white">
+                          {badge}
+                        </span>
+                      )}
+                    </span>
+                    {label}
+                  </span>
+
+                  <ChevronRight size={18} className="text-slate-500" />
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-300">
+            Sessione
+          </p>
+          <p className="mt-3 truncate text-sm font-black text-white">
+            {displayName}
+          </p>
+          <p className="mt-1 text-xs font-bold text-slate-400">
+            {roleLabel}
+          </p>
+          <p className="mt-3 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+            Organizzazione
+          </p>
+          {tenants.length > 1 ? (
+            <select
+              value={activeTenant?.slug || ""}
+              onChange={(event) => {
+                const nextTenant = tenants.find((tenant) => tenant.slug === event.target.value);
+                if (!nextTenant) return;
+                storeTenantSlug(nextTenant.slug);
+                onTenantChange(nextTenant);
                 setMobileMoreOpen(false);
               }}
-              className={`flex items-center justify-between rounded-2xl px-4 py-4 text-left font-bold transition-all ${
-                mobileView === key
-                  ? "bg-blue-600/25 text-blue-300"
-                  : "text-slate-300"
-              }`}
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-sm font-black text-white outline-none"
             >
-              <span className="flex items-center gap-4">
-                <span className="relative">
-                  <Icon size={22} />
-                  {badge > 0 && (
-                    <span className="absolute -right-3 -top-2 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-black text-white">
-                      {badge}
-                    </span>
-                  )}
-                </span>
-                {label}
-              </span>
+              {tenants.map((tenant) => (
+                <option key={tenant.id} value={tenant.slug} className="bg-slate-950 text-white">
+                  {tenant.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="mt-2 truncate text-sm font-black text-white">
+              {activeTenant?.name || "Organizzazione non configurata"}
+            </p>
+          )}
 
-              {key !== "home" && (
-                <ChevronRight size={18} className="text-slate-500" />
-              )}
-            </button>
-          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setMobileMoreOpen(false);
+              onLogout();
+            }}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm font-black text-red-100"
+          >
+            <LogOut size={17} />
+            Logout
+          </button>
         </div>
       </div>
     </div>
