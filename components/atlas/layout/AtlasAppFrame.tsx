@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { ReactNode } from "react";
+import { useLayoutEffect, type ReactNode } from "react";
 import MobileBottomNav from "@/components/atlas/MobileBottomNav";
 import MobileMoreMenu from "@/components/atlas/MobileMoreMenu";
 import AtlasHeader from "./AtlasHeader";
@@ -82,6 +82,22 @@ export default function AtlasAppFrame({
   onCloseTicketWorkspace,
   onTicketWorkspaceStatusUpdated,
 }: AtlasAppFrameProps) {
+  useLayoutEffect(() => {
+    const resetScroll = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+
+    resetScroll();
+
+    const frameId = window.requestAnimationFrame(resetScroll);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [activeTab, mobileView]);
+
   return (
     <>
       <TicketWorkspace
