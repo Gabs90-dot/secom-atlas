@@ -566,7 +566,7 @@ export default function ExecutiveDashboard({ customers = [], sites = [], tickets
               onDragOver={(event) => editMode && event.preventDefault()}
               onDrop={() => dropWidget(item.id)}
               onDragEnd={() => setDraggedWidgetId(null)}
-              className={`${definition.sizeClass} relative min-w-0 overflow-hidden rounded-[30px] transition ${
+              className={`${definition.sizeClass} group relative min-w-0 overflow-hidden rounded-[30px] transition ${
                 editMode ? "ring-2 ring-amber-200/20 ring-offset-4 ring-offset-[#020713]" : ""
               } ${draggedWidgetId === item.id ? "opacity-50" : ""}`}
             >
@@ -582,6 +582,12 @@ export default function ExecutiveDashboard({ customers = [], sites = [], tickets
                     <X size={14} />
                   </button>
                 </div>
+              )}
+              {item.id !== "command-bar" && (
+                <div
+                  className="pointer-events-none absolute inset-0 z-30 rounded-[30px] border border-transparent transition-[border-color,box-shadow] duration-300 group-hover:border-violet-400/70 group-hover:shadow-[inset_0_0_0_1px_rgba(139,92,246,0.42),inset_0_0_22px_rgba(6,182,212,0.10)]"
+                  aria-hidden="true"
+                />
               )}
               <div className="h-full">
                 {renderWidgetContent(item.id)}
