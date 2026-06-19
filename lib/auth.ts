@@ -48,13 +48,13 @@ export function isCustomerRole(role: unknown): boolean {
 const fallbackPermissionsByRole: Record<AtlasRole, string[]> = {
   super_admin: ["*"],
   admin: ["*"],
-  manager: ["home", "dispatch", "activity", "analytics", "ai", "operativo", "calendario", "mappa", "registro", "clienti", "contratti", "sistemi", "contatti", "budget", "customerPortal", "utenti"],
-  dispatcher: ["home", "dispatch", "operativo", "calendario", "mappa", "registro", "clienti", "sistemi", "contatti"],
-  tecnico: ["home", "dispatch", "calendario", "mappa", "registro", "sistemi"],
-  commerciale: ["home", "clienti", "contratti", "contatti", "budget", "registro"],
-  cliente_admin: ["customerPortal"],
-  cliente_user: ["customerPortal"],
-  cliente: ["customerPortal"],
+  manager: ["home", "dispatch", "activity", "analytics", "ai", "operativo", "calendario", "mappa", "registro", "clienti", "contratti", "sistemi", "contatti", "budget", "customerPortal", "utenti", "download"],
+  dispatcher: ["home", "dispatch", "operativo", "calendario", "mappa", "registro", "clienti", "sistemi", "contatti", "download"],
+  tecnico: ["home", "dispatch", "calendario", "mappa", "registro", "sistemi", "download"],
+  commerciale: ["home", "clienti", "contratti", "contatti", "budget", "registro", "download"],
+  cliente_admin: ["customerPortal", "download"],
+  cliente_user: ["customerPortal", "download"],
+  cliente: ["customerPortal", "download"],
 };
 
 const modulePermissionMap: Record<string, string> = {
@@ -73,6 +73,7 @@ const modulePermissionMap: Record<string, string> = {
   sistemi: "view_assets",
   magazzino: "view_inventory",
   contatti: "view_contacts",
+  download: "view_downloads",
   customerPortal: "view_customer_portal",
   utenti: "manage_users",
 };

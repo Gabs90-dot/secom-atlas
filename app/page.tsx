@@ -625,6 +625,7 @@ export default function Home() {
     | "webvime"
     | "todo"
     | "manuali"
+    | "download"
     | "activity"
     | "analytics"
     | "ai"
@@ -843,6 +844,7 @@ export default function Home() {
     | "webvime"
     | "todo"
     | "manuali"
+    | "download"
     | "activity"
     | "analytics"
     | "ai"
@@ -3590,7 +3592,7 @@ export default function Home() {
     const isAdminLike = ["super_admin", "admin"].includes(currentUser.role);
     const isCustomer = isCustomerRole(currentUser.role);
 
-    if (isCustomer) return key === "customerPortal" && canViewModule(currentUser, key);
+    if (isCustomer) return (key === "customerPortal" || key === "download") && canViewModule(currentUser, key);
 
     if (key === "utenti" || key === "glpiImport" || key === "designLab") return isAdminLike;
 

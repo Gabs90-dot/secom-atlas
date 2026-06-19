@@ -55,6 +55,7 @@ export function createAtlasTabGroups(todoNewCount: number) {
     {
       title: "Gestione",
       items: [
+        { key: "download", label: "Download", icon: Download },
         { key: "contratti", label: "Contratti", icon: FileText },
         { key: "budget", label: "Budget", icon: BarChart3 },
         { key: "magazzino", label: "Magazzino", icon: Package },

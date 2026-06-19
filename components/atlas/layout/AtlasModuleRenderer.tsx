@@ -14,6 +14,7 @@ const GlobalActivityFeed = dynamic(() => import("@/components/atlas/GlobalActivi
 const WebvimeBoard = dynamic(() => import("@/components/atlas/WebvimeBoard"), { ssr: false });
 const TodoListPanel = dynamic(() => import("@/components/atlas/TodoListPanel"), { ssr: false });
 const ManualsCenter = dynamic(() => import("@/components/atlas/ManualsCenter"), { ssr: false });
+const DownloadCenter = dynamic(() => import("@/components/atlas/DownloadCenter"), { ssr: false });
 const KPIDashboard = dynamic(() => import("@/components/atlas/KPIDashboard"), { ssr: false });
 const AIInsightsPanel = dynamic(() => import("@/components/atlas/AIInsightsPanel"), { ssr: false });
 const ExecutiveThemeLab = dynamic(() => import("@/components/atlas-executive/ExecutiveThemeLab"), { ssr: false });
@@ -103,6 +104,8 @@ export default function AtlasModuleRenderer({
         sites={sites}
         tickets={tickets}
         customerEntities={customerEntities}
+        currentUser={currentUser}
+        activeTenant={activeTenant}
         onOpenTicket={onOpenTicketFromCustomer}
         onNavigate={(view) => onSetActiveTab(view as any)}
       />
@@ -156,6 +159,10 @@ export default function AtlasModuleRenderer({
 
   if (activeTab === "manuali") {
     return <ManualsCenter tenant={activeTenant} currentUser={currentUser} customers={customers} customerEntities={customerEntities} />;
+  }
+
+  if (activeTab === "download") {
+    return <DownloadCenter tenant={activeTenant} currentUser={currentUser} customers={customers} executiveMode={isExecutiveMode} />;
   }
 
   if (activeTab === "customerPortal") {

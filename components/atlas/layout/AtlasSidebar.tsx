@@ -125,7 +125,19 @@ export default function AtlasSidebar({
           : "border-slate-300 bg-white shadow-xl shadow-slate-300/30"
       }`}
     >
-      <AtlasSidebarLogo theme={theme} isExecutiveMode={isExecutiveMode} logoImage={logoImage} />
+      <button
+        type="button"
+        onClick={() => onTabChange(canAccessTab("home") ? "home" : "customerPortal")}
+        className="block w-full border-0 bg-transparent p-0 text-left"
+        title={canAccessTab("home") ? "Torna alla Home" : "Torna al Portale Cliente"}
+        aria-label={canAccessTab("home") ? "Torna alla Home" : "Torna al Portale Cliente"}
+      >
+        <AtlasSidebarLogo
+          theme={theme}
+          isExecutiveMode={isExecutiveMode}
+          logoImage={logoImage}
+        />
+      </button>
 
       <nav className="atlas-sidebar-nav relative isolate space-y-5 overflow-hidden pb-32">
         {tabGroups.map((group) => {

@@ -13,6 +13,7 @@ import {
   Home as HomeIcon,
   Briefcase,
   BookOpen,
+  Download,
 } from "lucide-react";
 
 type Props = {
@@ -65,6 +66,7 @@ export default function MobileMoreMenu({
             { key: "calendario", label: "Calendario", icon: CalendarDays },
             { key: "registro", label: "Registro Ticket", icon: ListChecks },
             { key: "manuali", label: "Manuali", icon: BookOpen },
+            { key: "download", label: "Download", icon: Download },
             { key: "clienti", label: "Clienti", icon: Users },
             { key: "contatti", label: "Contatti", icon: Phone },
             { key: "mappa", label: "Mappa", icon: Map },

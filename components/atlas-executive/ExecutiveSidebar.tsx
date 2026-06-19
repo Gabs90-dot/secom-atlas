@@ -254,7 +254,13 @@ export default function ExecutiveSidebar({ view, onViewChange }: ExecutiveSideba
     <aside data-atlas-executive-glow-ignore className="relative isolate hidden h-full w-[282px] shrink-0 overflow-hidden border-r border-cyan-300/10 bg-slate-950/70 text-white backdrop-blur-2xl [contain:paint] xl:block">
       <div className="flex h-full min-h-0 flex-col p-5">
         <div className="mb-6 flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={() => onViewChange("dashboard")}
+            className="flex min-w-0 items-center gap-3 rounded-2xl text-left transition hover:bg-white/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/35"
+            title="Torna alla Home Executive"
+            aria-label="Torna alla Home Executive"
+          >
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/10 text-emerald-200 shadow-[0_0_35px_rgba(16,185,129,0.12)]">
               <Layers size={22} />
             </div>
@@ -262,7 +268,7 @@ export default function ExecutiveSidebar({ view, onViewChange }: ExecutiveSideba
               <p className="truncate text-lg font-black tracking-tight">ATLAS</p>
               <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-200/60">Executive</p>
             </div>
-          </div>
+          </button>
 
           <div className="flex shrink-0 items-center gap-1.5">
             <button

@@ -39,6 +39,7 @@ const GlobalActivityFeed = dynamic(() => import("@/components/atlas/GlobalActivi
 const WebvimeBoard = dynamic(() => import("@/components/atlas/WebvimeBoard"), { ssr: false });
 const TodoListPanel = dynamic(() => import("@/components/atlas/TodoListPanel"), { ssr: false });
 const ManualsCenter = dynamic(() => import("@/components/atlas/ManualsCenter"), { ssr: false });
+const DownloadCenter = dynamic(() => import("@/components/atlas/DownloadCenter"), { ssr: false });
 const KPIDashboard = dynamic(() => import("@/components/atlas/KPIDashboard"), { ssr: false });
 const AIInsightsPanel = dynamic(() => import("@/components/atlas/AIInsightsPanel"), { ssr: false });
 const ExecutiveThemeLab = dynamic(() => import("@/components/atlas-executive/ExecutiveThemeLab"), { ssr: false });
@@ -312,6 +313,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
           { key: "budget", label: "Budget", icon: BarChart3 },
           { key: "mappa", label: "Mappa", icon: Map },
           { key: "registro", label: "Registro", icon: ListChecks },
+          { key: "download", label: "Download", icon: Download },
           { key: "clienti", label: "Clienti", icon: Users },
           { key: "contratti", label: "Contratti", icon: FileText },
           { key: "sistemi", label: "Sistemi", icon: Monitor },
@@ -356,6 +358,8 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
         sites={sites}
         tickets={tickets}
         customerEntities={customerEntities}
+        currentUser={currentUser}
+        activeTenant={activeTenant}
         onOpenTicket={openTicketFromCustomer}
         onNavigate={(view) => setMobileView(view as any)}
       />
@@ -486,6 +490,10 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
 
   {effectiveMobileView === "manuali" && (
     <ManualsCenter tenant={activeTenant} currentUser={currentUser} customers={customers} customerEntities={customerEntities} />
+  )}
+
+  {effectiveMobileView === "download" && (
+    <DownloadCenter tenant={activeTenant} currentUser={currentUser} customers={customers} executiveMode={isExecutiveMode} />
   )}
 
   {effectiveMobileView === "designLab" && ["super_admin", "admin"].includes(currentUser?.role || "") && (

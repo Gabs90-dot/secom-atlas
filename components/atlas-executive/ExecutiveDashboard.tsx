@@ -21,12 +21,15 @@ import ExecutiveMetricCard from "./ExecutiveMetricCard";
 import ExecutiveNetworkMap from "./ExecutiveNetworkMap";
 import ExecutiveRiskRadar from "./ExecutiveRiskRadar";
 import ExecutiveSignalFeed from "./ExecutiveSignalFeed";
+import type { AtlasUser } from "@/lib/auth";
 
 type ExecutiveDashboardProps = {
   customers?: any[];
   sites?: any[];
   tickets?: any[];
   customerEntities?: any[];
+  currentUser?: AtlasUser | null;
+  activeTenant?: { id?: string | null } | null;
   onOpenTicket?: (customer: any, site?: any) => void;
   onNavigate?: (view: string) => void;
 };
@@ -178,7 +181,16 @@ function buildSearchText(item: any) {
   );
 }
 
-export default function ExecutiveDashboard({ customers = [], sites = [], tickets = [], customerEntities = [], onOpenTicket, onNavigate }: ExecutiveDashboardProps) {
+export default function ExecutiveDashboard({
+  customers = [],
+  sites = [],
+  tickets = [],
+  customerEntities = [],
+  currentUser,
+  activeTenant,
+  onOpenTicket,
+  onNavigate,
+}: ExecutiveDashboardProps) {
   const [query, setQuery] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [draggedWidgetId, setDraggedWidgetId] = useState<DashboardWidgetId | null>(null);
@@ -438,7 +450,15 @@ export default function ExecutiveDashboard({ customers = [], sites = [], tickets
       );
     }
 
-    if (id === "copilot") return <ExecutiveCopilotPanel />;
+    if (id === "copilot") {
+      return (
+        <ExecutiveCopilotPanel
+          tenant={activeTenant}
+          currentUser={currentUser}
+          onNavigate={(target) => onNavigate?.(target)}
+        />
+      );
+    }
 
     if (id === "quick-actions") {
       return (
