@@ -27,9 +27,9 @@ Le decisioni più recenti prevalgono su eventuali informazioni storiche o contra
 
 ## 2. Visione del prodotto
 
-ATLAS è una web app CRM operativa interna sviluppata per SECOM S.r.l.
+ATLAS nasce come web app CRM operativa interna sviluppata per SECOM S.r.l., ma la direzione approvata è trasformarla in una piattaforma neutra e white-label riutilizzabile da altre aziende.
 
-L’obiettivo è sostituire progressivamente strumenti frammentati e ridurre la dipendenza operativa da GLPI, mantenendo comunque l’integrazione con GLPI dove necessaria.
+L’obiettivo è sostituire progressivamente strumenti frammentati, ridurre la dipendenza operativa da GLPI per SECOM e rendere GLPI un’integrazione opzionale per tenant. I nuovi tenant devono poter partire nativamente con ATLAS senza GLPI.
 
 ATLAS deve diventare il centro operativo per:
 
@@ -300,6 +300,83 @@ Sync automatico:
 ```
 
 con doppia guardia Bearer token o `x-atlas-cron-secret`.
+
+### White-label e GLPI opzionale
+
+È stata approvata la trasformazione di ATLAS in piattaforma neutra/white-label.
+
+Foundation implementata:
+
+```text
+lib/tenantConfig.ts
+lib/server/tenantConfig.ts
+lib/tenant.ts
+supabase/migrations/20260622143000_add_tenant_white_label_config.sql
+```
+
+La configurazione tenant include branding, contatti, colori, tema, `ticket_provider` e `glpi_enabled`.
+
+Comportamento previsto dalla migration:
+
+- tenant già esistenti: `ticket_provider = 'glpi'`, `glpi_enabled = true`;
+- tenant futuri: default `ticket_provider = 'atlas'`, `glpi_enabled = false`;
+- fallback applicativo legacy: GLPI resta temporaneamente attivo se lo schema non è ancora migrato;
+- fallback branding: neutro ATLAS, senza dati SECOM.
+
+La migration non deve contenere hardcode SECOM e non va eseguita automaticamente.
+
+Blocco route server-side implementato tramite:
+
+```text
+lib/server/glpiTenantGuard.ts
+```
+
+Route protette:
+
+```text
+/api/glpi/create-ticket
+/api/admin/glpi-delete-ticket
+/api/admin/glpi-sync-db
+/api/admin/glpi-auto-sync
+/api/admin/glpi-sync-entities
+/api/admin/glpi-import/batch
+/api/admin/glpi-add-followup
+```
+
+Per tenant ATLAS-native o con `glpi_enabled = false`, le route GLPI rispondono `403` con codice `glpi_disabled`. Il controllo è server-side e usa il tenant autenticato. La doppia guardia cron resta preservata.
+
+### Creazione ticket provider-aware
+
+Blocco 3A implementato senza migration aggiuntiva:
+
+```text
+app/api/tickets/create/route.ts
+app/page.tsx
+```
+
+Comportamento dichiarato:
+
+- provider `glpi`: crea il ticket ATLAS e poi esegue il flusso GLPI esistente;
+- provider `atlas` o `glpi_enabled = false`: crea direttamente il ticket nella tabella `tickets`;
+- `tenant_id` deriva esclusivamente dall’utente autenticato;
+- campi `glpi_*` null per ticket nativi;
+- validazione server-side di tenant, ruolo e customer/site/entity scope;
+- nessuna chiamata GLPI per tenant ATLAS-native.
+
+Verifiche Codex dichiarate verdi per foundation, route guard e creazione provider-aware:
+
+```cmd
+npm.cmd run build
+npx.cmd tsc --noEmit
+git diff --check
+```
+
+Rischi residui:
+
+- UI e testi possono ancora mostrare riferimenti GLPI ai tenant ATLAS-native;
+- Registro Ticket, PDF, Copilot e dashboard non sono ancora completamente provider-aware;
+- serve smoke test reale di creazione ticket sia su tenant GLPI sia su tenant ATLAS-native;
+- verificare idempotenza e comportamento in caso di errore GLPI dopo la creazione del ticket ATLAS.
 
 ---
 
@@ -612,8 +689,12 @@ Problemi storici già affrontati:
 - widget;
 - DnD;
 - sidebar;
-- avatar;
 - tab attivi.
+
+Problemi UI recenti:
+
+- pannello notifiche: corretto con portal nel `body`, sfondo opaco, nessun blur del background, posizione sotto la campanella e viewport-safe in Classic/Executive;
+- avatar Executive: bug aperto, mostra iniziali hardcoded `GP` anche ad altri utenti; deve usare foto dell’utente autenticato o fallback neutro/inziali dinamiche.
 
 Scelta stabile finale sul glow:
 
@@ -803,7 +884,16 @@ Non implementare sincronizzazioni automatiche senza decisione esplicita.
 - tabelle;
 - sticky;
 - overflow;
-- azioni raggiungibili.
+- azioni raggiungibili;
+- avatar utente Executive/Classic/mobile da rendere dinamico, senza `GP` hardcoded.
+
+### White-label / provider ticket
+
+- migration white-label da confermare/applicare sull’ambiente Supabase;
+- smoke test tenant GLPI e tenant ATLAS-native;
+- UI da rendere provider-aware;
+- branding SECOM ancora hardcoded in sidebar, footer, PDF e alcuni componenti;
+- verificare idempotenza del flusso ticket ATLAS → GLPI in caso di errore esterno.
 
 ### Architettura
 
@@ -816,21 +906,16 @@ Non implementare sincronizzazioni automatiche senza decisione esplicita.
 
 ## 23. Priorità operative attuali
 
-1. revisionare il diff reale della foundation white-label / GLPI opzionale;
-2. copiare `ATLAS_MASTER_CONTEXT.md` nella root del repository per renderlo leggibile da Codex;
-3. commit separato della foundation solo dopo revisione del diff;
-4. applicare e verificare la migration white-label prima di usare i nuovi campi in produzione;
-5. blocco 2: applicare il flag GLPI alle route server e ai flussi operativi, preservando SECOM;
-6. blocco 3: centralizzare branding in login, sidebar, footer e PDF;
-7. continuare la roadmap mobile con Webvime;
-8. To Do mobile;
-9. modali viewport-safe;
-10. Calendario;
-11. Portale Cliente;
-12. Mappa;
-13. test completo Classic/Executive;
-14. verifica ruoli cliente;
-15. pulizia dati clienti e affidabilità sync GLPI per il tenant SECOM.
+1. consolidare e smoke-testare il blocco 3A di creazione ticket provider-aware;
+2. verificare se la migration white-label è stata applicata e controllare il tenant SECOM come `glpi / true`;
+3. testare creazione ticket su tenant GLPI e tenant ATLAS-native, inclusi errori GLPI e rischio duplicati;
+4. rendere la UI provider-aware: nascondere import, sync, riferimenti e azioni GLPI ai tenant ATLAS-native;
+5. correggere avatar utente `GP` hardcoded in Executive/Classic/mobile;
+6. centralizzare branding neutro in login, sidebar, footer, header e PDF;
+7. rendere Registro Ticket, TicketWorkspace, PDF, Copilot e dashboard pienamente provider-aware;
+8. riprendere roadmap mobile: Webvime, To Do, modali, Calendario, Portale Cliente e Mappa;
+9. test completo Classic/Executive e ruoli cliente;
+10. pulizia dati clienti e affidabilità sync GLPI.
 
 ---
 
@@ -879,152 +964,23 @@ Quando una nuova chat ATLAS viene aperta:
 
 ## 26. Stato immediato da cui ripartire
 
-Il Registro Ticket mobile è stato corretto, ha superato build, TypeScript e `git diff --check`, ed è stato autorizzato per commit/deploy dopo smoke test. Il login è stato restilizzato in stile Executive mantenendo la struttura originaria e aggiungendo `DarkVeil` solo su desktop tramite la dipendenza `ogl`.
+La foundation white-label, i guard server-side GLPI e la creazione ticket provider-aware sono stati implementati da Codex con build, TypeScript e `git diff --check` dichiarati verdi.
 
-È stato inoltre completato da Codex un primo blocco di foundation white-label / GLPI opzionale. Codex dichiara build, TypeScript e `git diff --check` verdi, ma il diff reale non è ancora stato revisionato direttamente in ChatGPT.
+Stato attuale del blocco 3A:
 
-Prossimo passo operativo:
+- nuova route `app/api/tickets/create/route.ts`;
+- `app/page.tsx` usa la route provider-aware per Apri Chiamata e creazione da Calendario;
+- tenant GLPI mantiene il flusso esistente;
+- tenant ATLAS-native crea ticket senza GLPI;
+- il diff di `app/page.tsx` contiene anche modifiche precedenti, quindi il commit va consolidato con attenzione;
+- nessun deploy va autorizzato prima di smoke test su entrambi i provider.
 
-- rendere `ATLAS_MASTER_CONTEXT.md` disponibile nella root del repository;
-- revisionare i file e la migration della foundation white-label;
-- autorizzare il commit della foundation solo dopo controllo del diff;
-- applicare la migration separatamente e in modo controllato;
-- procedere con il blocco 2 per proteggere route e flussi GLPI per tenant;
-- mantenere SECOM con GLPI attivo di default fino alla migrazione completa.
+Prossimo intervento consigliato:
+
+1. audit breve del diff corrente e conferma migration;
+2. smoke test del flusso ticket GLPI;
+3. smoke test con tenant `atlas / false`;
+4. blocco 3B UI provider-aware;
+5. fix avatar `GP` hardcoded.
 
 Questo documento va aggiornato dopo ogni blocco strutturale importante.
-
----
-
-## 27. Foundation white-label e GLPI opzionale
-
-Obiettivo approvato:
-
-- rendere ATLAS neutro e riutilizzabile per aziende diverse da SECOM;
-- mantenere SECOM come tenant esistente con GLPI attivo;
-- consentire ai nuovi tenant di partire con ticket nativi ATLAS e senza GLPI;
-- centralizzare branding e configurazione aziendale per tenant;
-- isolare progressivamente GLPI dietro feature flag e provider ticket.
-
-### Audit Codex dichiarato
-
-Hardcode SECOM principali individuati in:
-
-```text
-components/atlas/layout/AtlasSidebar.tsx
-components/atlas/layout/AtlasSidebarLogo.tsx
-components/atlas-executive/ExecutiveHeader.tsx
-components/atlas/layout/atlasLogoImage.ts
-app/api/work-orders/pdf-by-ticket/[ticketId]/route.ts
-public/secom-logo.png.png
-components/atlas/ContractsBoard.tsx
-components/atlas/ContractProfilePanel.tsx
-lib/atlasSlaContracts.ts
-lib/atlasConstants.ts
-lib/systemsCatalog.ts
-```
-
-Dipendenze GLPI principali individuate in:
-
-```text
-app/api/glpi/create-ticket
-app/api/admin/glpi-delete-ticket
-app/api/admin/glpi-sync-db
-app/api/admin/glpi-auto-sync
-app/api/admin/glpi-sync-entities
-app/api/admin/glpi-import/batch
-app/api/admin/glpi-add-followup
-services/glpi.ts
-services/glpiSyncEngine.ts
-services/glpiHistoricalImport.ts
-services/glpiEntitySyncEngine.ts
-app/page.tsx
-TicketRegistry
-TicketWorkspace
-CustomerCommandCenter
-WebvimeBoard
-OperationalPlansCenter
-PDF bolle
-Copilot catalog
-```
-
-Campi GLPI diffusi:
-
-```text
-glpi_ticket_id
-glpi_entity_id
-glpi_entity_path
-glpi_raw
-glpi_status
-```
-
-### File Codex dichiarati creati
-
-```text
-lib/tenantConfig.ts
-lib/server/tenantConfig.ts
-supabase/migrations/20260622143000_add_tenant_white_label_config.sql
-```
-
-File dichiarato modificato:
-
-```text
-lib/tenant.ts
-```
-
-### Configurazione prevista
-
-La foundation tipizzata deve coprire almeno:
-
-```text
-productName
-companyName
-logoUrl
-faviconUrl
-supportEmail
-supportPhone
-website
-address
-legalInformation
-privacyText / privacyUrl
-primaryColor
-accentColor
-themePreset
-ticketProvider: atlas | glpi
-glpiEnabled
-```
-
-Default retrocompatibile dichiarato:
-
-```text
-ticket_provider = glpi
-glpi_enabled = true
-```
-
-Il comportamento di fallback deve mantenere GLPI attivo per SECOM e branding neutro ATLAS quando la configurazione non è presente.
-
-### Stato di verifica
-
-Dichiarato da Codex:
-
-```cmd
-npm.cmd run build
-npx.cmd tsc --noEmit
-git diff --check
-```
-
-Esito dichiarato: verde.
-
-Ancora da verificare direttamente:
-
-- diff reale dei quattro file;
-- schema e compatibilità della migration;
-- assenza di bypass tenant nella lettura server della configurazione;
-- semantica dei default per tenant esistenti e nuovi tenant;
-- gestione di tenant senza riga di configurazione;
-- assenza di regressioni su SECOM;
-- strategia di applicazione della migration.
-
-### Regola per i prossimi blocchi
-
-Non eliminare GLPI. Isolarlo progressivamente dietro provider e feature flag. Le route GLPI devono essere protette server-side per tenant e non soltanto nascoste nella UI.
