@@ -322,6 +322,8 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
   const overdue = isOverdue(ticket);
   const closed = isClosed(ticket);
   const readableStatus = displayStatus(ticket);
+  const isMobile = variant === "mobile";
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   function openDetail() {
     onOpenDetail?.(ticket);
@@ -359,7 +361,7 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
             <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(readableStatus)}`}>{readableStatus}</span>
             {ticket.urgent && <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white"><Flame size={13} /> URGENTE</span>}
             {overdue && <span className="inline-flex items-center gap-1 rounded-full bg-amber-600 px-3 py-1 text-xs font-black text-white"><Clock size={13} /> SCADUTO</span>}
-            {onDeleteTicket && (
+            {onDeleteTicket && !isMobile && (
               <button
                 type="button"
                 onClick={(event) => stopAndRun(event, () => onDeleteTicket(ticket))}
@@ -400,32 +402,64 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
           <button
             type="button"
             onClick={(event) => stopAndRun(event, openDetail)}
-            className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white transition hover:bg-blue-500 hover:shadow-[0_0_24px_rgba(59,130,246,0.20)]"
+            className="min-h-11 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white transition hover:bg-blue-500 hover:shadow-[0_0_24px_rgba(59,130,246,0.20)]"
           >
             Apri dettaglio
           </button>
 
-          {!closed ? (
+          {isMobile && (!closed || Boolean(onDeleteTicket)) && (
+            <button
+              type="button"
+              aria-expanded={actionsOpen}
+              onClick={(event) => stopAndRun(event, () => setActionsOpen((current) => !current))}
+              className="min-h-11 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-white"
+            >
+              {actionsOpen ? "Chiudi azioni" : "Azioni"}
+            </button>
+          )}
+
+          {!closed && (!isMobile || actionsOpen) && (
             <div className="grid gap-2">
               <button
                 type="button"
                 onClick={(event) => stopAndRun(event, () => onToggleUrgent?.(ticket))}
-                className={`rounded-2xl px-4 py-3 text-sm font-black text-white ${ticket.urgent ? "bg-slate-700" : "bg-red-600"}`}
+                className={`min-h-11 rounded-2xl px-4 py-3 text-sm font-black text-white ${ticket.urgent ? "bg-slate-700" : "bg-red-600"}`}
               >
                 {ticket.urgent ? "Togli urgenza" : "Rendi urgente"}
               </button>
               <button
                 type="button"
                 onClick={(event) => stopAndRun(event, () => variant === "mobile" ? promptCloseTicket?.(String(ticket.id)) : setClosingTicketId?.(String(ticket.id)))}
-                className="rounded-2xl bg-emerald-700 px-4 py-3 text-sm font-black text-white"
+                className="min-h-11 rounded-2xl bg-emerald-700 px-4 py-3 text-sm font-black text-white"
               >
                 Chiudi intervento
               </button>
+              {isMobile && onDeleteTicket && (
+                <button
+                  type="button"
+                  onClick={(event) => stopAndRun(event, () => onDeleteTicket(ticket))}
+                  className="min-h-11 rounded-2xl border border-red-300/25 bg-red-500/10 px-4 py-3 text-sm font-black text-red-100"
+                >
+                  Elimina ticket
+                </button>
+              )}
             </div>
-          ) : (
+          )}
+
+          {closed && (
             <div className="flex items-center gap-2 rounded-2xl bg-emerald-500/15 p-3 text-sm font-black text-emerald-300">
               <CheckCircle2 size={17} /> Intervento chiuso
             </div>
+          )}
+
+          {isMobile && closed && actionsOpen && onDeleteTicket && (
+            <button
+              type="button"
+              onClick={(event) => stopAndRun(event, () => onDeleteTicket(ticket))}
+              className="min-h-11 rounded-2xl border border-red-300/25 bg-red-500/10 px-4 py-3 text-sm font-black text-red-100"
+            >
+              Elimina ticket
+            </button>
           )}
         </div>
       </div>
@@ -435,6 +469,7 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
 
 export default function TicketRegistry(props: TicketRegistryProps) {
   const { variant, tickets, exportCsv, setMobileView, card = "", onOpenTicketDetail, onRefreshTickets, refreshingTickets = false, executiveMode = false } = props;
+  const isMobile = variant === "mobile";
   const [boardFilter, setBoardFilter] = useState<"all" | "open" | "urgent" | "overdue" | "closed">("all");
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
@@ -442,6 +477,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
   const [currentPage, setCurrentPage] = useState(1);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   function openTicketDetail(ticket: any) {
     // Apertura robusta: il dettaglio interno si apre sempre.
     // Se page.tsx ha anche un workspace esterno, lo notifichiamo senza dipendere da quello.
@@ -527,11 +563,33 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       ? "Chiusi"
       : "";
 
+  const activeFilterCount = [
+    boardFilter !== "all",
+    Boolean(dateFilter),
+    sortOrder !== "newest",
+    Boolean(props.filterTechnician),
+    Boolean(props.filterRegion),
+    Boolean(props.filterStatus),
+    Boolean(props.filterSite),
+    Boolean(props.urgentOnly),
+  ].filter(Boolean).length;
+
+  function resetAllFilters() {
+    setBoardFilter("all");
+    setDateFilter("");
+    setSortOrder("newest");
+    props.setFilterTechnician?.("");
+    props.setFilterRegion?.("");
+    props.setFilterStatus?.("");
+    props.setFilterSite?.("");
+    props.setUrgentOnly?.(false);
+  }
+
   const board = (
     <div className={executiveMode ? "grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden rounded-[34px] border border-cyan-300/10 bg-[radial-gradient(circle_at_10%_0%,rgba(34,211,238,0.10),transparent_28%),linear-gradient(135deg,rgba(2,7,19,0.96),rgba(7,19,33,0.92)_48%,rgba(3,7,17,0.98))] p-4 shadow-[0_28px_100px_rgba(0,0,0,0.34)] md:p-5" : "grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden"}>
       {selectedTicket && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#081523] p-5 shadow-2xl md:p-7">
+        <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-hidden bg-black/70 px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] pt-[calc(1rem_+_env(safe-area-inset-top))] backdrop-blur-sm lg:items-center lg:py-6">
+          <div className="max-h-[calc(100dvh_-_2rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full max-w-4xl overflow-y-auto overscroll-contain rounded-[2rem] border border-white/10 bg-[#081523] p-5 shadow-2xl md:p-7 lg:max-h-[90vh]">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
@@ -553,8 +611,10 @@ export default function TicketRegistry(props: TicketRegistryProps) {
               </div>
 
               <button
+                type="button"
                 onClick={() => setSelectedTicket(null)}
                 className="rounded-2xl bg-white/10 p-3 text-white hover:bg-white/15"
+                aria-label="Chiudi dettaglio ticket"
               >
                 <XCircle size={22} />
               </button>
@@ -613,7 +673,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
           </div>
         </div>
       )}
-      <div className="sticky top-0 z-40 -mx-1 grid gap-4 border-b border-white/10 bg-[#0b1524]/95 p-4 shadow-2xl backdrop-blur-xl">
+      <div className={`${isMobile ? "grid gap-4" : "sticky top-0 z-40 -mx-1 grid gap-4 border-b border-white/10 bg-[#0b1524]/95 p-4 shadow-2xl backdrop-blur-xl"}`}>
       <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 overflow-hidden">
           <p className="break-words text-xs font-black uppercase tracking-[0.3em] text-blue-400">{executiveMode ? "MISSION OPERATIONS BOARD" : "CRM Operations Board"}</p>
@@ -699,9 +759,94 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       )}
 
       <div className="grid gap-3">
-        <RegistryFilters {...props} />
+        {isMobile ? (
+          <div className="grid gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="relative">
+              <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 pl-10 text-sm font-bold text-white outline-none placeholder:text-slate-500"
+                placeholder="Cerca ticket, cliente, sede o descrizione"
+                value={props.filterSite || ""}
+                onChange={(event) => props.setFilterSite?.(event.target.value)}
+              />
+            </div>
 
-        <div className="flex flex-wrap items-end gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setMobileFiltersOpen((current) => !current)}
+                className="min-h-11 flex-1 rounded-2xl border border-blue-400/30 bg-blue-600 px-4 py-3 text-sm font-black text-white"
+              >
+                Filtri {activeFilterCount > 0 ? `(${activeFilterCount})` : ""}
+              </button>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={resetAllFilters}
+                  className="min-h-11 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-white"
+                >
+                  Azzera filtri
+                </button>
+              )}
+            </div>
+
+            {mobileFiltersOpen && (
+              <div className="grid gap-3 rounded-3xl border border-white/10 bg-slate-950/35 p-3">
+                <select
+                  className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-bold text-white outline-none"
+                  value={props.filterRegion || ""}
+                  onChange={(event) => props.setFilterRegion?.(event.target.value)}
+                >
+                  <option value="">Tutte le entità</option>
+                  {buildEntityOptions(props.customerEntities || [], props.availableRegions || []).map((entityOption) => (
+                    <option key={entityOption.key} value={entityOption.value}>
+                      {entityOption.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-bold text-white outline-none"
+                  value={props.filterTechnician || ""}
+                  onChange={(event) => props.setFilterTechnician?.(event.target.value)}
+                >
+                  <option value="">Tutti i tecnici</option>
+                  {technicians.map((technician) => (
+                    <option key={technician} value={technician}>{technician}</option>
+                  ))}
+                </select>
+                <select
+                  className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-bold text-white outline-none"
+                  value={props.filterStatus || ""}
+                  onChange={(event) => props.setFilterStatus?.(event.target.value)}
+                >
+                  <option value="">Tutti gli stati</option>
+                  <option value="Aperto">Aperti / non chiusi</option>
+                  <option value="Nuovo">Nuovo</option>
+                  <option value="Pianificato">Pianificato</option>
+                  <option value="In lavorazione">In lavorazione</option>
+                  <option value="In sospeso">In sospeso</option>
+                  <option value="Risolto">Risolto</option>
+                  <option value="Chiuso">Chiuso</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => props.setUrgentOnly?.(!props.urgentOnly)}
+                  className={`min-h-11 rounded-2xl border px-4 py-3 text-sm font-black transition-all ${
+                    props.urgentOnly
+                      ? "border-red-500 bg-red-600 text-white shadow-lg shadow-red-950/30"
+                      : "border-white/10 bg-white/[0.06] text-slate-300"
+                  }`}
+                >
+                  Solo urgenti
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <RegistryFilters {...props} />
+        )}
+
+        <div className={`${isMobile ? "grid gap-3" : "flex flex-wrap items-end gap-3"} rounded-3xl border border-white/10 bg-white/[0.04] p-4`}>
           <div className="flex min-w-[220px] flex-col gap-1">
             <label className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
               Filtro data apertura
@@ -711,7 +856,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
               type="date"
               value={dateFilter}
               onChange={(event) => setDateFilter(event.target.value)}
-              className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white outline-none"
+              className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white outline-none"
             />
           </div>
 
@@ -719,7 +864,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
             <button
               type="button"
               onClick={() => setDateFilter("")}
-              className="rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white"
+              className="min-h-11 rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white"
             >
               Reset data
             </button>
@@ -728,7 +873,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
           <button
             type="button"
             onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-blue-500/30 bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/20 hover:bg-blue-500"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-blue-500/30 bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/20 hover:bg-blue-500"
             title="Cambia ordinamento cronologico"
           >
             <ArrowDownUp size={18} />
@@ -755,7 +900,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       </div>
       </div>
 
-      <div className="max-h-[58vh] min-h-[430px] overflow-y-auto overscroll-contain pr-2">
+      <div className={isMobile ? "pb-3" : "max-h-[58vh] min-h-[430px] overflow-y-auto overscroll-contain pr-2"}>
         <div className="grid min-w-0 gap-3">
         {visibleTickets.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-10 text-center text-slate-400">
@@ -770,7 +915,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       </div>
 
       {visibleTickets.length > 0 && (
-        <div className="sticky bottom-4 z-30 flex flex-col gap-3 rounded-3xl border border-white/10 bg-[#0b1524]/95 p-3 shadow-2xl backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
+        <div className={`${isMobile ? "flex flex-col gap-3 rounded-3xl border border-white/10 bg-[#0b1524]/95 p-3 shadow-2xl" : "sticky bottom-4 z-30 flex flex-col gap-3 rounded-3xl border border-white/10 bg-[#0b1524]/95 p-3 shadow-2xl backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between"}`}>
           <p className="text-xs font-black text-slate-400">
             Pagina {safeCurrentPage} di {totalPages} · {pageStart}-{pageEnd} di {visibleTickets.length}
           </p>
@@ -784,7 +929,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       )}
 
       {variant === "mobile" && (
-        <button onClick={() => setMobileView?.("operativo")} className="sticky bottom-4 w-full max-w-full rounded-3xl bg-blue-600 p-5 text-xl font-black text-white shadow-lg shadow-blue-950/40">
+        <button onClick={() => setMobileView?.("operativo")} className="w-full max-w-full rounded-3xl bg-blue-600 p-5 text-xl font-black text-white shadow-lg shadow-blue-950/40">
           + Nuova chiamata/intervento
         </button>
       )}
