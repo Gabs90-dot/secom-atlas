@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import mysql from "mysql2/promise";
 
 import type { AtlasRole } from "@/lib/auth";
+import { requireGlpiEnabledForTenant } from "@/lib/server/glpiTenantGuard";
 import { requireAtlasUser } from "@/lib/server/requireAtlasUser";
 
 const GLPI_FOLLOWUP_ALLOWED_ROLES: readonly AtlasRole[] = ["super_admin", "admin", "manager", "dispatcher"];
@@ -84,6 +85,12 @@ export async function POST(request: NextRequest) {
 
     if (!auth.ok) {
       return auth.response;
+    }
+
+    const glpiGuard = await requireGlpiEnabledForTenant(auth.serviceClient, auth.requester);
+
+    if (glpiGuard) {
+      return glpiGuard;
     }
 
     const { data: ticketData, error: ticketError } = await auth.serviceClient

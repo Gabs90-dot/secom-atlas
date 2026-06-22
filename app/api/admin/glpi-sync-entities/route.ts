@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import type { AtlasRole } from "@/lib/auth";
+import { requireGlpiEnabledForTenant } from "@/lib/server/glpiTenantGuard";
 import { requireAtlasUser } from "@/lib/server/requireAtlasUser";
 import { syncGlpiEntitiesToAtlas } from "@/services/glpiEntitySyncEngine";
 
@@ -55,6 +56,12 @@ export async function POST(request: NextRequest) {
 
     if (!auth.ok) {
       return auth.response;
+    }
+
+    const glpiGuard = await requireGlpiEnabledForTenant(auth.serviceClient, auth.requester);
+
+    if (glpiGuard) {
+      return glpiGuard;
     }
 
     const result = await syncGlpiEntitiesToAtlas({ tenantId });

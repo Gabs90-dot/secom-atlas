@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { type AtlasRole } from "@/lib/auth";
+import { requireGlpiEnabledForTenant } from "@/lib/server/glpiTenantGuard";
 import { requireAtlasUser, type LegacyAtlasRole } from "@/lib/server/requireAtlasUser";
 
 const GLPI_DELETE_ALLOWED_ROLES: readonly AtlasRole[] = ["super_admin", "admin"];
@@ -105,6 +106,12 @@ export async function POST(request: NextRequest) {
 
     if (!auth.ok) {
       return auth.response;
+    }
+
+    const glpiGuard = await requireGlpiEnabledForTenant(auth.serviceClient, auth.requester);
+
+    if (glpiGuard) {
+      return glpiGuard;
     }
 
     const { data: localTicket, error: localTicketError } = await auth.serviceClient

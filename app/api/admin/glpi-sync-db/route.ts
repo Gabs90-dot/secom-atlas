@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import type { AtlasRole } from "@/lib/auth";
+import { requireGlpiEnabledForTenant } from "@/lib/server/glpiTenantGuard";
 import { requireAtlasUser } from "@/lib/server/requireAtlasUser";
 import { syncGlpiDbToAtlas } from "@/services/glpiSyncEngine";
 
@@ -49,7 +50,6 @@ function getSyncFunction(): SyncGlpiDbToAtlas {
 
 export async function POST(request: NextRequest) {
   try {
-    const runSyncGlpiDbToAtlas = getSyncFunction();
     const body = toRecord(await request.json().catch(() => ({})));
     const tenantId = getTenantId(request, body);
 
@@ -72,6 +72,14 @@ export async function POST(request: NextRequest) {
     if (!auth.ok) {
       return auth.response;
     }
+
+    const glpiGuard = await requireGlpiEnabledForTenant(auth.serviceClient, auth.requester);
+
+    if (glpiGuard) {
+      return glpiGuard;
+    }
+
+    const runSyncGlpiDbToAtlas = getSyncFunction();
 
     const limit = Math.min(Number(body.limit || 250), 1000);
     const offset = Number(body.offset || 0);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { type AtlasRole } from "@/lib/auth";
+import { requireGlpiEnabledForTenant } from "@/lib/server/glpiTenantGuard";
 import { requireAtlasUser, type LegacyAtlasRole } from "@/lib/server/requireAtlasUser";
 
 const GLPI_CREATE_ALLOWED_ROLES: readonly AtlasRole[] = [
@@ -126,27 +127,12 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const apiUrl = process.env.GLPI_API_URL;
-  const appToken = process.env.GLPI_APP_TOKEN;
-  const userToken = process.env.GLPI_USER_TOKEN;
-
-  if (!apiUrl || !appToken || !userToken) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Configurazione GLPI mancante. Controlla GLPI_API_URL, GLPI_APP_TOKEN e GLPI_USER_TOKEN in .env.local.",
-      },
-      { status: 500 }
-    );
-  }
-
   const payload = (await request.json().catch(() => null)) as GlpiTicketPayload | null;
 
   if (!payload) {
     return NextResponse.json({ ok: false, error: "Payload non valido." }, { status: 400 });
   }
 
-  const baseUrl = cleanBaseUrl(apiUrl);
   const payloadSummary = buildSafePayloadSummary(payload);
   const tenantId = String(payload.tenantId || payload.tenant_id || "").trim();
   const atlasTicketId = parsePositiveInteger(payload.atlasTicketId);
@@ -165,6 +151,28 @@ export async function POST(request: NextRequest) {
   if (!auth.ok) {
     return auth.response;
   }
+
+  const glpiGuard = await requireGlpiEnabledForTenant(auth.serviceClient, auth.requester);
+
+  if (glpiGuard) {
+    return glpiGuard;
+  }
+
+  const apiUrl = process.env.GLPI_API_URL;
+  const appToken = process.env.GLPI_APP_TOKEN;
+  const userToken = process.env.GLPI_USER_TOKEN;
+
+  if (!apiUrl || !appToken || !userToken) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Configurazione GLPI mancante. Controlla GLPI_API_URL, GLPI_APP_TOKEN e GLPI_USER_TOKEN in .env.local.",
+      },
+      { status: 500 }
+    );
+  }
+
+  const baseUrl = cleanBaseUrl(apiUrl);
 
   if (!atlasTicketId) {
     return NextResponse.json({ ok: false, error: "atlasTicketId non valido." }, { status: 400 });

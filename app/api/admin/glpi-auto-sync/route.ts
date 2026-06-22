@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { AtlasRole } from "@/lib/auth";
+import {
+  createGlpiGuardServiceClient,
+  requireGlpiEnabledForTenant,
+} from "@/lib/server/glpiTenantGuard";
 import { requireAtlasUser } from "@/lib/server/requireAtlasUser";
 import { syncGlpiDbToAtlas } from "@/services/glpiSyncEngine";
 
@@ -10,6 +15,17 @@ type SyncGlpiDbToAtlas = typeof syncGlpiDbToAtlas;
 
 const DEFAULT_LIMIT = 25;
 const GLPI_AUTO_SYNC_ALLOWED_ROLES: readonly AtlasRole[] = ["super_admin", "admin"];
+
+type AuthorizedSyncRequest =
+  | {
+      ok: true;
+      serviceClient: SupabaseClient;
+      tenantId: string;
+    }
+  | {
+      ok: false;
+      response: NextResponse;
+    };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -36,7 +52,7 @@ function jsonAuthError(message: string, status: 401 | 500) {
   return NextResponse.json({ success: false, error: message }, { status });
 }
 
-async function authorizeSyncRequest(request: NextRequest, tenantId: string) {
+async function authorizeSyncRequest(request: NextRequest, tenantId: string): Promise<AuthorizedSyncRequest> {
   const authorization = request.headers.get("authorization");
 
   if (authorization && hasBearerToken(request)) {
@@ -45,26 +61,48 @@ async function authorizeSyncRequest(request: NextRequest, tenantId: string) {
       tenantId,
     });
 
-    return auth.ok ? null : auth.response;
+    return auth.ok
+      ? {
+          ok: true,
+          serviceClient: auth.serviceClient,
+          tenantId: auth.requester.tenantId,
+        }
+      : {
+          ok: false,
+          response: auth.response,
+        };
   }
 
   if (authorization) {
-    return jsonAuthError("Non autenticato.", 401);
+    return {
+      ok: false,
+      response: jsonAuthError("Non autenticato.", 401),
+    };
   }
 
   const configuredSecret = process.env.ATLAS_CRON_SECRET;
 
   if (!configuredSecret) {
-    return jsonAuthError("Configurazione cron mancante: ATLAS_CRON_SECRET non impostato.", 500);
+    return {
+      ok: false,
+      response: jsonAuthError("Configurazione cron mancante: ATLAS_CRON_SECRET non impostato.", 500),
+    };
   }
 
   const providedSecret = request.headers.get("x-atlas-cron-secret") || "";
 
   if (!providedSecret || providedSecret !== configuredSecret) {
-    return jsonAuthError("Non autenticato.", 401);
+    return {
+      ok: false,
+      response: jsonAuthError("Non autenticato.", 401),
+    };
   }
 
-  return null;
+  return {
+    ok: true,
+    serviceClient: createGlpiGuardServiceClient(),
+    tenantId,
+  };
 }
 
 function getSyncFunction(): SyncGlpiDbToAtlas {
@@ -118,7 +156,6 @@ function getOptionalStringOrNumber(value: unknown): string | number | undefined 
 
 export async function GET(request: NextRequest) {
   try {
-    const runSyncGlpiDbToAtlas = getSyncFunction();
     const tenantId = getTenantIdFromRequest(request);
     const limit = getNumberParam(request, "limit", DEFAULT_LIMIT);
     const offset = getNumberParam(request, "offset", 0);
@@ -138,9 +175,19 @@ export async function GET(request: NextRequest) {
 
     const authResponse = await authorizeSyncRequest(request, tenantId);
 
-    if (authResponse) {
-      return authResponse;
+    if (!authResponse.ok) {
+      return authResponse.response;
     }
+
+    const glpiGuard = await requireGlpiEnabledForTenant(authResponse.serviceClient, {
+      tenantId: authResponse.tenantId,
+    });
+
+    if (glpiGuard) {
+      return glpiGuard;
+    }
+
+    const runSyncGlpiDbToAtlas = getSyncFunction();
 
     const result = await runSyncGlpiDbToAtlas({
       tenantId,
@@ -171,7 +218,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const runSyncGlpiDbToAtlas = getSyncFunction();
     const body = toRecord(await request.json().catch(() => ({})));
     const tenantId = getTenantIdFromBody(request, body);
     const queryLimit = request.nextUrl.searchParams.get("limit");
@@ -201,9 +247,19 @@ export async function POST(request: NextRequest) {
 
     const authResponse = await authorizeSyncRequest(request, tenantId);
 
-    if (authResponse) {
-      return authResponse;
+    if (!authResponse.ok) {
+      return authResponse.response;
     }
+
+    const glpiGuard = await requireGlpiEnabledForTenant(authResponse.serviceClient, {
+      tenantId: authResponse.tenantId,
+    });
+
+    if (glpiGuard) {
+      return glpiGuard;
+    }
+
+    const runSyncGlpiDbToAtlas = getSyncFunction();
 
     const result = await runSyncGlpiDbToAtlas({
       tenantId,
