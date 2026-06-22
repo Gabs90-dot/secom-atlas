@@ -4,7 +4,21 @@ export type AtlasTenant = {
   slug: string;
   status?: string;
   logo_url?: string | null;
+  favicon_url?: string | null;
+  product_name?: string | null;
+  company_name?: string | null;
+  support_email?: string | null;
+  support_phone?: string | null;
+  website?: string | null;
+  address?: string | null;
+  legal_information?: string | null;
+  privacy_text?: string | null;
+  privacy_url?: string | null;
   primary_color?: string | null;
+  accent_color?: string | null;
+  theme_preset?: string | null;
+  ticket_provider?: string | null;
+  glpi_enabled?: boolean | null;
 };
 
 export const DEFAULT_TENANT_SLUG = "secom";
