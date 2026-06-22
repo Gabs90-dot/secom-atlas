@@ -31,7 +31,7 @@ type AtlasAppFrameProps = {
   siteSearch: string;
   onTenantChange: (tenant: any) => void;
   onLogout: () => void;
-  onOpenNotifications: () => void;
+  onOpenNotifications: (anchor: NotificationPanelAnchor) => void;
   onOpenMobileMenu: () => void;
   onSwitchUiMode: (mode: "classic" | "executive") => void;
   onThemeChange: (theme: string) => void;
@@ -49,6 +49,15 @@ type AtlasAppFrameProps = {
   selectedTicketWorkspace: any | null;
   onCloseTicketWorkspace: () => void;
   onTicketWorkspaceStatusUpdated: (ticket: any) => void;
+};
+
+type NotificationPanelAnchor = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  width: number;
+  height: number;
 };
 
 export default function AtlasAppFrame({

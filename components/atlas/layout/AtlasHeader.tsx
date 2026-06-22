@@ -46,7 +46,7 @@ type AtlasHeaderProps = {
   activeTab: string;
   onTenantChange: (tenant: any) => void;
   onLogout: () => void;
-  onOpenNotifications: () => void;
+  onOpenNotifications: (anchor: NotificationPanelAnchor) => void;
   onOpenMobileMenu: () => void;
   onSwitchUiMode: (mode: "classic" | "executive") => void;
   onThemeChange: (theme: string) => void;
@@ -56,6 +56,27 @@ type AtlasHeaderProps = {
   operatorAvatar?: string;
   onOperatorAvatarUpload?: (file?: File | null) => void | Promise<void>;
 };
+
+type NotificationPanelAnchor = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  width: number;
+  height: number;
+};
+
+function getAnchorFromElement(element: HTMLElement): NotificationPanelAnchor {
+  const rect = element.getBoundingClientRect();
+  return {
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+    left: rect.left,
+    width: rect.width,
+    height: rect.height,
+  };
+}
 
 export default function AtlasHeader({
   isDesktopShell,
@@ -107,7 +128,11 @@ export default function AtlasHeader({
             <UserSessionBadge user={currentUser} compact onLogout={onLogout} />
           </div>
 
-          <button onClick={onOpenNotifications} className="relative rounded-2xl p-2 text-white" aria-label="Notifiche">
+          <button
+            onClick={(event) => onOpenNotifications(getAnchorFromElement(event.currentTarget))}
+            className="relative rounded-2xl p-2 text-white"
+            aria-label="Notifiche"
+          >
             <Bell size={24} />
             {notificationCount > 0 && (
               <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-blue-500 px-1.5 py-0.5 text-center text-[10px] font-black text-white">
@@ -154,7 +179,7 @@ export default function AtlasHeader({
               <UserSessionBadge user={currentUser} onLogout={onLogout} />
 
               <button
-                onClick={onOpenNotifications}
+                onClick={(event) => onOpenNotifications(getAnchorFromElement(event.currentTarget))}
                 className={`relative shrink-0 rounded-2xl border px-3 py-2 text-xs font-black shadow-sm transition-all md:px-4 md:py-3 md:text-sm ${
                   theme === "dark" ? "border-white/10 bg-white/[0.06] text-white" : "border-slate-200 bg-white text-slate-900"
                 }`}

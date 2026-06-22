@@ -2,6 +2,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import LoginScreen from "@/components/atlas/LoginScreen";
 import { useAtlasAuth } from "@/components/atlas/AuthProvider";
 import { canViewModule, isCustomerRole, type AtlasUser } from "@/lib/auth";
@@ -90,6 +91,15 @@ type CustomerDataScope = {
   customerEntityId: string | null;
   siteIds: string[];
   hasScope: boolean;
+};
+
+type NotificationPanelAnchor = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  width: number;
+  height: number;
 };
 
 function valueAsString(value: unknown) {
@@ -864,6 +874,7 @@ export default function Home() {
   >("home");
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationAnchor, setNotificationAnchor] = useState<NotificationPanelAnchor | null>(null);
   const [todoNewCount, setTodoNewCount] = useState(0);
   const [manualReminders, setManualReminders] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
@@ -1159,6 +1170,43 @@ export default function Home() {
       supabaseClient: supabase,
       showMessage,
     });
+  }
+
+  async function createAtlasTicket(payload: Record<string, unknown>) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken || !activeTenant?.id) {
+      throw new Error("Sessione o tenant non validi.");
+    }
+
+    const response = await fetch("/api/tickets/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        ...payload,
+        tenantId: activeTenant.id,
+      }),
+    });
+
+    const result = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      error?: string;
+      provider?: "atlas" | "glpi";
+      ticket?: Record<string, unknown>;
+    } | null;
+
+    if (!response.ok || !result?.ok || !result.ticket) {
+      throw new Error(result?.error || "Errore salvataggio ticket.");
+    }
+
+    return {
+      provider: result.provider || "glpi",
+      ticket: result.ticket,
+    };
   }
 
   const editableContracts = buildEditableContracts(
@@ -1929,39 +1977,34 @@ export default function Home() {
         "";
       const currentCity = city || selectedEntityFromState?.city || "";
 
-      const { data, error } = await supabase
-        .from("tickets")
-        .insert([
-          {
-            site,
-            region: currentRegion,
-            entity: currentEntity,
-            city: currentCity,
-            site_id: siteId,
-            glpi_entity_id: currentGlpiEntityId,
-            glpi_entity_path: currentGlpiEntityPath || null,
-            problem,
-            materials: selectedMaterials,
-            technician,
-            status: dbStatus,
-            cost,
-            slot: selectedSlot,
-            intervention_date: selectedDate || null,
-            opened_at: new Date().toISOString(),
-            expected_close_date: expectedCloseDate || null,
-            urgent: false,
-            customer_id: customerId || null,
-            tenant_id: activeTenant?.id || null,
-          },
-        ])
-        .select()
-        .single();
-
-      if (error) {
-        console.log(error);
-        showMessage("Errore salvataggio ticket", "error");
-        return;
-      }
+      const createdTicket = await createAtlasTicket({
+        site,
+        region: currentRegion,
+        entity: currentEntity,
+        city: currentCity,
+        siteId,
+        glpiEntityId: currentGlpiEntityId,
+        glpiEntityPath: currentGlpiEntityPath || null,
+        problem,
+        materials: selectedMaterials,
+        technician,
+        status: dbStatus,
+        cost,
+        slot: selectedSlot,
+        interventionDate: selectedDate || null,
+        expectedCloseDate: expectedCloseDate || null,
+        urgent: false,
+        customerId: customerId || null,
+        eventTitle: "Ticket creato",
+        eventDescription: `${site} - ${ticketTitle}`,
+        eventMetadata: {
+          status: dbStatus,
+          urgent: false,
+          ticket_type: ticketType,
+        },
+      });
+      const data = createdTicket.ticket;
+      const ticketProvider = createdTicket.provider;
 
       const newTicket = {
         id: data.id,
@@ -1976,17 +2019,17 @@ export default function Home() {
         status: dbStatus,
         date: selectedDate || "",
         slot: selectedSlot || "",
-        openedAt: data.opened_at || new Date().toISOString(),
-        expectedCloseDate: data.expected_close_date || expectedCloseDate || "",
-        closedAt: data.closed_at || "",
+        openedAt: toNullableString(data.opened_at) || new Date().toISOString(),
+        expectedCloseDate: toNullableString(data.expected_close_date) || expectedCloseDate || "",
+        closedAt: toNullableString(data.closed_at) || "",
         urgent: Boolean(data.urgent),
         customerId: data.customer_id || customerId || null,
         tenantId: data.tenant_id || activeTenant?.id || null,
         tenant_id: data.tenant_id || activeTenant?.id || null,
-        glpiEntityId: currentGlpiEntityId,
-        glpi_entity_id: currentGlpiEntityId,
-        glpiEntityPath: currentGlpiEntityPath,
-        glpi_entity_path: currentGlpiEntityPath,
+        glpiEntityId: data.glpi_entity_id || null,
+        glpi_entity_id: data.glpi_entity_id || null,
+        glpiEntityPath: toNullableString(data.glpi_entity_path) || "",
+        glpi_entity_path: toNullableString(data.glpi_entity_path) || "",
         resolved: true,
         closingNotes: "",
         futureNeeds: "",
@@ -2021,8 +2064,14 @@ export default function Home() {
       setExpectedCloseDate("");
       setSelectedGlpiEntityId(null);
                         setSelectedGlpiEntityPath("");
-      showMessage("Ticket creato in ATLAS, sincronizzazione GLPI in corso...");
-      const glpiResult = await syncTicketToGlpi(newTicket);
+      let glpiResult: Awaited<ReturnType<typeof syncTicketToGlpi>> | null = null;
+
+      if (ticketProvider === "glpi") {
+        showMessage("Ticket creato in ATLAS, sincronizzazione GLPI in corso...");
+        glpiResult = await syncTicketToGlpi(newTicket);
+      } else {
+        showMessage("Ticket creato in ATLAS.");
+      }
 
       if (glpiResult?.glpiTicketId) {
         const syncedTicket = {
@@ -2043,24 +2092,6 @@ export default function Home() {
           ),
         );
       }
-
-      await supabase.from("ticket_events").insert([
-        {
-          ticket_id: data.id,
-          customer_id: customerId || null,
-          site_id: siteId || null,
-          event_type: "ticket_created",
-          title: "Ticket creato",
-          description: `${site} - ${ticketTitle}`,
-          created_by: "Operatore",
-          tenant_id: activeTenant?.id || null,
-          metadata: {
-            status: dbStatus,
-            urgent: false,
-            ticket_type: ticketType,
-          },
-        },
-      ]);
 
       setSelectedMaterials([]);
       setTicketType("ordinaria");
@@ -2517,39 +2548,37 @@ export default function Home() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from("tickets")
-      .insert([
-        {
-          site: calendarSite.name,
-          region: calendarSite.region || "Da definire",
-          entity: calendarSite.entity || "",
-          city: calendarSite.city || "",
-          site_id: calendarSite.id || null,
-          customer_id: calendarSite.customer_id || calendarSite.customerId || null,
-          glpi_entity_id: calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
-          glpi_entity_path: calendarSite.glpi_entity_path || calendarSite.complete_name || null,
-          problem: "Intervento pianificato da calendario",
-          materials: [],
-          technician: calendarTechnician,
-          status: "Pianificato",
-          cost: 0,
-          slot: calendarTime,
-          intervention_date: selectedCalendarDay,
-          opened_at: new Date().toISOString(),
-          expected_close_date: selectedCalendarDay,
-          urgent: false,
-          tenant_id: activeTenant?.id || null,
-        },
-      ])
-      .select()
-      .single();
+    let createdTicket: Awaited<ReturnType<typeof createAtlasTicket>>;
 
-    if (error) {
-      console.log(error);
+    try {
+      createdTicket = await createAtlasTicket({
+        site: calendarSite.name,
+        region: calendarSite.region || "Da definire",
+        entity: calendarSite.entity || "",
+        city: calendarSite.city || "",
+        siteId: calendarSite.id || null,
+        customerId: calendarSite.customer_id || calendarSite.customerId || null,
+        glpiEntityId: calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
+        glpiEntityPath: calendarSite.glpi_entity_path || calendarSite.complete_name || null,
+        problem: "Intervento pianificato da calendario",
+        materials: [],
+        technician: calendarTechnician,
+        status: "Pianificato",
+        cost: 0,
+        slot: calendarTime,
+        interventionDate: selectedCalendarDay,
+        expectedCloseDate: selectedCalendarDay,
+        urgent: false,
+        createEvent: false,
+      });
+    } catch (error) {
+      console.error("Errore creazione intervento calendario", error);
       showMessage("Errore creazione intervento calendario", "error");
       return;
     }
+
+    const data = createdTicket.ticket;
+    const ticketProvider = createdTicket.provider;
 
     const newTicket = {
       id: data.id,
@@ -2561,18 +2590,18 @@ export default function Home() {
       customer_id: data.customer_id || calendarSite.customer_id || calendarSite.customerId || null,
       siteId: data.site_id || calendarSite.id || null,
       site_id: data.site_id || calendarSite.id || null,
-      glpiEntityId: data.glpi_entity_id || calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
-      glpi_entity_id: data.glpi_entity_id || calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
-      glpi_entity_path: data.glpi_entity_path || calendarSite.glpi_entity_path || calendarSite.complete_name || "",
+      glpiEntityId: data.glpi_entity_id || null,
+      glpi_entity_id: data.glpi_entity_id || null,
+      glpi_entity_path: toNullableString(data.glpi_entity_path) || "",
       problem: "Intervento pianificato da calendario",
       materialIds: [],
       technician: calendarTechnician,
       status: "Pianificato",
       date: selectedCalendarDay,
       slot: calendarTime,
-      openedAt: data.opened_at || new Date().toISOString(),
-      expectedCloseDate: data.expected_close_date || selectedCalendarDay || "",
-      closedAt: data.closed_at || "",
+      openedAt: toNullableString(data.opened_at) || new Date().toISOString(),
+      expectedCloseDate: toNullableString(data.expected_close_date) || selectedCalendarDay || "",
+      closedAt: toNullableString(data.closed_at) || "",
       urgent: Boolean(data.urgent),
       tenantId: data.tenant_id || activeTenant?.id || null,
       tenant_id: data.tenant_id || activeTenant?.id || null,
@@ -2596,7 +2625,7 @@ export default function Home() {
 
     setTickets((prev) => [newTicket, ...prev]);
 
-    const glpiResult = await syncTicketToGlpi(newTicket);
+    const glpiResult = ticketProvider === "glpi" ? await syncTicketToGlpi(newTicket) : null;
 
     if (glpiResult?.glpiTicketId) {
       const syncedTicket = {
@@ -3439,31 +3468,97 @@ export default function Home() {
     );
   }
 
-  function renderNotificationsDrawer() {
-    if (!notificationsOpen) return null;
+  function openNotifications(anchor: NotificationPanelAnchor) {
+    setNotificationAnchor(anchor);
+    setNotificationsOpen(true);
+  }
 
-    return (
-      <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm" onMouseDown={() => setNotificationsOpen(false)}>
+  function closeNotifications() {
+    setNotificationsOpen(false);
+    setNotificationAnchor(null);
+  }
+
+  function renderNotificationsDrawer() {
+    if (!notificationsOpen || typeof document === "undefined") return null;
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const margin = 12;
+    const gap = 10;
+    const minimumPanelHeight = 240;
+    const panelWidth = Math.min(448, Math.max(0, viewportWidth - margin * 2));
+    const anchorBottom = notificationAnchor?.bottom ?? 72;
+    const anchorRight = notificationAnchor?.right ?? viewportWidth - margin;
+    const preferredTop = anchorBottom + gap;
+    const maximumTop = Math.max(margin, viewportHeight - margin - minimumPanelHeight);
+    const panelTop = Math.min(Math.max(preferredTop, margin), maximumTop);
+    const panelLeft = Math.max(
+      margin,
+      Math.min(anchorRight - panelWidth, viewportWidth - panelWidth - margin),
+    );
+    const panelMaxHeight = Math.max(
+      0,
+      viewportHeight - panelTop - margin,
+    );
+
+    const panelTone = isExecutiveMode
+      ? "border-cyan-300/20 bg-[#050b16] text-white shadow-[0_28px_90px_rgba(0,0,0,0.58)]"
+      : theme === "dark"
+        ? "border-white/10 bg-[#07111f] text-white shadow-2xl"
+        : "border-slate-200 bg-[#f4f7fb] text-slate-950 shadow-2xl";
+
+    const sectionTone = isExecutiveMode
+      ? "border-cyan-300/12 bg-[#0b1424]"
+      : theme === "dark"
+        ? "border-white/10 bg-[#101b2b]"
+        : "border-slate-200 bg-white";
+
+    const emptyTone = isExecutiveMode
+      ? "border-cyan-300/12 bg-[#0b1424] text-slate-300"
+      : theme === "dark"
+        ? "border-white/10 bg-[#101b2b] text-slate-300"
+        : "border-slate-200 bg-white text-slate-600";
+
+    const itemTone = isExecutiveMode
+      ? "border-cyan-300/12 bg-[#101a2a]"
+      : theme === "dark"
+        ? "border-white/10 bg-[#101b2b]"
+        : "border-slate-200 bg-white shadow-sm";
+
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[120] bg-transparent"
+        onMouseDown={closeNotifications}
+      >
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="atlas-notifications-title"
           onMouseDown={(event) => event.stopPropagation()}
-          className={`ml-auto flex h-full w-full max-w-md flex-col border-l p-5 shadow-2xl ${
-            theme === "dark"
-              ? "border-white/10 bg-[#07111f] text-white"
-              : "border-slate-200 bg-[#f4f7fb] text-slate-950"
-          }`}
+          style={{
+            left: panelLeft,
+            top: panelTop,
+            width: panelWidth,
+            maxHeight: panelMaxHeight,
+          }}
+          className={`fixed flex w-[calc(100vw-1.5rem)] max-w-md flex-col overflow-hidden rounded-3xl border p-5 ${panelTone}`}
         >
-          <div className="mb-5 flex items-center justify-between">
+          <div className="mb-5 flex shrink-0 items-center justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-400">
                 ATLAS
               </p>
-              <h2 className="text-2xl font-black">Notifiche</h2>
+              <h2 id="atlas-notifications-title" className="text-2xl font-black">
+                Notifiche
+              </h2>
             </div>
 
             <button
-              onClick={() => setNotificationsOpen(false)}
+              type="button"
+              onClick={closeNotifications}
+              aria-label="Chiudi notifiche"
               className={`rounded-2xl p-3 ${
-                theme === "dark"
+                isExecutiveMode || theme === "dark"
                   ? "bg-white/10 text-white"
                   : "bg-white text-slate-900 shadow-sm"
               }`}
@@ -3472,116 +3567,106 @@ export default function Home() {
             </button>
           </div>
 
-          <div
-            className={`mb-4 rounded-3xl border p-4 ${
-              theme === "dark"
-                ? "border-white/10 bg-white/[0.05]"
-                : "border-slate-200 bg-white"
-            }`}
-          >
-            <p className="mb-3 text-sm font-black">Nuovo reminder manuale</p>
-            <div className="grid gap-3">
-              <input
-                className={input}
-                placeholder="Titolo reminder"
-                id="atlas-reminder-title"
-              />
-              {renderDateInput("", (value) => {
-                const field = document.getElementById(
-                  "atlas-reminder-date",
-                ) as HTMLInputElement | null;
-                if (field) field.value = value;
-              })}
-              <input id="atlas-reminder-date" type="hidden" />
-              <button
-                onClick={() => {
-                  const title =
-                    (
-                      document.getElementById(
-                        "atlas-reminder-title",
-                      ) as HTMLInputElement | null
-                    )?.value || "";
-                  const date =
-                    (
-                      document.getElementById(
-                        "atlas-reminder-date",
-                      ) as HTMLInputElement | null
-                    )?.value || todayIso;
-                  addManualReminder(title, date);
-                  showMessage("Reminder aggiunto");
-                }}
-                className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
-              >
-                + Aggiungi reminder
-              </button>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pr-1">
+            <div className={`rounded-3xl border p-4 ${sectionTone}`}>
+              <p className="mb-3 text-sm font-black">Nuovo reminder manuale</p>
+              <div className="grid gap-3">
+                <input
+                  className={input}
+                  placeholder="Titolo reminder"
+                  id="atlas-reminder-title"
+                />
+                {renderDateInput("", (value) => {
+                  const field = document.getElementById(
+                    "atlas-reminder-date",
+                  ) as HTMLInputElement | null;
+                  if (field) field.value = value;
+                })}
+                <input id="atlas-reminder-date" type="hidden" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const title =
+                      (
+                        document.getElementById(
+                          "atlas-reminder-title",
+                        ) as HTMLInputElement | null
+                      )?.value || "";
+                    const date =
+                      (
+                        document.getElementById(
+                          "atlas-reminder-date",
+                        ) as HTMLInputElement | null
+                      )?.value || todayIso;
+                    addManualReminder(title, date);
+                    showMessage("Reminder aggiunto");
+                  }}
+                  className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white"
+                >
+                  + Aggiungi reminder
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {notificationItems.length === 0 ? (
+                <div className={`rounded-3xl border p-5 text-sm ${emptyTone}`}>
+                  Nessuna notifica attiva.
+                </div>
+              ) : (
+                notificationItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`rounded-3xl border p-4 ${itemTone}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-black ${
+                            item.tone === "red"
+                              ? "bg-red-500/15 text-red-300"
+                              : item.tone === "amber"
+                                ? "bg-amber-500/15 text-amber-300"
+                                : item.tone === "emerald"
+                                  ? "bg-emerald-500/15 text-emerald-300"
+                                  : "bg-blue-500/15 text-blue-300"
+                          }`}
+                        >
+                          {item.type}
+                        </span>
+                        <p className="mt-3 font-black">{item.title}</p>
+                        <p
+                          className={
+                            isExecutiveMode || theme === "dark"
+                              ? "text-sm text-slate-400"
+                              : "text-sm text-slate-600"
+                          }
+                        >
+                          {item.detail}
+                        </p>
+                      </div>
+
+                      {"action" in item && (
+                        <button
+                          type="button"
+                          onClick={() => (item as any).action?.()}
+                          className="rounded-2xl bg-emerald-600 p-3 text-white"
+                        >
+                          <CheckCircle2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
-
-          <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-            {notificationItems.length === 0 ? (
-              <div
-                className={`rounded-3xl border p-5 text-sm ${
-                  theme === "dark"
-                    ? "border-white/10 bg-white/[0.05] text-slate-300"
-                    : "border-slate-200 bg-white text-slate-600"
-                }`}
-              >
-                Nessuna notifica attiva.
-              </div>
-            ) : (
-              notificationItems.map((item) => (
-                <div
-                  key={item.id}
-                  className={`rounded-3xl border p-4 ${
-                    theme === "dark"
-                      ? "border-white/10 bg-white/[0.06]"
-                      : "border-slate-200 bg-white shadow-sm"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-black ${
-                          item.tone === "red"
-                            ? "bg-red-500/15 text-red-300"
-                            : item.tone === "amber"
-                              ? "bg-amber-500/15 text-amber-300"
-                              : item.tone === "emerald"
-                                ? "bg-emerald-500/15 text-emerald-300"
-                                : "bg-blue-500/15 text-blue-300"
-                        }`}
-                      >
-                        {item.type}
-                      </span>
-                      <p className="mt-3 font-black">{item.title}</p>
-                      <p
-                        className={
-                          theme === "dark"
-                            ? "text-sm text-slate-400"
-                            : "text-sm text-slate-600"
-                        }
-                      >
-                        {item.detail}
-                      </p>
-                    </div>
-
-                    {"action" in item && (
-                      <button
-                        onClick={() => (item as any).action?.()}
-                        className="rounded-2xl bg-emerald-600 p-3 text-white"
-                      >
-                        <CheckCircle2 size={18} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
         </div>
-      </div>
+      </div>,
+      document.body,
     );
   }
+
   const tabGroups = createAtlasTabGroups(todoNewCount);
 
   const tabs = tabGroups.flatMap((group) => group.items);
@@ -3949,7 +4034,7 @@ export default function Home() {
         siteSearch={siteSearch}
         onTenantChange={handleTenantChange}
         onLogout={handleLogout}
-        onOpenNotifications={() => setNotificationsOpen(true)}
+        onOpenNotifications={openNotifications}
         onOpenMobileMenu={() => setMobileMoreOpen(true)}
         onSwitchUiMode={switchUiMode}
         onThemeChange={setTheme}
