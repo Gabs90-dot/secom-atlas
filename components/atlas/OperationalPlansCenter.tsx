@@ -2,6 +2,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useIsDesktopShell } from "@/components/atlas/layout/useAtlasShellMode";
 
 type PlanType = "counter" | "site_list" | "mixed";
 type ServiceType = "ordinaria" | "straordinaria" | "sepa" | "custom";
@@ -244,6 +245,11 @@ function toIntegerOrNull(
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function isPastDate(value: string | null | undefined): boolean {
+  const clean = (value || "").trim();
+  return Boolean(clean && clean < today());
 }
 
 function normalizeDateCell(value: string | null | undefined): string | null {
@@ -554,6 +560,7 @@ export default function OperationalPlansCenter({
   customers = [],
   executiveMode = false,
 }: Props) {
+  const isDesktopShell = useIsDesktopShell();
   const tenantId = tenant?.id || null;
   const [plans, setPlans] = useState<OperationalPlan[]>([]);
   const [items, setItems] = useState<OperationalPlanItem[]>([]);
@@ -576,6 +583,7 @@ export default function OperationalPlansCenter({
   const [sortMode, setSortMode] = useState<
     "alpha" | "region" | "status" | "date"
   >("alpha");
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [importText, setImportText] = useState("");
 
   const selectedPlan = useMemo(
@@ -1091,6 +1099,18 @@ export default function OperationalPlansCenter({
     }
   }
 
+  function resetFilters() {
+    setFilterSearch("");
+    setFilterRegion("");
+    setFilterStatus("");
+    setFilterPeriod("");
+    setSortMode("alpha");
+  }
+
+  const hasActiveFilters = Boolean(
+    filterSearch || filterRegion || filterStatus || filterPeriod || sortMode !== "alpha",
+  );
+
   return (
     <div className={shellClass}>
       <section className={panelClass}>
@@ -1520,17 +1540,26 @@ export default function OperationalPlansCenter({
               <div className={innerPanelClass}>
                 <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <h3 className="text-xl font-black text-white">Righe piano</h3>
+                  {hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={resetFilters}
+                      className="min-h-11 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-slate-100 lg:hidden"
+                    >
+                      Azzera filtri
+                    </button>
+                  )}
                   <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-5">
                     <input
                       value={filterSearch}
                       onChange={(event) => setFilterSearch(event.target.value)}
                       placeholder="Cerca sede"
-                      className={inputClass}
+                      className={`w-full ${inputClass}`}
                     />
                     <select
                       value={filterRegion}
                       onChange={(event) => setFilterRegion(event.target.value)}
-                      className={inputClass}
+                      className={`w-full ${inputClass}`}
                     >
                       <option value="">Tutte regioni</option>
                       {regions.map((region) => (
@@ -1542,7 +1571,7 @@ export default function OperationalPlansCenter({
                     <select
                       value={filterStatus}
                       onChange={(event) => setFilterStatus(event.target.value)}
-                      className={inputClass}
+                      className={`w-full ${inputClass}`}
                     >
                       <option value="">Tutti stati</option>
                       {Object.entries(ITEM_STATUS_LABELS).map(
@@ -1556,7 +1585,7 @@ export default function OperationalPlansCenter({
                     <select
                       value={filterPeriod}
                       onChange={(event) => setFilterPeriod(event.target.value)}
-                      className={inputClass}
+                      className={`w-full ${inputClass}`}
                     >
                       <option value="">Tutti periodi</option>
                       <option value="1">1° semestre</option>
@@ -1573,7 +1602,7 @@ export default function OperationalPlansCenter({
                             | "date",
                         )
                       }
-                      className={inputClass}
+                      className={`w-full ${inputClass}`}
                     >
                       <option value="alpha">Alfabetico</option>
                       <option value="region">Regione</option>
@@ -1582,6 +1611,7 @@ export default function OperationalPlansCenter({
                     </select>
                   </div>
                 </div>
+                {isDesktopShell ? (
                 <div
                   className={
                     executiveMode
@@ -1702,6 +1732,182 @@ export default function OperationalPlansCenter({
                     </tbody>
                   </table>
                 </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {visibleItems.length === 0 && (
+                      <div className="rounded-3xl border border-white/10 bg-slate-950/45 p-5 text-sm font-bold text-slate-300">
+                        {selectedItems.length === 0
+                          ? "Nessuna riga presente nel piano."
+                          : "Nessuna riga trovata con questi filtri."}
+                      </div>
+                    )}
+                    {visibleItems.map((item) => {
+                      const expanded = expandedItemId === item.id;
+                      const isLate =
+                        isPastDate(item.target_date) &&
+                        item.status !== "completed" &&
+                        item.status !== "skipped" &&
+                        item.status !== "out_of_scope";
+                      const customerName =
+                        item.customer_name ||
+                        selectedPlan.entity_label ||
+                        selectedPlan.title;
+                      const itemDescription =
+                        item.notes || selectedPlan.description || "Nessuna descrizione.";
+
+                      return (
+                        <article
+                          key={item.id}
+                          className="min-w-0 rounded-3xl border border-white/10 bg-slate-950/45 p-4 shadow-lg shadow-black/10"
+                        >
+                          <div className="flex min-w-0 items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-sky-300">
+                                {selectedPlan.title}
+                              </p>
+                              <h4 className="mt-2 break-words text-lg font-black leading-tight text-white">
+                                {item.site_name || "Sede n/d"}
+                              </h4>
+                              <p className="mt-1 break-words text-sm font-bold text-slate-300">
+                                {customerName}
+                              </p>
+                            </div>
+                            <span
+                              className={`shrink-0 rounded-full border px-3 py-2 text-[10px] font-black ${badgeClass(item.status)}`}
+                            >
+                              {ITEM_STATUS_LABELS[item.status]}
+                            </span>
+                          </div>
+
+                          <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                                Data pianificata
+                              </p>
+                              <p className="mt-1 font-black text-white">
+                                {item.planned_date || item.target_date || "n/d"}
+                              </p>
+                            </div>
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                                Periodo
+                              </p>
+                              <p className="mt-1 font-black text-white">
+                                {item.period_target ? `${item.period_target}Â° semestre` : "n/d"}
+                              </p>
+                            </div>
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                                Area
+                              </p>
+                              <p className="mt-1 break-words font-black text-white">
+                                {[item.city, item.province, item.region].filter(Boolean).join(" Â· ") || "n/d"}
+                              </p>
+                            </div>
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                                Assegnazione
+                              </p>
+                              <p className="mt-1 font-black text-white">
+                                {item.ticket_id || item.glpi_ticket_id
+                                  ? `Ticket ${item.glpi_ticket_id || item.ticket_id}`
+                                  : "Tecnico n/d"}
+                              </p>
+                            </div>
+                          </div>
+
+                          {isLate && (
+                            <div className="mt-3 rounded-2xl border border-red-400/30 bg-red-500/15 px-4 py-3 text-xs font-black text-red-100">
+                              Scadenza superata: {item.target_date}
+                            </div>
+                          )}
+
+                          <p className="mt-4 line-clamp-2 break-words text-sm font-bold leading-6 text-slate-300">
+                            {itemDescription}
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedItemId((current) =>
+                                current === item.id ? null : item.id,
+                              )
+                            }
+                            className="mt-4 min-h-11 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-white"
+                          >
+                            {expanded ? "Chiudi azioni" : "Azioni e dettagli"}
+                          </button>
+
+                          {expanded && (
+                            <div className="mt-4 grid gap-4 rounded-3xl border border-white/10 bg-black/20 p-4">
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void updateItemStatus(item, "planned")}
+                                  className="min-h-11 rounded-2xl border border-cyan-300/20 bg-cyan-500/12 px-3 py-3 text-xs font-black text-cyan-100 disabled:opacity-45"
+                                >
+                                  Pianifica
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void updateItemStatus(item, "open")}
+                                  className="min-h-11 rounded-2xl border border-amber-300/20 bg-amber-500/12 px-3 py-3 text-xs font-black text-amber-100 disabled:opacity-45"
+                                >
+                                  Aperta
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void updateItemStatus(item, "completed")}
+                                  className="min-h-11 rounded-2xl border border-emerald-300/20 bg-emerald-500/12 px-3 py-3 text-xs font-black text-emerald-100 disabled:opacity-45"
+                                >
+                                  Fatta
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void updateItemStatus(item, "skipped")}
+                                  className="min-h-11 rounded-2xl border border-red-300/20 bg-red-500/12 px-3 py-3 text-xs font-black text-red-100 disabled:opacity-45"
+                                >
+                                  Salta
+                                </button>
+                              </div>
+
+                              <dl className="grid gap-3 text-xs font-bold text-slate-300">
+                                <div className="grid gap-1">
+                                  <dt className="font-black uppercase tracking-[0.18em] text-slate-500">
+                                    Target
+                                  </dt>
+                                  <dd>{item.target_date || "n/d"}</dd>
+                                </div>
+                                <div className="grid gap-1">
+                                  <dt className="font-black uppercase tracking-[0.18em] text-slate-500">
+                                    Fatta
+                                  </dt>
+                                  <dd>{item.completed_date || "n/d"}</dd>
+                                </div>
+                                <div className="grid gap-1">
+                                  <dt className="font-black uppercase tracking-[0.18em] text-slate-500">
+                                    Fascia oraria
+                                  </dt>
+                                  <dd>n/d</dd>
+                                </div>
+                                <div className="grid gap-1">
+                                  <dt className="font-black uppercase tracking-[0.18em] text-slate-500">
+                                    Note
+                                  </dt>
+                                  <dd className="break-words">{itemDescription}</dd>
+                                </div>
+                              </dl>
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className={innerPanelClass}>
