@@ -7,7 +7,12 @@ import LoginScreen from "@/components/atlas/LoginScreen";
 import { useAtlasAuth } from "@/components/atlas/AuthProvider";
 import { canViewModule, isCustomerRole, type AtlasUser } from "@/lib/auth";
 import type { AtlasTenant } from "@/lib/tenant";
-import { getStoredTenantSlug, storeTenantSlug } from "@/lib/tenant";
+import { storeTenantSlug } from "@/lib/tenant";
+import {
+  isGlpiEnabledForTenantConfig,
+  normalizeTenantConfig,
+  resolveTicketProviderFromTenantConfig,
+} from "@/lib/tenantConfig";
 import AtlasAppFrame from "@/components/atlas/layout/AtlasAppFrame";
 import SlaContractsManager from "@/components/atlas/layout/SlaContractsManager";
 import AtlasWorkspaceContent from "@/components/atlas/layout/AtlasWorkspaceContent";
@@ -17,31 +22,45 @@ import { ATLAS_LOGO_CARD_IMAGE } from "@/components/atlas/layout/atlasLogoImage"
 import { CalendarDays, CheckCircle2, X } from "lucide-react";
 
 import type { AtlasTicketCategory, AtlasTicketStatus } from "@/lib/atlasTypes";
+import type { AtlasContract } from "@/lib/atlasTypes";
 import {
-  INITIAL_BUDGET,
   atlasStatusToDbStatus,
-  contracts,
-  initialInventory,
-  materials,
-  technicians,
+  initialInventory as legacyInitialInventory,
   ticketCategoryOptions,
   ticketStatusOptions,
 } from "@/lib/atlasConstants";
+import { systemsCatalog as legacySystemsCatalog } from "@/lib/systemsCatalog";
 import {
   euro,
   getContractStatus,
   getInventoryStatus,
-  materialCost,
   normalizeSiteRegion,
 } from "@/lib/atlasUtils";
 import {
-  SLA_BASE_CONTRACT_PROFILES,
+  materialCostFromCatalog,
+  normalizeMaterialRows,
+  normalizeOperatorRows,
+  normalizeOperatorSectorRows,
+  type AtlasTenantMaterial,
+  type AtlasTenantOperator,
+  type AtlasTenantOperatorSector,
+} from "@/lib/atlasTenantCatalogs";
+import {
   SLA_CONTRACT_FIELDS,
   buildSlaContractExportRows,
   createEmptySlaContractProfile,
   escapeHtml,
   type AtlasSlaContractProfile,
 } from "@/lib/atlasSlaContracts";
+import {
+  normalizeTenantBudgetRows,
+  normalizeTenantContractRows,
+  normalizeTenantSlaContractRows,
+  tenantBudgetToDbPayload,
+  tenantContractToDbPayload,
+  tenantSlaContractToDbPayload,
+  type AtlasBudgetItem,
+} from "@/lib/atlasTenantContracts";
 import type {
   CustomerRegistrationPayload,
   PublicCustomerEntityOption,
@@ -108,6 +127,29 @@ function valueAsString(value: unknown) {
 
 function valueAsBoolean(value: unknown) {
   return Boolean(value);
+}
+
+function readLocalStorageJson<T>(key: string): T | null {
+  if (typeof window === "undefined" || !key) return null;
+
+  const raw = localStorage.getItem(key);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function readLocalStorageArray<T>(key: string): T[] | null {
+  const parsed = readLocalStorageJson<unknown>(key);
+  return Array.isArray(parsed) ? (parsed as T[]) : null;
+}
+
+function writeLocalStorageJson(key: string, value: unknown) {
+  if (typeof window === "undefined" || !key) return;
+  localStorage.setItem(key, JSON.stringify(value));
 }
 
 function buildCustomerDataScope(user: AtlasUser | null): CustomerDataScope {
@@ -584,6 +626,23 @@ export default function Home() {
   const [tenants, setTenants] = useState<AtlasTenant[]>([]);
   const [activeTenant, setActiveTenant] = useState<AtlasTenant | null>(null);
   const [tenantLoading, setTenantLoading] = useState(true);
+  const authenticatedTenantId = currentUser?.tenantId || "";
+  const activeTenantConfig = normalizeTenantConfig(activeTenant || null);
+  const ticketProvider = resolveTicketProviderFromTenantConfig(activeTenantConfig);
+  const glpiEnabled = Boolean(activeTenant?.id) && ticketProvider === "glpi" && isGlpiEnabledForTenantConfig(activeTenantConfig);
+  const hasValidTenantSession = Boolean(
+    currentUser?.id &&
+      authenticatedTenantId &&
+      activeTenant?.id &&
+      activeTenant.id === authenticatedTenantId,
+  );
+  const isLegacySecomTenant =
+    hasValidTenantSession &&
+    String(activeTenant?.slug || "").trim().toLowerCase() === "secom";
+  const tenantLocalStorageSuffix = hasValidTenantSession ? authenticatedTenantId : "";
+  const inventoryStorageKey = tenantLocalStorageSuffix
+    ? `atlas-inventory:${tenantLocalStorageSuffix}`
+    : "";
 
   const [site, setSite] = useState("");
   const [siteSearch, setSiteSearch] = useState("");
@@ -600,6 +659,9 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
+  const [tenantOperators, setTenantOperators] = useState<AtlasTenantOperator[]>([]);
+  const [tenantOperatorSectors, setTenantOperatorSectors] = useState<AtlasTenantOperatorSector[]>([]);
+  const [tenantMaterials, setTenantMaterials] = useState<AtlasTenantMaterial[]>([]);
   const [ticketType, setTicketType] =
     useState<AtlasTicketCategory>("ordinaria");
   const [ticketStatus, setTicketStatus] = useState<AtlasTicketStatus>("nuova");
@@ -684,10 +746,16 @@ export default function Home() {
     localStorage.setItem("atlas-ui-mode", uiMode);
   }, [uiMode]);
 
-  const [operatorAvatar, setOperatorAvatar] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
-    return window.localStorage.getItem("atlas-operator-avatar-v1") || "";
-  });
+  const [operatorAvatar, setOperatorAvatar] = useState<string>("");
+  const operatorAvatarStorageKey = useMemo(() => {
+    if (!currentUser?.id || !currentUser?.tenantId) return "";
+    return `atlas-operator-avatar-v1:${currentUser.tenantId}:${currentUser.id}`;
+  }, [currentUser?.id, currentUser?.tenantId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setOperatorAvatar(operatorAvatarStorageKey ? window.localStorage.getItem(operatorAvatarStorageKey) || "" : "");
+  }, [operatorAvatarStorageKey]);
 
   async function resizeOperatorAvatar(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -729,8 +797,12 @@ export default function Home() {
 
     try {
       const dataUrl = await resizeOperatorAvatar(file);
+      if (!operatorAvatarStorageKey) {
+        showMessage("Sessione non valida: fai logout/login e riprova.", "error");
+        return;
+      }
       setOperatorAvatar(dataUrl);
-      window.localStorage.setItem("atlas-operator-avatar-v1", dataUrl);
+      window.localStorage.setItem(operatorAvatarStorageKey, dataUrl);
       showMessage("Foto profilo aggiornata.", "success");
     } catch (error: any) {
       showMessage(error?.message || "Errore caricamento foto profilo.", "error");
@@ -752,9 +824,15 @@ export default function Home() {
     let mounted = true;
 
     async function loadTodoNewCount() {
+      if (authLoading || !currentUser?.tenantId) {
+        setTodoNewCount(0);
+        return;
+      }
+
       const { count, error } = await supabase
         .from("todo_tasks")
         .select("id", { count: "exact", head: true })
+        .eq("tenant_id", currentUser.tenantId)
         .eq("status", "new");
 
       if (!mounted || error) return;
@@ -770,47 +848,16 @@ export default function Home() {
       window.removeEventListener("atlas-todo-updated", loadTodoNewCount);
       window.clearInterval(interval);
     };
-  }, []);
-  const [budget, setBudget] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("atlas-budget");
-      return saved ? Number(saved) : INITIAL_BUDGET;
-    }
-
-    return INITIAL_BUDGET;
-  });
-
-  const [budgets, setBudgets] = useState<any[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("atlas-budgets");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        } catch {
-          // fallback sotto
-        }
-      }
-    }
-
-    return [
-      {
-        id: "BUD-CARABINIERI-2024-2026",
-        contractName: "CARABINIERI ASSISTENZA 2024-2026",
-        entity: "Carabinieri",
-        value: INITIAL_BUDGET,
-        notes:
-          "Budget iniziale collegato al contratto Carabinieri Assistenza 2024-2026",
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-  });
+  }, [authLoading, currentUser?.tenantId]);
+  const [tenantContracts, setTenantContracts] = useState<AtlasContract[]>([]);
+  const [budget, setBudget] = useState(0);
+  const [budgets, setBudgets] = useState<AtlasBudgetItem[]>([]);
 
   const [clientSearch, setClientSearch] = useState("");
   const [customerInvitePanelOpen, setCustomerInvitePanelOpen] = useState(false);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [contractOverrides, setContractOverrides] = useState<any>({});
-  const [customSlaContracts, setCustomSlaContracts] = useState<AtlasSlaContractProfile[]>([]);
+  const [tenantSlaContractProfiles, setTenantSlaContractProfiles] = useState<AtlasSlaContractProfile[]>([]);
   const [contractSearchText, setContractSearchText] = useState("");
   const [contractCategoryFilter, setContractCategoryFilter] = useState("Tutte");
   const [selectedSlaContractKeys, setSelectedSlaContractKeys] = useState<Record<string, boolean>>({});
@@ -824,6 +871,10 @@ export default function Home() {
   const [contactClientSearch, setContactClientSearch] = useState("");
   const [contactClient, setContactClient] = useState<any | null>(null);
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
+  const contactStorageKey = useMemo(() => {
+    const tenantId = String(currentUser?.tenantId || "").trim();
+    return tenantId ? `atlas-contacts:${tenantId}` : "";
+  }, [currentUser?.tenantId]);
 
   const [contactForm, setContactForm] = useState({
     name: "",
@@ -907,8 +958,8 @@ export default function Home() {
   const [budgetClientSearch, setBudgetClientSearch] = useState("");
   const [budgetClient, setBudgetClient] = useState<any | null>(null);
   const [budgetForm, setBudgetForm] = useState({
-    contractName: "CARABINIERI ASSISTENZA 2024-2026",
-    value: String(budget),
+    contractName: "",
+    value: "0",
     notes: "",
   });
   const [mobileCalendarFormOpen, setMobileCalendarFormOpen] = useState(false);
@@ -918,41 +969,55 @@ export default function Home() {
   >("Tutti");
 
   useEffect(() => {
-    async function loadTenants() {
+    let mounted = true;
+
+    async function loadAuthenticatedTenant() {
+      if (authLoading) return;
+
+      if (!currentUser?.tenantId) {
+        if (!mounted) return;
+        setTenants([]);
+        setActiveTenant(null);
+        setTenantLoading(false);
+        return;
+      }
+
       setTenantLoading(true);
 
       const { data, error } = await supabase
         .from("tenants")
         .select("*")
+        .eq("id", currentUser.tenantId)
         .eq("status", "active")
-        .order("name", { ascending: true });
+        .maybeSingle();
 
-      if (error) {
-        console.log(error);
+      if (!mounted) return;
+
+      if (error || !data?.id) {
+        console.log(error || "Tenant autenticato non trovato o non attivo");
+        setTenants([]);
+        setActiveTenant(null);
+        setTickets([]);
+        setSites([]);
+        setCustomers([]);
+        setCustomerEntities([]);
         setTenantLoading(false);
         return;
       }
 
-      const list = (data || []) as AtlasTenant[];
-      const storedSlug = getStoredTenantSlug();
-      const selected =
-        list.find((tenant) => tenant.slug === storedSlug) ||
-        list.find((tenant) => tenant.slug === "secom") ||
-        list[0] ||
-        null;
-
-      setTenants(list);
-      setActiveTenant(selected);
-
-      if (selected?.slug) {
-        storeTenantSlug(selected.slug);
-      }
-
+      const tenant = data as AtlasTenant;
+      setTenants([tenant]);
+      setActiveTenant(tenant);
+      storeTenantSlug(tenant.slug);
       setTenantLoading(false);
     }
 
-    loadTenants();
-  }, []);
+    loadAuthenticatedTenant();
+
+    return () => {
+      mounted = false;
+    };
+  }, [authLoading, currentUser?.tenantId]);
 
   useEffect(() => {
     if (authLoading || !currentUser) return;
@@ -972,37 +1037,146 @@ export default function Home() {
   useEffect(() => {
     if (authLoading) return;
 
-    if (customerDataScope.isCustomer) {
+    if (customerDataScope.isCustomer || !hasValidTenantSession || !currentUser?.tenantId) {
       setContractOverrides({});
-      setCustomSlaContracts([]);
+      setTenantContracts([]);
+      setTenantSlaContractProfiles([]);
       setInventory([]);
+      setBudgets([]);
+      setBudget(0);
       setContacts([]);
+      setTenantOperators([]);
+      setTenantOperatorSectors([]);
+      setTenantMaterials([]);
       setTicketTypesById({});
       return;
     }
 
-    const savedContracts = localStorage.getItem("atlas-contract-overrides");
-    if (savedContracts) setContractOverrides(JSON.parse(savedContracts));
+    const scopedInventory =
+      readLocalStorageArray<Record<string, unknown>>(inventoryStorageKey);
+    const legacyInventory = isLegacySecomTenant
+      ? readLocalStorageArray<Record<string, unknown>>("atlas-inventory")
+      : null;
+    setInventory(
+      scopedInventory ||
+        legacyInventory ||
+        (isLegacySecomTenant ? legacyInitialInventory : []),
+    );
 
-    const savedInventory = localStorage.getItem("atlas-inventory");
-    setInventory(savedInventory ? JSON.parse(savedInventory) : initialInventory);
-    const savedContacts = localStorage.getItem("atlas-contacts");
-    if (savedContacts) setContacts(JSON.parse(savedContacts));
-    const savedTicketTypes = localStorage.getItem("atlas-ticket-types");
-    if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
-
-    const savedCustomSlaContracts = localStorage.getItem("atlas-custom-sla-contracts");
-    if (savedCustomSlaContracts) {
-      try {
-        setCustomSlaContracts(JSON.parse(savedCustomSlaContracts));
-      } catch {
-        setCustomSlaContracts([]);
+    if (!contactStorageKey || !currentUser?.tenantId) {
+      setContacts([]);
+    } else {
+      const savedContacts = localStorage.getItem(contactStorageKey);
+      if (savedContacts) {
+        try {
+          const parsed = JSON.parse(savedContacts);
+          const tenantContacts = Array.isArray(parsed)
+            ? parsed.filter((contact) => String(contact?.tenantId || contact?.tenant_id || "") === currentUser.tenantId)
+            : [];
+          setContacts(tenantContacts);
+        } catch {
+          setContacts([]);
+        }
+      } else {
+        setContacts([]);
       }
     }
-  }, [authLoading, customerDataScope.isCustomer]);
+    const savedTicketTypes = localStorage.getItem("atlas-ticket-types");
+    if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
+  }, [
+    authLoading,
+    customerDataScope.isCustomer,
+    contactStorageKey,
+    currentUser?.tenantId,
+    inventoryStorageKey,
+    hasValidTenantSession,
+    isLegacySecomTenant,
+  ]);
 
   useEffect(() => {
-    if (!activeTenant?.id) return;
+    let mounted = true;
+
+    async function loadTenantContractsAndBudgets() {
+      if (authLoading || customerDataScope.isCustomer || !hasValidTenantSession || !authenticatedTenantId) {
+        setContractOverrides({});
+        setTenantContracts([]);
+        setTenantSlaContractProfiles([]);
+        setBudgets([]);
+        setBudget(0);
+        return;
+      }
+
+      const [contractsRes, slaContractsRes, budgetsRes] = await Promise.all([
+        supabase
+          .from("atlas_contract_catalog")
+          .select("*")
+          .eq("tenant_id", authenticatedTenantId)
+          .order("sort_order", { ascending: true })
+          .order("name", { ascending: true }),
+        supabase
+          .from("atlas_contract_sla_profiles")
+          .select("*")
+          .eq("tenant_id", authenticatedTenantId)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true })
+          .order("match_priority", { ascending: false }),
+        supabase
+          .from("atlas_contract_budgets")
+          .select("*")
+          .eq("tenant_id", authenticatedTenantId)
+          .order("updated_at", { ascending: false }),
+      ]);
+
+      if (!mounted) return;
+
+      if (contractsRes.error || slaContractsRes.error || budgetsRes.error) {
+        console.log(
+          contractsRes.error || slaContractsRes.error || budgetsRes.error,
+        );
+        setContractOverrides({});
+        setTenantContracts([]);
+        setTenantSlaContractProfiles([]);
+        setBudgets([]);
+        setBudget(0);
+        return;
+      }
+
+      const nextBudgets = normalizeTenantBudgetRows(budgetsRes.data || []);
+      setContractOverrides({});
+      setTenantContracts(normalizeTenantContractRows(contractsRes.data || []));
+      setTenantSlaContractProfiles(
+        normalizeTenantSlaContractRows(slaContractsRes.data || []),
+      );
+      setBudgets(nextBudgets);
+      setBudget(
+        nextBudgets.reduce((sum, item) => sum + Number(item.value || 0), 0),
+      );
+    }
+
+    loadTenantContractsAndBudgets();
+
+    return () => {
+      mounted = false;
+    };
+  }, [
+    authLoading,
+    authenticatedTenantId,
+    customerDataScope.isCustomer,
+    hasValidTenantSession,
+  ]);
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!hasValidTenantSession) {
+      setSites([]);
+      setCustomers([]);
+      setCustomerEntities([]);
+      setTickets([]);
+      return;
+    }
+
+    const tenantId = authenticatedTenantId;
 
     async function loadSites() {
       if (customerDataScope.isCustomer && !customerDataScope.hasScope) {
@@ -1013,7 +1187,7 @@ export default function Home() {
       let query = supabase
         .from("sites")
         .select(customerDataScope.isCustomer ? CUSTOMER_SITE_SELECT : "*")
-        .eq("tenant_id", activeTenant?.id);
+        .eq("tenant_id", tenantId);
 
       if (customerDataScope.isCustomer) {
         if (customerDataScope.siteIds.length) {
@@ -1045,7 +1219,7 @@ export default function Home() {
       let query = supabase
         .from("customers")
         .select(customerDataScope.isCustomer ? "id,tenant_id,name,city,region,category,type" : "*")
-        .eq("tenant_id", activeTenant?.id);
+        .eq("tenant_id", tenantId);
 
       if (customerDataScope.isCustomer && customerDataScope.customerId) {
         query = query.eq("id", customerDataScope.customerId);
@@ -1070,7 +1244,7 @@ export default function Home() {
       let query = supabase
         .from("v_customer_entities_active")
         .select(customerDataScope.isCustomer ? CUSTOMER_ENTITY_SELECT : "*")
-        .eq("tenant_id", activeTenant?.id);
+        .eq("tenant_id", tenantId);
 
       if (customerDataScope.isCustomer) {
         const filters = [
@@ -1106,7 +1280,7 @@ export default function Home() {
       let query = supabase
         .from("v_operational_tickets")
         .select(customerDataScope.isCustomer ? CUSTOMER_TICKET_SELECT : "*")
-        .eq("tenant_id", activeTenant?.id)
+        .eq("tenant_id", tenantId)
         .or("glpi_entity_path.is.null,glpi_entity_path.not.ilike.%webvime%");
 
       if (customerDataScope.isCustomer) {
@@ -1146,13 +1320,67 @@ export default function Home() {
     loadCustomers();
     loadCustomerEntities();
   }, [
-    activeTenant?.id,
+    authLoading,
+    hasValidTenantSession,
+    authenticatedTenantId,
     customerDataScope.isCustomer,
     customerDataScope.hasScope,
     customerDataScope.customerId,
     customerDataScope.customerEntityId,
     customerDataScope.siteIds.join("|"),
   ]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadOperationalCatalogs() {
+      if (authLoading || customerDataScope.isCustomer || !hasValidTenantSession || !authenticatedTenantId) {
+        setTenantOperators([]);
+        setTenantOperatorSectors([]);
+        setTenantMaterials([]);
+        return;
+      }
+
+      const [sectorsRes, operatorsRes, materialsRes] = await Promise.all([
+        supabase
+          .from("atlas_operator_sectors")
+          .select("id,tenant_id,name,status")
+          .eq("tenant_id", authenticatedTenantId)
+          .eq("status", "active")
+          .order("name", { ascending: true }),
+        supabase
+          .from("atlas_operators")
+          .select("id,tenant_id,tenant_user_id,name,title,sector_id,sector,status")
+          .eq("tenant_id", authenticatedTenantId)
+          .order("name", { ascending: true }),
+        supabase
+          .from("atlas_material_catalog")
+          .select("id,tenant_id,code,name,cost,status")
+          .eq("tenant_id", authenticatedTenantId)
+          .order("name", { ascending: true }),
+      ]);
+
+      if (!mounted) return;
+
+      if (sectorsRes.error || operatorsRes.error || materialsRes.error) {
+        console.log(sectorsRes.error || operatorsRes.error || materialsRes.error);
+        setTenantOperators([]);
+        setTenantOperatorSectors([]);
+        setTenantMaterials([]);
+        return;
+      }
+
+      setTenantOperatorSectors(normalizeOperatorSectorRows(sectorsRes.data || [], authenticatedTenantId));
+      setTenantOperators(normalizeOperatorRows(operatorsRes.data || [], authenticatedTenantId));
+      setTenantMaterials(normalizeMaterialRows(materialsRes.data || [], authenticatedTenantId));
+    }
+
+    loadOperationalCatalogs();
+
+    return () => {
+      mounted = false;
+    };
+  }, [authLoading, authenticatedTenantId, customerDataScope.isCustomer, hasValidTenantSession]);
 
   function showMessage(text: string, type: "success" | "error" = "success") {
     setMessage(text);
@@ -1176,7 +1404,7 @@ export default function Home() {
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
 
-    if (!accessToken || !activeTenant?.id) {
+    if (!accessToken || !hasValidTenantSession || !activeTenant?.id) {
       throw new Error("Sessione o tenant non validi.");
     }
 
@@ -1209,19 +1437,19 @@ export default function Home() {
     };
   }
 
+  const systemsCatalogItems = isLegacySecomTenant ? legacySystemsCatalog : [];
+
   const editableContracts = buildEditableContracts(
-    contracts,
+    tenantContracts,
     contractOverrides,
   );
 
   const slaContractProfiles = useMemo(() => {
-    const merged = [...SLA_BASE_CONTRACT_PROFILES, ...customSlaContracts];
-
-    return merged.map((profile) => ({
+    return tenantSlaContractProfiles.map((profile) => ({
       ...profile,
       ...(contractOverrides?.[profile.key] || {}),
     }));
-  }, [contractOverrides, customSlaContracts]);
+  }, [contractOverrides, tenantSlaContractProfiles]);
 
   const slaContractCategories = useMemo(
     () => [
@@ -1282,7 +1510,7 @@ export default function Home() {
 
   const totalBudget =
     budgets.reduce(
-      (sum, item) => sum + Number(item.value || item.total || 0),
+      (sum, item) => sum + Number(item.value || 0),
       0,
     ) || budget;
 
@@ -1322,39 +1550,271 @@ export default function Home() {
     });
   }
 
-  function updateContractField(
+  const operationalOperators = useMemo(() => {
+    if (customerDataScope.isCustomer || !hasValidTenantSession || !authenticatedTenantId) return [];
+    return tenantOperators;
+  }, [authenticatedTenantId, customerDataScope.isCustomer, hasValidTenantSession, tenantOperators]);
+
+  const operationalTechnicians = useMemo(
+    () =>
+      operationalOperators
+        .filter((operator) => operator.status === "active")
+        .map((operator) => operator.name),
+    [operationalOperators],
+  );
+
+  const operationalOperatorSectors = useMemo(() => {
+    if (customerDataScope.isCustomer || !hasValidTenantSession) return [];
+
+    return Array.from(
+      new Set(
+        [
+          ...tenantOperatorSectors
+            .filter((sector) => sector.status === "active")
+            .map((sector) => sector.name),
+          ...tenantOperators.map((operator) => operator.sector),
+        ]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "it"));
+  }, [customerDataScope.isCustomer, hasValidTenantSession, tenantOperatorSectors, tenantOperators]);
+
+  const operationalMaterials = useMemo(() => {
+    if (customerDataScope.isCustomer || !hasValidTenantSession) return [];
+    return tenantMaterials.filter((material) => material.status === "active");
+  }, [customerDataScope.isCustomer, hasValidTenantSession, tenantMaterials]);
+
+  const operationalMaterialCost = (ids: string[]) => materialCostFromCatalog(operationalMaterials, ids);
+
+  useEffect(() => {
+    if (selectedMaterials.length === 0) return;
+    const allowed = new Set(operationalMaterials.map((material) => material.id));
+    setSelectedMaterials((prev) => prev.filter((id) => allowed.has(id)));
+  }, [operationalMaterials, selectedMaterials.length]);
+
+  async function addTenantOperator(input: { name: string; title: string; sector: string; status: string }) {
+    if (!hasValidTenantSession || !currentUser?.tenantId) {
+      showMessage("Organizzazione non configurata", "error");
+      return;
+    }
+
+    const name = input.name.trim();
+    if (!name) {
+      showMessage("Inserisci il nome operatore.", "error");
+      return;
+    }
+
+    const status = input.status === "paused" || input.status === "inactive" ? input.status : "active";
+    const sectorName = input.sector.trim() || "Operativita";
+    let sectorId =
+      tenantOperatorSectors.find((sector) => normalizeFilterText(sector.name) === normalizeFilterText(sectorName))?.id ||
+      null;
+
+    if (!sectorId) {
+      const sector = await addTenantOperatorSector(sectorName, { silent: true });
+      sectorId = sector?.id || null;
+    }
+
+    const { data, error } = await supabase
+      .from("atlas_operators")
+      .insert({
+        tenant_id: currentUser.tenantId,
+        name,
+        title: input.title.trim() || "Operatore",
+        sector_id: sectorId,
+        sector: sectorName,
+        status,
+      })
+      .select("id,tenant_id,tenant_user_id,name,title,sector_id,sector,status")
+      .single();
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore salvataggio operatore", "error");
+      return;
+    }
+
+    setTenantOperators((prev) => [
+      ...normalizeOperatorRows(data ? [data] : [], currentUser.tenantId),
+      ...prev,
+    ]);
+    showMessage("Operatore aggiunto.");
+  }
+
+  async function addTenantOperatorSector(name: string, options?: { silent?: boolean }) {
+    if (!hasValidTenantSession || !currentUser?.tenantId) {
+      showMessage("Organizzazione non configurata", "error");
+      return null;
+    }
+
+    const sector = name.trim();
+    if (!sector) {
+      if (!options?.silent) showMessage("Inserisci una mansione.", "error");
+      return null;
+    }
+
+    const existing = tenantOperatorSectors.find(
+      (item) => normalizeFilterText(item.name) === normalizeFilterText(sector),
+    );
+
+    if (existing) return existing;
+
+    const { data, error } = await supabase
+      .from("atlas_operator_sectors")
+      .insert({
+        tenant_id: currentUser.tenantId,
+        name: sector,
+        status: "active",
+      })
+      .select("id,tenant_id,name,status")
+      .single();
+
+    if (error) {
+      console.log(error);
+      if (!options?.silent) showMessage("Errore salvataggio mansione", "error");
+      return null;
+    }
+
+    const normalized = normalizeOperatorSectorRows(data ? [data] : [], currentUser.tenantId)[0] || null;
+    if (normalized) setTenantOperatorSectors((prev) => [normalized, ...prev]);
+
+    if (!options?.silent) showMessage("Mansione aggiunta.");
+    return normalized;
+  }
+
+  async function addTenantMaterial(input: { name: string; code?: string; cost: string }) {
+    if (!hasValidTenantSession || !currentUser?.tenantId) {
+      showMessage("Organizzazione non configurata", "error");
+      return;
+    }
+
+    const name = input.name.trim();
+    if (!name) {
+      showMessage("Inserisci il nome materiale.", "error");
+      return;
+    }
+
+    const cost = Number(String(input.cost || "0").replace(",", "."));
+
+    const { data, error } = await supabase
+      .from("atlas_material_catalog")
+      .insert({
+        tenant_id: currentUser.tenantId,
+        code: input.code?.trim() || null,
+        name,
+        cost: Number.isFinite(cost) && cost > 0 ? cost : 0,
+        status: "active",
+      })
+      .select("id,tenant_id,code,name,cost,status")
+      .single();
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore salvataggio materiale", "error");
+      return;
+    }
+
+    setTenantMaterials((prev) => [
+      ...normalizeMaterialRows(data ? [data] : [], currentUser.tenantId),
+      ...prev,
+    ]);
+    showMessage("Materiale aggiunto.");
+  }
+
+  async function updateContractField(
     contractName: string,
     field: string,
     value: string,
   ) {
-    const updated = {
-      ...contractOverrides,
-      [contractName]: {
-        ...(contractOverrides[contractName] || {}),
-        [field]: value,
-      },
+    if (!hasValidTenantSession || !activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
+    const currentContract = tenantContracts.find(
+      (contract) => contract.name === contractName,
+    );
+
+    if (!currentContract || !(field in currentContract)) {
+      showMessage("Contratto non trovato", "error");
+      return;
+    }
+
+    const nextContract = {
+      ...currentContract,
+      [field]: field === "renewalAlertDays" ? Number(value || 0) : value,
     };
 
-    setContractOverrides(updated);
-    localStorage.setItem("atlas-contract-overrides", JSON.stringify(updated));
+    const { data, error } = await supabase
+      .from("atlas_contract_catalog")
+      .update(tenantContractToDbPayload(activeTenant.id, nextContract))
+      .eq("tenant_id", activeTenant.id)
+      .eq("name", contractName)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore salvataggio contratto", "error");
+      return;
+    }
+
+    const normalized = normalizeTenantContractRows(data ? [data] : []);
+    const savedContract = normalized[0] || nextContract;
+    setTenantContracts((prev) =>
+      prev.map((contract) =>
+        contract.name === contractName ? savedContract : contract,
+      ),
+    );
     showMessage("Contratto aggiornato");
   }
 
-  function updateSlaContractField(
+  async function updateSlaContractField(
     contractKey: string,
     field: keyof AtlasSlaContractProfile,
     value: string | number | boolean,
   ) {
-    const updated = {
-      ...contractOverrides,
-      [contractKey]: {
-        ...(contractOverrides[contractKey] || {}),
-        [field]: value,
-      },
+    if (!hasValidTenantSession || !activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
+    const currentProfile = tenantSlaContractProfiles.find(
+      (contract) => contract.key === contractKey,
+    );
+
+    if (!currentProfile) {
+      showMessage("Contratto non trovato", "error");
+      return;
+    }
+
+    const nextProfile = {
+      ...currentProfile,
+      [field]: field === "matchPriority" ? Number(value || 0) : value,
     };
 
-    setContractOverrides(updated);
-    localStorage.setItem("atlas-contract-overrides", JSON.stringify(updated));
+    const { data, error } = await supabase
+      .from("atlas_contract_sla_profiles")
+      .upsert(tenantSlaContractToDbPayload(activeTenant.id, nextProfile), {
+        onConflict: "tenant_id,profile_key",
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore salvataggio contratto", "error");
+      return;
+    }
+
+    const normalized = normalizeTenantSlaContractRows(data ? [data] : []);
+    const savedProfile = normalized[0] || nextProfile;
+    setTenantSlaContractProfiles((prev) =>
+      prev.map((contract) =>
+        contract.key === contractKey ? savedProfile : contract,
+      ),
+    );
     showMessage("Contratto aggiornato");
   }
 
@@ -1400,7 +1860,12 @@ export default function Home() {
     setContractFormOpen(true);
   }
 
-  function saveSlaContractForm() {
+  async function saveSlaContractForm() {
+    if (!hasValidTenantSession || !activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const cleanForm: AtlasSlaContractProfile = {
       ...slaContractForm,
       key:
@@ -1410,29 +1875,29 @@ export default function Home() {
       isActive: true,
     };
 
-    const isBaseContract = SLA_BASE_CONTRACT_PROFILES.some(
-      (contract) => contract.key === cleanForm.key,
-    );
+    const { data, error } = await supabase
+      .from("atlas_contract_sla_profiles")
+      .upsert(tenantSlaContractToDbPayload(activeTenant.id, cleanForm), {
+        onConflict: "tenant_id,profile_key",
+      })
+      .select("*")
+      .single();
 
-    if (editingSlaContractKey && isBaseContract) {
-      const updated = {
-        ...contractOverrides,
-        [cleanForm.key]: cleanForm,
-      };
-
-      setContractOverrides(updated);
-      localStorage.setItem("atlas-contract-overrides", JSON.stringify(updated));
-    } else {
-      const next = customSlaContracts.some((contract) => contract.key === cleanForm.key)
-        ? customSlaContracts.map((contract) =>
-            contract.key === cleanForm.key ? cleanForm : contract,
-          )
-        : [cleanForm, ...customSlaContracts];
-
-      setCustomSlaContracts(next);
-      localStorage.setItem("atlas-custom-sla-contracts", JSON.stringify(next));
+    if (error) {
+      console.log(error);
+      showMessage("Errore salvataggio contratto", "error");
+      return;
     }
 
+    const normalized = normalizeTenantSlaContractRows(data ? [data] : []);
+    const savedProfile = normalized[0] || cleanForm;
+    setTenantSlaContractProfiles((prev) =>
+      prev.some((contract) => contract.key === savedProfile.key)
+        ? prev.map((contract) =>
+            contract.key === savedProfile.key ? savedProfile : contract,
+          )
+        : [savedProfile, ...prev],
+    );
     setContractFormOpen(false);
     showMessage("Contratto salvato");
   }
@@ -1527,6 +1992,11 @@ export default function Home() {
   }
 
   function updateInventoryItem(index: number, field: string, value: string) {
+    if (!inventoryStorageKey) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const updated = inventory.map((item, i) => {
       if (i !== index) return item;
 
@@ -1540,10 +2010,15 @@ export default function Home() {
     });
 
     setInventory(updated);
-    localStorage.setItem("atlas-inventory", JSON.stringify(updated));
+    writeLocalStorageJson(inventoryStorageKey, updated);
   }
 
   function addInventoryItem() {
+    if (!inventoryStorageKey) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const updated = [
       ...inventory,
       {
@@ -1555,7 +2030,7 @@ export default function Home() {
     ];
 
     setInventory(updated);
-    localStorage.setItem("atlas-inventory", JSON.stringify(updated));
+    writeLocalStorageJson(inventoryStorageKey, updated);
   }
 
   function mapCustomerEntityToSearchSite(entity: any) {
@@ -1635,14 +2110,14 @@ export default function Home() {
     () =>
       tickets
         .filter((t) => getTicketType(t) === "straordinaria")
-        .reduce((sum, t) => sum + materialCost(t.materialIds || []), 0),
-    [tickets, ticketTypesById],
+        .reduce((sum, t) => sum + operationalMaterialCost(t.materialIds || []), 0),
+    [tickets, ticketTypesById, operationalMaterials],
   );
 
   const remainingBudget = totalBudget - totalForecast;
 
   async function refreshTickets() {
-    if (!activeTenant?.id) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non configurata", "error");
       return;
     }
@@ -1912,7 +2387,7 @@ export default function Home() {
   async function addTicket(customerId?: string) {
     if (creatingTicket) return;
 
-    if (!activeTenant?.id) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non configurata", "error");
       return;
     }
@@ -1928,7 +2403,7 @@ export default function Home() {
     setCreatingTicket(true);
 
     try {
-      const cost = materialCost(selectedMaterials);
+      const cost = operationalMaterialCost(selectedMaterials);
       const dbStatus = atlasStatusToDbStatus[ticketStatus] || "Aperto";
       const selectedEntityFromState =
         customerEntities.find(
@@ -2112,7 +2587,7 @@ export default function Home() {
   }
 
   async function planTicket(id: string) {
-    if (!activeTenant?.id) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
       return;
     }
@@ -2160,7 +2635,7 @@ export default function Home() {
   }
 
   async function closeTicket(id: string) {
-    if (!activeTenant?.id) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
       return;
     }
@@ -2213,7 +2688,7 @@ export default function Home() {
   }
 
   async function toggleTicketUrgent(ticket: any) {
-    if (!activeTenant?.id) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
       return;
     }
@@ -2277,9 +2752,9 @@ export default function Home() {
       t.region || "",
       t.problem,
       (t.materialIds || [])
-        .map((id: string) => materials.find((m) => m.id === id)?.name)
+        .map((id: string) => operationalMaterials.find((m) => m.id === id)?.name)
         .join(" + "),
-      materialCost(t.materialIds || []),
+      operationalMaterialCost(t.materialIds || []),
       t.technician || "",
       getTicketType(t),
       t.status,
@@ -2457,6 +2932,11 @@ export default function Home() {
       .slice(0, 12);
   }, [calendarSiteSearch, sites, customerEntities]);
   async function updateCalendarTicket() {
+    if (!hasValidTenantSession || !activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     if (
       !editingCalendarTicketId ||
       !selectedCalendarDay ||
@@ -2483,7 +2963,8 @@ export default function Home() {
         intervention_date: selectedCalendarDay,
         status: "Pianificato",
       })
-      .eq("id", Number(editingCalendarTicketId));
+      .eq("id", Number(editingCalendarTicketId))
+      .eq("tenant_id", activeTenant.id);
 
     if (error) {
       console.log(error);
@@ -2533,7 +3014,7 @@ export default function Home() {
     showMessage("Intervento aggiornato");
   }
   async function addCalendarTicket() {
-    if (!activeTenant?.id) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non configurata", "error");
       return;
     }
@@ -2712,6 +3193,11 @@ export default function Home() {
   }
 
   function saveContact() {
+    if (!contactStorageKey || !currentUser?.tenantId) {
+      showMessage("Sessione o tenant non validi.", "error");
+      return;
+    }
+
     if (!contactForm.name || !contactForm.phone) {
       showMessage("Nome e telefono sono obbligatori", "error");
       return;
@@ -2728,6 +3214,8 @@ export default function Home() {
       clientName: contactClient?.name || contactClientSearch || "",
       clientCity: contactClient?.city || "",
       clientRegion: contactClient?.region || "",
+      tenantId: currentUser.tenantId,
+      tenant_id: currentUser.tenantId,
       updatedAt: new Date().toISOString(),
     };
 
@@ -2738,7 +3226,7 @@ export default function Home() {
       : [payload, ...contacts];
 
     setContacts(updated);
-    localStorage.setItem("atlas-contacts", JSON.stringify(updated));
+    localStorage.setItem(contactStorageKey, JSON.stringify(updated));
     resetContactForm();
 
     showMessage(editingContactId ? "Contatto aggiornato" : "Contatto aggiunto");
@@ -2766,7 +3254,9 @@ export default function Home() {
   function deleteContact(id: string) {
     const updated = contacts.filter((contact) => contact.id !== id);
     setContacts(updated);
-    localStorage.setItem("atlas-contacts", JSON.stringify(updated));
+    if (contactStorageKey) {
+      localStorage.setItem(contactStorageKey, JSON.stringify(updated));
+    }
     resetContactForm();
     showMessage("Contatto eliminato");
   }
@@ -2791,13 +3281,18 @@ export default function Home() {
 
     setBudgetForm({
       contractName: selectedContractName,
-      value: String(existing?.value || budget || INITIAL_BUDGET),
+      value: String(existing?.value || budget || 0),
       notes: existing?.notes || "",
     });
     setMobileBudgetFormOpen(true);
   }
 
-  function saveMobileBudget() {
+  async function saveMobileBudget() {
+    if (!hasValidTenantSession || !activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const parsed = Number(String(budgetForm.value || "0").replace(",", "."));
     const contract = editableContracts.find(
       (item) => item.name === budgetForm.contractName,
@@ -2814,33 +3309,56 @@ export default function Home() {
     }
 
     const payload = {
-      id: `BUD-${contract.name.replace(/[^A-Z0-9]+/gi, "-").toUpperCase()}`,
       contractName: contract.name,
       entity: contract.clientType || contract.name,
       value: parsed,
       notes: budgetForm.notes || "",
-      updatedAt: new Date().toISOString(),
     };
 
+    const { data, error } = await supabase
+      .from("atlas_contract_budgets")
+      .upsert(
+        tenantBudgetToDbPayload({
+          tenantId: activeTenant.id,
+          ...payload,
+        }),
+        { onConflict: "tenant_id,contract_name" },
+      )
+      .select("*")
+      .single();
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore salvataggio budget", "error");
+      return;
+    }
+
+    const normalized = normalizeTenantBudgetRows(data ? [data] : []);
+    const savedBudget = normalized[0] || {
+      id: `BUD-${contract.name.replace(/[^A-Z0-9]+/gi, "-").toUpperCase()}`,
+      ...payload,
+      updatedAt: new Date().toISOString(),
+    };
     const updated = budgets.some((item) => item.contractName === contract.name)
       ? budgets.map((item) =>
-          item.contractName === contract.name ? payload : item,
+          item.contractName === contract.name ? savedBudget : item,
         )
-      : [payload, ...budgets];
+      : [savedBudget, ...budgets];
 
     setBudgets(updated);
-    localStorage.setItem("atlas-budgets", JSON.stringify(updated));
-    setBudget(updated.reduce((sum, item) => sum + Number(item.value || 0), 0));
-    localStorage.setItem(
-      "atlas-budget",
-      String(updated.reduce((sum, item) => sum + Number(item.value || 0), 0)),
-    );
+    const nextBudget = updated.reduce((sum, item) => sum + Number(item.value || 0), 0);
+    setBudget(nextBudget);
 
     setMobileBudgetFormOpen(false);
     showMessage("Budget contratto aggiornato");
   }
 
   async function promptPlanTicket(id: string) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const current = tickets.find((t) => String(t.id) === String(id));
     const date = prompt(
       "Data intervento (AAAA-MM-GG):",
@@ -2856,7 +3374,7 @@ export default function Home() {
 
     const tech = prompt(
       "Tecnico:",
-      current?.technician || technician || technicians[0],
+      current?.technician || technician || operationalTechnicians[0] || "",
     );
     if (!tech) return;
 
@@ -2868,7 +3386,8 @@ export default function Home() {
         slot,
         status: "Pianificato",
       })
-      .eq("id", Number(id));
+      .eq("id", Number(id))
+      .eq("tenant_id", activeTenant.id);
 
     if (error) {
       console.log(error);
@@ -2888,6 +3407,11 @@ export default function Home() {
   }
 
   async function promptCloseTicket(id: string) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const notes = prompt("Note chiusura:", closingNotes || "");
     if (notes === null) return;
 
@@ -2906,7 +3430,8 @@ export default function Home() {
         future_needs: future,
         resolved: true,
       })
-      .eq("id", Number(id));
+      .eq("id", Number(id))
+      .eq("tenant_id", activeTenant.id);
 
     if (error) {
       console.log(error);
@@ -3001,6 +3526,11 @@ export default function Home() {
   }
 
   async function promptAddClient() {
+    if (!hasValidTenantSession || !activeTenant?.id) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const name = prompt("Nome sede/cliente:");
     if (!name) return;
 
@@ -3012,6 +3542,7 @@ export default function Home() {
       .from("sites")
       .insert([
         {
+          tenant_id: activeTenant.id,
           name,
           city: cityValue,
           entity: entityValue,
@@ -3107,6 +3638,11 @@ export default function Home() {
   }
 
   function saveInventoryItemMobile() {
+    if (!inventoryStorageKey) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
     const name = inventoryForm.name.trim();
     const id =
       inventoryForm.id.trim() || name.toUpperCase().replace(/\s+/g, "-");
@@ -3131,7 +3667,7 @@ export default function Home() {
           );
 
     setInventory(updated);
-    localStorage.setItem("atlas-inventory", JSON.stringify(updated));
+    writeLocalStorageJson(inventoryStorageKey, updated);
     setMobileInventoryFormOpen(false);
     setEditingInventoryIndex(null);
     showMessage(
@@ -3143,12 +3679,16 @@ export default function Home() {
 
   function deleteInventoryItemMobile() {
     if (editingInventoryIndex === null) return;
+    if (!inventoryStorageKey) {
+      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
 
     const updated = inventory.filter(
       (_, index) => index !== editingInventoryIndex,
     );
     setInventory(updated);
-    localStorage.setItem("atlas-inventory", JSON.stringify(updated));
+    writeLocalStorageJson(inventoryStorageKey, updated);
     setMobileInventoryFormOpen(false);
     setEditingInventoryIndex(null);
     showMessage("Articolo eliminato");
@@ -3313,6 +3853,11 @@ export default function Home() {
   }
 
   function handleTenantChange(tenant: AtlasTenant) {
+    if (!currentUser?.tenantId || tenant.id !== currentUser.tenantId) {
+      showMessage("Cambio tenant non autorizzato per questa sessione.", "error");
+      return;
+    }
+
     setActiveTenant(tenant);
     storeTenantSlug(tenant.slug);
     setSite("");
@@ -3367,7 +3912,7 @@ export default function Home() {
       return;
     }
 
-    const glpiTicketId = ticket?.glpi_ticket_id || ticket?.glpiTicketId || null;
+    const glpiTicketId = glpiEnabled ? ticket?.glpi_ticket_id || ticket?.glpiTicketId || null : null;
     const ticketLabel = ticket?.site || ticket?.title || ticket?.problem || `#${ticketId}`;
 
     const confirmed = window.confirm(
@@ -3377,7 +3922,7 @@ export default function Home() {
 
     if (!confirmed) return;
 
-    const deleteFromGlpi = glpiTicketId
+    const deleteFromGlpi = glpiEnabled && glpiTicketId
       ? window.confirm(`Vuoi provare a cancellare anche il ticket GLPI #${glpiTicketId}?\n\nOK = ATLAS + GLPI\nAnnulla = solo ATLAS`)
       : false;
 
@@ -3392,7 +3937,7 @@ export default function Home() {
         return;
       }
 
-      const tenantId = activeTenant?.id || ticket?.tenant_id || ticket?.tenantId || null;
+      const tenantId = hasValidTenantSession && activeTenant?.id ? activeTenant.id : null;
 
       if (!tenantId) {
         showMessage("Organizzazione non valida: ricarica e riprova.", "error");
@@ -3679,7 +4224,8 @@ export default function Home() {
 
     if (isCustomer) return (key === "customerPortal" || key === "download") && canViewModule(currentUser, key);
 
-    if (key === "utenti" || key === "glpiImport" || key === "designLab") return isAdminLike;
+    if (key === "glpiImport") return isAdminLike && glpiEnabled;
+    if (key === "utenti" || key === "designLab") return isAdminLike;
 
     return canViewModule(currentUser, key);
   }
@@ -4052,11 +4598,13 @@ export default function Home() {
         selectedTicketWorkspace={isCustomerDataSession ? null : selectedTicketWorkspace}
         onCloseTicketWorkspace={() => setSelectedTicketWorkspace(null)}
         onTicketWorkspaceStatusUpdated={updateTicketFromWorkspace}
+        glpiEnabled={glpiEnabled}
       >
             <AtlasWorkspaceContent
               ctx={{
                 tenantLoading,
                 activeTenant,
+                glpiEnabled,
                 mobileView,
                 setMobileView,
                 canAccessTab,
@@ -4135,16 +4683,21 @@ export default function Home() {
                 region,
                 technician,
                 setTechnician,
-                technicians: isCustomerDataSession ? [] : technicians,
+                technicians: isCustomerDataSession ? [] : operationalTechnicians,
+                operators: isCustomerDataSession ? [] : operationalOperators,
+                operatorSectors: isCustomerDataSession ? [] : operationalOperatorSectors,
+                addTenantOperator,
+                addTenantOperatorSector,
                 renderDateInput,
                 selectedDate,
                 setSelectedDate,
                 selectedSlot,
                 setSelectedSlot,
-                materials: isCustomerDataSession ? [] : materials,
+                materials: isCustomerDataSession ? [] : operationalMaterials,
+                addTenantMaterial,
                 toggleMaterial,
                 selectedMaterials: isCustomerDataSession ? [] : selectedMaterials,
-                materialCost,
+                materialCost: operationalMaterialCost,
                 creatingTicket,
                 changeMonth,
                 monthLabel,
@@ -4191,7 +4744,7 @@ export default function Home() {
                 budgetForm,
                 setBudgetForm,
                 editableContracts: isCustomerDataSession ? [] : editableContracts,
-                INITIAL_BUDGET: isCustomerDataSession ? {} : INITIAL_BUDGET,
+                INITIAL_BUDGET: 0,
                 saveMobileBudget,
                 setBudgetClientSearch,
                 clientCategories,
@@ -4204,6 +4757,7 @@ export default function Home() {
                 promptAddClient,
                 selectedSystem,
                 setSelectedSystem,
+                systemsCatalogItems: isCustomerDataSession ? [] : systemsCatalogItems,
                 systemSearch,
                 setSystemSearch,
                 showMessage,
