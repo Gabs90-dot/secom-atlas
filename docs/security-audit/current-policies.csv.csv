@@ -1,0 +1,112 @@
+schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check
+public,atlas_asset_systems,atlas_asset_systems_delete,PERMISSIVE,{authenticated},DELETE,atlas_asset_inventory_can_manage(tenant_id),null
+public,atlas_asset_systems,atlas_asset_systems_insert,PERMISSIVE,{authenticated},INSERT,null,atlas_asset_inventory_can_manage(tenant_id)
+public,atlas_asset_systems,atlas_asset_systems_select,PERMISSIVE,{authenticated},SELECT,atlas_asset_inventory_can_read(tenant_id),null
+public,atlas_asset_systems,atlas_asset_systems_update,PERMISSIVE,{authenticated},UPDATE,atlas_asset_inventory_can_manage(tenant_id),atlas_asset_inventory_can_manage(tenant_id)
+public,atlas_contract_budgets,atlas_contract_budgets_delete,PERMISSIVE,{authenticated},DELETE,atlas_contract_catalog_can_manage(tenant_id),null
+public,atlas_contract_budgets,atlas_contract_budgets_insert,PERMISSIVE,{authenticated},INSERT,null,atlas_contract_catalog_can_manage(tenant_id)
+public,atlas_contract_budgets,atlas_contract_budgets_select,PERMISSIVE,{authenticated},SELECT,atlas_contract_catalog_can_read(tenant_id),null
+public,atlas_contract_budgets,atlas_contract_budgets_update,PERMISSIVE,{authenticated},UPDATE,atlas_contract_catalog_can_manage(tenant_id),atlas_contract_catalog_can_manage(tenant_id)
+public,atlas_contract_catalog,atlas_contract_catalog_delete,PERMISSIVE,{authenticated},DELETE,atlas_contract_catalog_can_manage(tenant_id),null
+public,atlas_contract_catalog,atlas_contract_catalog_insert,PERMISSIVE,{authenticated},INSERT,null,atlas_contract_catalog_can_manage(tenant_id)
+public,atlas_contract_catalog,atlas_contract_catalog_select,PERMISSIVE,{authenticated},SELECT,atlas_contract_catalog_can_read(tenant_id),null
+public,atlas_contract_catalog,atlas_contract_catalog_update,PERMISSIVE,{authenticated},UPDATE,atlas_contract_catalog_can_manage(tenant_id),atlas_contract_catalog_can_manage(tenant_id)
+public,atlas_contract_sla_profiles,atlas_contract_sla_profiles_delete,PERMISSIVE,{authenticated},DELETE,atlas_contract_catalog_can_manage(tenant_id),null
+public,atlas_contract_sla_profiles,atlas_contract_sla_profiles_insert,PERMISSIVE,{authenticated},INSERT,null,atlas_contract_catalog_can_manage(tenant_id)
+public,atlas_contract_sla_profiles,atlas_contract_sla_profiles_select,PERMISSIVE,{authenticated},SELECT,atlas_contract_catalog_can_read(tenant_id),null
+public,atlas_contract_sla_profiles,atlas_contract_sla_profiles_update,PERMISSIVE,{authenticated},UPDATE,atlas_contract_catalog_can_manage(tenant_id),atlas_contract_catalog_can_manage(tenant_id)
+public,atlas_inventory_items,atlas_inventory_items_delete,PERMISSIVE,{authenticated},DELETE,atlas_asset_inventory_can_manage(tenant_id),null
+public,atlas_inventory_items,atlas_inventory_items_insert,PERMISSIVE,{authenticated},INSERT,null,atlas_asset_inventory_can_manage(tenant_id)
+public,atlas_inventory_items,atlas_inventory_items_select,PERMISSIVE,{authenticated},SELECT,atlas_asset_inventory_can_read(tenant_id),null
+public,atlas_inventory_items,atlas_inventory_items_update,PERMISSIVE,{authenticated},UPDATE,atlas_asset_inventory_can_manage(tenant_id),atlas_asset_inventory_can_manage(tenant_id)
+public,atlas_material_catalog,atlas_material_catalog_delete,PERMISSIVE,{authenticated},DELETE,atlas_operational_catalog_can_manage(tenant_id),null
+public,atlas_material_catalog,atlas_material_catalog_insert,PERMISSIVE,{authenticated},INSERT,null,atlas_operational_catalog_can_manage(tenant_id)
+public,atlas_material_catalog,atlas_material_catalog_select,PERMISSIVE,{authenticated},SELECT,atlas_operational_catalog_can_read(tenant_id),null
+public,atlas_material_catalog,atlas_material_catalog_update,PERMISSIVE,{authenticated},UPDATE,atlas_operational_catalog_can_manage(tenant_id),atlas_operational_catalog_can_manage(tenant_id)
+public,atlas_operator_sectors,atlas_operator_sectors_delete,PERMISSIVE,{authenticated},DELETE,atlas_operational_catalog_can_manage(tenant_id),null
+public,atlas_operator_sectors,atlas_operator_sectors_insert,PERMISSIVE,{authenticated},INSERT,null,atlas_operational_catalog_can_manage(tenant_id)
+public,atlas_operator_sectors,atlas_operator_sectors_select,PERMISSIVE,{authenticated},SELECT,atlas_operational_catalog_can_read(tenant_id),null
+public,atlas_operator_sectors,atlas_operator_sectors_update,PERMISSIVE,{authenticated},UPDATE,atlas_operational_catalog_can_manage(tenant_id),atlas_operational_catalog_can_manage(tenant_id)
+public,atlas_operators,atlas_operators_delete,PERMISSIVE,{authenticated},DELETE,atlas_operational_catalog_can_manage(tenant_id),null
+public,atlas_operators,atlas_operators_insert,PERMISSIVE,{authenticated},INSERT,null,atlas_operational_catalog_can_manage(tenant_id)
+public,atlas_operators,atlas_operators_select,PERMISSIVE,{authenticated},SELECT,atlas_operational_catalog_can_read(tenant_id),null
+public,atlas_operators,atlas_operators_update,PERMISSIVE,{authenticated},UPDATE,atlas_operational_catalog_can_manage(tenant_id),atlas_operational_catalog_can_manage(tenant_id)
+public,customer_aliases,authenticated delete customer aliases,PERMISSIVE,{authenticated},DELETE,true,null
+public,customer_aliases,authenticated insert customer aliases,PERMISSIVE,{authenticated},INSERT,null,true
+public,customer_aliases,authenticated read customer aliases,PERMISSIVE,{authenticated},SELECT,true,null
+public,customer_aliases,authenticated update customer aliases,PERMISSIVE,{authenticated},UPDATE,true,true
+public,customers,tenant_customers_delete,PERMISSIVE,{public},DELETE,(tenant_id = current_tenant_id()),null
+public,customers,tenant_customers_insert,PERMISSIVE,{public},INSERT,null,(tenant_id = current_tenant_id())
+public,customers,tenant_customers_select,PERMISSIVE,{public},SELECT,(tenant_id = current_tenant_id()),null
+public,customers,tenant_customers_update,PERMISSIVE,{public},UPDATE,(tenant_id = current_tenant_id()),null
+public,download_library,download_library_customer_select,PERMISSIVE,{authenticated},SELECT,"((visibility = 'customer'::text) AND (EXISTS ( SELECT 1
+   FROM tenant_users tu
+  WHERE ((tu.user_id = auth.uid()) AND (tu.tenant_id = download_library.tenant_id) AND (tu.status = 'active'::text) AND (tu.role = ANY (ARRAY['cliente_admin'::text, 'cliente_user'::text, 'cliente'::text])) AND (tu.customer_id = download_library.customer_id)))))",null
+public,download_library,download_library_delete,PERMISSIVE,{authenticated},DELETE,"(EXISTS ( SELECT 1
+   FROM tenant_users tu
+  WHERE ((tu.user_id = auth.uid()) AND (tu.tenant_id = download_library.tenant_id) AND (tu.status = 'active'::text) AND (tu.role = ANY (ARRAY['super_admin'::text, 'admin'::text])))))",null
+public,download_library,download_library_insert,PERMISSIVE,{authenticated},INSERT,null,"(EXISTS ( SELECT 1
+   FROM tenant_users tu
+  WHERE ((tu.user_id = auth.uid()) AND (tu.tenant_id = download_library.tenant_id) AND (tu.status = 'active'::text) AND (tu.role = ANY (ARRAY['super_admin'::text, 'admin'::text, 'manager'::text])))))"
+public,download_library,download_library_internal_select,PERMISSIVE,{authenticated},SELECT,"(EXISTS ( SELECT 1
+   FROM tenant_users tu
+  WHERE ((tu.user_id = auth.uid()) AND (tu.tenant_id = download_library.tenant_id) AND (tu.status = 'active'::text) AND (tu.role = ANY (ARRAY['super_admin'::text, 'admin'::text, 'manager'::text, 'dispatcher'::text, 'tecnico'::text, 'commerciale'::text])))))",null
+public,download_library,download_library_update,PERMISSIVE,{authenticated},UPDATE,"(EXISTS ( SELECT 1
+   FROM tenant_users tu
+  WHERE ((tu.user_id = auth.uid()) AND (tu.tenant_id = download_library.tenant_id) AND (tu.status = 'active'::text) AND (tu.role = ANY (ARRAY['super_admin'::text, 'admin'::text, 'manager'::text])))))","(EXISTS ( SELECT 1
+   FROM tenant_users tu
+  WHERE ((tu.user_id = auth.uid()) AND (tu.tenant_id = download_library.tenant_id) AND (tu.status = 'active'::text) AND (tu.role = ANY (ARRAY['super_admin'::text, 'admin'::text, 'manager'::text])))))"
+public,download_resources,download_resources_delete,PERMISSIVE,{public},DELETE,true,null
+public,download_resources,download_resources_insert,PERMISSIVE,{public},INSERT,null,true
+public,download_resources,download_resources_select,PERMISSIVE,{public},SELECT,true,null
+public,download_resources,download_resources_update,PERMISSIVE,{public},UPDATE,true,true
+public,glpi_import_errors,authenticated read glpi import errors,PERMISSIVE,{authenticated},SELECT,true,null
+public,glpi_import_runs,authenticated read glpi import runs,PERMISSIVE,{authenticated},SELECT,true,null
+public,glpi_ticket_mappings,authenticated read glpi ticket mappings,PERMISSIVE,{authenticated},SELECT,true,null
+public,manuals,manuals_insert_authenticated,PERMISSIVE,{authenticated},INSERT,null,true
+public,manuals,manuals_select_authenticated,PERMISSIVE,{authenticated},SELECT,true,null
+public,manuals,manuals_update_authenticated,PERMISSIVE,{authenticated},UPDATE,true,true
+public,permissions,rbac_permissions_read,PERMISSIVE,{public},SELECT,true,null
+public,permissions,rbac_permissions_write,PERMISSIVE,{public},ALL,true,true
+public,role_permissions,rbac_role_permissions_read,PERMISSIVE,{public},SELECT,true,null
+public,role_permissions,rbac_role_permissions_write,PERMISSIVE,{public},ALL,true,true
+public,roles,rbac_roles_read,PERMISSIVE,{public},SELECT,true,null
+public,roles,rbac_roles_write,PERMISSIVE,{public},ALL,true,true
+public,sites,tenant_sites_delete,PERMISSIVE,{public},DELETE,(tenant_id = current_tenant_id()),null
+public,sites,tenant_sites_insert,PERMISSIVE,{public},INSERT,null,(tenant_id = current_tenant_id())
+public,sites,tenant_sites_select,PERMISSIVE,{public},SELECT,(tenant_id = current_tenant_id()),null
+public,sites,tenant_sites_update,PERMISSIVE,{public},UPDATE,(tenant_id = current_tenant_id()),null
+public,tenant_user_scopes,rbac_user_scopes_read,PERMISSIVE,{public},SELECT,true,null
+public,tenant_user_scopes,rbac_user_scopes_write,PERMISSIVE,{public},ALL,true,true
+public,tenant_users,Allow public insert tenant users,PERMISSIVE,{public},INSERT,null,true
+public,tenant_users,Allow public read tenant users,PERMISSIVE,{public},SELECT,true,null
+public,tenants,Allow public read tenants,PERMISSIVE,{public},SELECT,true,null
+public,ticket_attachments,ticket attachments table delete authenticated,PERMISSIVE,{authenticated},DELETE,true,null
+public,ticket_attachments,ticket attachments table insert authenticated,PERMISSIVE,{authenticated},INSERT,null,true
+public,ticket_attachments,ticket attachments table read authenticated,PERMISSIVE,{authenticated},SELECT,true,null
+public,ticket_events,Allow public insert ticket events,PERMISSIVE,{public},INSERT,null,true
+public,ticket_events,Allow public read ticket events,PERMISSIVE,{public},SELECT,true,null
+public,ticket_events,tenant_events_delete,PERMISSIVE,{public},DELETE,(tenant_id = current_tenant_id()),null
+public,ticket_events,tenant_events_insert,PERMISSIVE,{public},INSERT,null,(tenant_id = current_tenant_id())
+public,ticket_events,tenant_events_select,PERMISSIVE,{public},SELECT,(tenant_id = current_tenant_id()),null
+public,ticket_events,tenant_events_update,PERMISSIVE,{public},UPDATE,(tenant_id = current_tenant_id()),null
+public,tickets,tenant_tickets_delete,PERMISSIVE,{public},DELETE,(tenant_id = current_tenant_id()),null
+public,tickets,tenant_tickets_insert,PERMISSIVE,{public},INSERT,null,(tenant_id = current_tenant_id())
+public,tickets,tenant_tickets_select,PERMISSIVE,{public},SELECT,(tenant_id = current_tenant_id()),null
+public,tickets,tenant_tickets_update,PERMISSIVE,{public},UPDATE,(tenant_id = current_tenant_id()),null
+public,todo_tasks,todo_tasks_authenticated_insert,PERMISSIVE,{authenticated},INSERT,null,true
+public,todo_tasks,todo_tasks_authenticated_select,PERMISSIVE,{authenticated},SELECT,true,null
+public,todo_tasks,todo_tasks_authenticated_update,PERMISSIVE,{authenticated},UPDATE,true,true
+public,user_permission_overrides,rbac_user_overrides_read,PERMISSIVE,{public},SELECT,true,null
+public,user_permission_overrides,rbac_user_overrides_write,PERMISSIVE,{public},ALL,true,true
+storage,objects,atlas_downloads_delete,PERMISSIVE,{public},DELETE,(bucket_id = 'atlas-downloads'::text),null
+storage,objects,atlas_downloads_insert,PERMISSIVE,{public},INSERT,null,(bucket_id = 'atlas-downloads'::text)
+storage,objects,atlas_downloads_select,PERMISSIVE,{public},SELECT,(bucket_id = 'atlas-downloads'::text),null
+storage,objects,atlas_downloads_update,PERMISSIVE,{public},UPDATE,(bucket_id = 'atlas-downloads'::text),(bucket_id = 'atlas-downloads'::text)
+storage,objects,atlas_manuals_read_authenticated,PERMISSIVE,{authenticated},SELECT,(bucket_id = 'atlas-manuals'::text),null
+storage,objects,atlas_manuals_update_authenticated,PERMISSIVE,{authenticated},UPDATE,(bucket_id = 'atlas-manuals'::text),(bucket_id = 'atlas-manuals'::text)
+storage,objects,atlas_manuals_upload_authenticated,PERMISSIVE,{authenticated},INSERT,null,(bucket_id = 'atlas-manuals'::text)
+storage,objects,ticket attachments delete authenticated,PERMISSIVE,{authenticated},DELETE,(bucket_id = 'ticket-attachments'::text),null
+storage,objects,ticket attachments read authenticated,PERMISSIVE,{authenticated},SELECT,(bucket_id = 'ticket-attachments'::text),null
+storage,objects,ticket attachments update authenticated,PERMISSIVE,{authenticated},UPDATE,(bucket_id = 'ticket-attachments'::text),(bucket_id = 'ticket-attachments'::text)
+storage,objects,ticket attachments upload authenticated,PERMISSIVE,{authenticated},INSERT,null,(bucket_id = 'ticket-attachments'::text)
