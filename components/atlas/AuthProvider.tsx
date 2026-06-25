@@ -1,6 +1,15 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { User } from "@supabase/supabase-js";
 import type { AtlasUser } from "@/lib/auth";
 import { resolveAtlasUser, signOutAtlasUser } from "@/lib/supabaseAuth";
 import { supabase } from "@/lib/supabase";
@@ -14,13 +23,62 @@ type AtlasAuthContextValue = {
 
 const AtlasAuthContext = createContext<AtlasAuthContextValue | null>(null);
 
+const SESSION_TIMEOUT_MS = 10_000;
+const PROFILE_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(
+  promise: PromiseLike<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    Promise.resolve(promise).then(
+      (value) => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
+}
+
+function clearStoredSupabaseSession() {
+  if (typeof window === "undefined") return;
+
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    for (let index = storage.length - 1; index >= 0; index -= 1) {
+      const key = storage.key(index);
+      if (!key) continue;
+
+      const isSupabaseAuthKey =
+        (key.startsWith("sb-") && key.endsWith("-auth-token")) ||
+        key.includes("supabase.auth");
+
+      if (isSupabaseAuthKey) {
+        storage.removeItem(key);
+      }
+    }
+  }
+}
+
 export function AtlasAuthProvider({ children }: { children: React.ReactNode }) {
   const auth = useAtlasAuthState();
 
   return (
     <AtlasAuthContext.Provider value={auth}>
       {auth.user?.mustChangePassword ? (
-        <ForcePasswordChange user={auth.user} refreshUser={auth.refreshUser} signOut={auth.signOut} />
+        <ForcePasswordChange
+          user={auth.user}
+          refreshUser={auth.refreshUser}
+          signOut={auth.signOut}
+        />
       ) : (
         children
       )}
@@ -31,51 +89,130 @@ export function AtlasAuthProvider({ children }: { children: React.ReactNode }) {
 function useAtlasAuthState(): AtlasAuthContextValue {
   const [user, setUser] = useState<AtlasUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const mountedRef = useRef(false);
+  const requestIdRef = useRef(0);
 
-  async function refreshUser() {
+  const resolveAndStoreUser = useCallback(async (sessionUser: User) => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
-    const { data } = await supabase.auth.getSession();
-    const sessionUser = data.session?.user;
-    const atlasUser = sessionUser ? await resolveAtlasUser(sessionUser) : null;
-    setUser(atlasUser);
-    setLoading(false);
-  }
 
-  async function signOut() {
-    await signOutAtlasUser();
-    setUser(null);
-  }
+    try {
+      const atlasUser = await withTimeout(
+        resolveAtlasUser(sessionUser),
+        PROFILE_TIMEOUT_MS,
+        "Timeout caricamento profilo ATLAS",
+      );
+
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      setUser(atlasUser);
+    } catch (error) {
+      console.error("ATLAS profile resolution failed", error);
+
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      setUser(null);
+    } finally {
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+
+    try {
+      const { data, error } = await withTimeout(
+        supabase.auth.getSession(),
+        SESSION_TIMEOUT_MS,
+        "Timeout ripristino sessione Supabase",
+      );
+
+      if (error) throw error;
+
+      const sessionUser = data.session?.user ?? null;
+      if (!sessionUser) {
+        if (!mountedRef.current || requestId !== requestIdRef.current) return;
+        setUser(null);
+        return;
+      }
+
+      const atlasUser = await withTimeout(
+        resolveAtlasUser(sessionUser),
+        PROFILE_TIMEOUT_MS,
+        "Timeout caricamento profilo ATLAS",
+      );
+
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      setUser(atlasUser);
+    } catch (error) {
+      console.error("ATLAS session refresh failed", error);
+
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      setUser(null);
+    } finally {
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  const signOut = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+
+    try {
+      await withTimeout(
+        signOutAtlasUser(),
+        SESSION_TIMEOUT_MS,
+        "Timeout chiusura sessione Supabase",
+      );
+    } catch (error) {
+      console.error("ATLAS sign out failed; clearing local auth session", error);
+      clearStoredSupabaseSession();
+    } finally {
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setUser(null);
+        setLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
-    async function boot() {
-      const { data } = await supabase.auth.getSession();
-      const sessionUser = data.session?.user;
-      const atlasUser = sessionUser ? await resolveAtlasUser(sessionUser) : null;
-      if (!mounted) return;
-      setUser(atlasUser);
-      setLoading(false);
-    }
+    void refreshUser();
 
-    boot();
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        // Keep this callback synchronous. Supabase can deadlock when another
+        // async Supabase call is awaited directly inside onAuthStateChange.
+        if (event === "TOKEN_REFRESHED") return;
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const atlasUser = session?.user ? await resolveAtlasUser(session.user) : null;
-      if (!mounted) return;
-      setUser(atlasUser);
-      setLoading(false);
-    });
+        if (!session?.user) {
+          requestIdRef.current += 1;
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+
+        window.setTimeout(() => {
+          if (!mountedRef.current) return;
+          void resolveAndStoreUser(session.user);
+        }, 0);
+      },
+    );
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
+      requestIdRef.current += 1;
       listener.subscription.unsubscribe();
     };
-  }, []);
+  }, [refreshUser, resolveAndStoreUser]);
 
   return useMemo(
     () => ({ user, loading, refreshUser, signOut }),
-    [user, loading]
+    [user, loading, refreshUser, signOut],
   );
 }
 
@@ -132,9 +269,16 @@ function ForcePasswordChange({
 
       // Compatibility: older DBs may not have must_change_password yet.
       // Login remains usable after auth metadata is updated; the SQL migration below makes this persistent.
-      if (updateProfileError && !String(updateProfileError.message || "").includes("must_change_password")) {
+      if (
+        updateProfileError &&
+        !String(updateProfileError.message || "").includes(
+          "must_change_password",
+        )
+      ) {
         setSaving(false);
-        setError(updateProfileError.message || "Errore aggiornamento profilo utente.");
+        setError(
+          updateProfileError.message || "Errore aggiornamento profilo utente.",
+        );
         return;
       }
     }
@@ -147,10 +291,15 @@ function ForcePasswordChange({
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#07111f] px-5 text-white">
       <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.06] p-6 shadow-2xl shadow-black/30 backdrop-blur md:p-8">
-        <p className="text-xs font-black uppercase tracking-[0.35em] text-blue-300">ATLAS Secure Access</p>
-        <h1 className="mt-3 text-3xl font-black">Cambio password obbligatorio</h1>
+        <p className="text-xs font-black uppercase tracking-[0.35em] text-blue-300">
+          ATLAS Secure Access
+        </p>
+        <h1 className="mt-3 text-3xl font-black">
+          Cambio password obbligatorio
+        </h1>
         <p className="mt-2 text-sm font-bold text-slate-400">
-          Il tuo account è stato creato con una password provvisoria. Imposta una nuova password personale per continuare.
+          Il tuo account è stato creato con una password provvisoria. Imposta
+          una nuova password personale per continuare.
         </p>
 
         <div className="mt-6 grid gap-3">
@@ -169,8 +318,16 @@ function ForcePasswordChange({
             className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-white outline-none focus:border-blue-400"
           />
 
-          {error && <div className="rounded-2xl border border-red-500/30 bg-red-500/15 p-3 text-sm font-bold text-red-200">{error}</div>}
-          {message && <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 p-3 text-sm font-bold text-emerald-200">{message}</div>}
+          {error && (
+            <div className="rounded-2xl border border-red-500/30 bg-red-500/15 p-3 text-sm font-bold text-red-200">
+              {error}
+            </div>
+          )}
+          {message && (
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 p-3 text-sm font-bold text-emerald-200">
+              {message}
+            </div>
+          )}
 
           <button
             onClick={savePassword}
