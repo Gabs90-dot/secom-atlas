@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { signInWithEmailPassword } from "@/lib/supabaseAuth";
 import DarkVeil from "./DarkVeil";
 
 type LoginScreenProps = {
-  onDone?: () => void;
+  onDone?: (session: Session) => Promise<unknown> | unknown;
 };
 
 export default function LoginScreen({ onDone }: LoginScreenProps) {
@@ -30,16 +31,50 @@ export default function LoginScreen({ onDone }: LoginScreenProps) {
     setLoading(true);
     setError("");
 
-    const result = await signInWithEmailPassword(email, password);
+    try {
+      const result = await Promise.race([
+        signInWithEmailPassword(email.trim(), password),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(
+            () => reject(new Error("Timeout durante l'accesso a Supabase.")),
+            15_000,
+          );
+        }),
+      ]);
 
-    setLoading(false);
+      if (result.error) {
+        throw result.error;
+      }
 
-    if (result.error) {
-      setError(result.error.message || "Errore autenticazione");
-      return;
+      const session = result.data.session;
+      if (!session) {
+        throw new Error("Accesso riuscito, ma la sessione non è disponibile.");
+      }
+
+      if (onDone) {
+        await Promise.race([
+          Promise.resolve(onDone(session)),
+          new Promise<never>((_, reject) => {
+            window.setTimeout(
+              () =>
+                reject(
+                  new Error("Timeout durante il caricamento del profilo ATLAS."),
+                ),
+              18_000,
+            );
+          }),
+        ]);
+      }
+    } catch (submitError) {
+      console.error("ATLAS login failed", submitError);
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Errore durante l'accesso ad ATLAS.",
+      );
+    } finally {
+      setLoading(false);
     }
-
-    onDone?.();
   }
 
   return (

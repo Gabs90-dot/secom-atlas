@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { User } from "@supabase/supabase-js";
+import type { Session } from "@supabase/supabase-js";
 import type { AtlasUser } from "@/lib/auth";
 import { resolveAtlasUser, signOutAtlasUser } from "@/lib/supabaseAuth";
 import { supabase } from "@/lib/supabase";
@@ -17,14 +17,14 @@ import { supabase } from "@/lib/supabase";
 type AtlasAuthContextValue = {
   user: AtlasUser | null;
   loading: boolean;
-  refreshUser: () => Promise<void>;
+  refreshUser: (sessionOverride?: Session | null) => Promise<AtlasUser | null>;
   signOut: () => Promise<void>;
 };
 
 const AtlasAuthContext = createContext<AtlasAuthContextValue | null>(null);
 
 const SESSION_TIMEOUT_MS = 10_000;
-const PROFILE_TIMEOUT_MS = 12_000;
+const PROFILE_TIMEOUT_MS = 15_000;
 
 function withTimeout<T>(
   promise: PromiseLike<T>,
@@ -91,71 +91,76 @@ function useAtlasAuthState(): AtlasAuthContextValue {
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
+  const currentUserIdRef = useRef<string | null>(null);
 
-  const resolveAndStoreUser = useCallback(async (sessionUser: User) => {
-    const requestId = ++requestIdRef.current;
-    setLoading(true);
-
-    try {
-      const atlasUser = await withTimeout(
-        resolveAtlasUser(sessionUser),
-        PROFILE_TIMEOUT_MS,
-        "Timeout caricamento profilo ATLAS",
-      );
-
-      if (!mountedRef.current || requestId !== requestIdRef.current) return;
-      setUser(atlasUser);
-    } catch (error) {
-      console.error("ATLAS profile resolution failed", error);
-
-      if (!mountedRef.current || requestId !== requestIdRef.current) return;
-      setUser(null);
-    } finally {
-      if (mountedRef.current && requestId === requestIdRef.current) {
-        setLoading(false);
-      }
-    }
+  const storeUser = useCallback((nextUser: AtlasUser | null) => {
+    currentUserIdRef.current = nextUser?.id ?? null;
+    setUser(nextUser);
   }, []);
 
-  const refreshUser = useCallback(async () => {
-    const requestId = ++requestIdRef.current;
-    setLoading(true);
+  const refreshUser = useCallback(
+    async (
+      sessionOverride?: Session | null,
+    ): Promise<AtlasUser | null> => {
+      const requestId = ++requestIdRef.current;
+      setLoading(true);
 
-    try {
-      const { data, error } = await withTimeout(
-        supabase.auth.getSession(),
-        SESSION_TIMEOUT_MS,
-        "Timeout ripristino sessione Supabase",
-      );
+      try {
+        let session: Session | null;
 
-      if (error) throw error;
+        if (sessionOverride !== undefined) {
+          session = sessionOverride;
+        } else {
+          const { data, error } = await withTimeout(
+            supabase.auth.getSession(),
+            SESSION_TIMEOUT_MS,
+            "Timeout ripristino sessione Supabase",
+          );
 
-      const sessionUser = data.session?.user ?? null;
-      if (!sessionUser) {
-        if (!mountedRef.current || requestId !== requestIdRef.current) return;
-        setUser(null);
-        return;
+          if (error) throw error;
+          session = data.session;
+        }
+
+        if (!session?.user) {
+          if (mountedRef.current && requestId === requestIdRef.current) {
+            storeUser(null);
+          }
+          return null;
+        }
+
+        const atlasUser = await withTimeout(
+          resolveAtlasUser(session.user, session.access_token),
+          PROFILE_TIMEOUT_MS,
+          "Timeout caricamento profilo ATLAS",
+        );
+
+        if (!atlasUser) {
+          throw new Error(
+            "Accesso riuscito, ma il profilo ATLAS non è associato a un tenant attivo.",
+          );
+        }
+
+        if (mountedRef.current && requestId === requestIdRef.current) {
+          storeUser(atlasUser);
+        }
+
+        return atlasUser;
+      } catch (error) {
+        console.error("ATLAS session/profile resolution failed", error);
+
+        if (mountedRef.current && requestId === requestIdRef.current) {
+          storeUser(null);
+        }
+
+        throw error;
+      } finally {
+        if (mountedRef.current && requestId === requestIdRef.current) {
+          setLoading(false);
+        }
       }
-
-      const atlasUser = await withTimeout(
-        resolveAtlasUser(sessionUser),
-        PROFILE_TIMEOUT_MS,
-        "Timeout caricamento profilo ATLAS",
-      );
-
-      if (!mountedRef.current || requestId !== requestIdRef.current) return;
-      setUser(atlasUser);
-    } catch (error) {
-      console.error("ATLAS session refresh failed", error);
-
-      if (!mountedRef.current || requestId !== requestIdRef.current) return;
-      setUser(null);
-    } finally {
-      if (mountedRef.current && requestId === requestIdRef.current) {
-        setLoading(false);
-      }
-    }
-  }, []);
+    },
+    [storeUser],
+  );
 
   const signOut = useCallback(async () => {
     const requestId = ++requestIdRef.current;
@@ -172,34 +177,43 @@ function useAtlasAuthState(): AtlasAuthContextValue {
       clearStoredSupabaseSession();
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {
-        setUser(null);
+        storeUser(null);
         setLoading(false);
       }
     }
-  }, []);
+  }, [storeUser]);
 
   useEffect(() => {
     mountedRef.current = true;
 
-    void refreshUser();
+    void refreshUser().catch(() => {
+      // refreshUser chiude comunque loading nel finally.
+      // L'utente torna al login e può vedere l'errore al tentativo successivo.
+    });
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        // Keep this callback synchronous. Supabase can deadlock when another
-        // async Supabase call is awaited directly inside onAuthStateChange.
-        if (event === "TOKEN_REFRESHED") return;
-
-        if (!session?.user) {
+        // Non fare chiamate async Supabase dentro questa callback.
+        // Il login esplicito passa la Session direttamente a refreshUser.
+        if (event === "SIGNED_OUT" || !session) {
           requestIdRef.current += 1;
-          setUser(null);
+          storeUser(null);
           setLoading(false);
           return;
         }
 
-        window.setTimeout(() => {
-          if (!mountedRef.current) return;
-          void resolveAndStoreUser(session.user);
-        }, 0);
+        // SIGNED_IN può arrivare più volte quando una PWA mobile riprende il focus.
+        // Se l'utente è già caricato, non riaprire il loader.
+        if (
+          event === "SIGNED_IN" &&
+          currentUserIdRef.current === session.user.id
+        ) {
+          return;
+        }
+
+        // INITIAL_SESSION è già gestito dal refreshUser eseguito al mount.
+        // TOKEN_REFRESHED non richiede di ricaricare il profilo applicativo.
+        // USER_UPDATED è gestito esplicitamente dal flusso cambio password.
       },
     );
 
@@ -208,7 +222,7 @@ function useAtlasAuthState(): AtlasAuthContextValue {
       requestIdRef.current += 1;
       listener.subscription.unsubscribe();
     };
-  }, [refreshUser, resolveAndStoreUser]);
+  }, [refreshUser, storeUser]);
 
   return useMemo(
     () => ({ user, loading, refreshUser, signOut }),
@@ -222,7 +236,7 @@ function ForcePasswordChange({
   signOut,
 }: {
   user: AtlasUser;
-  refreshUser: () => Promise<void>;
+  refreshUser: (sessionOverride?: Session | null) => Promise<AtlasUser | null>;
   signOut: () => Promise<void>;
 }) {
   const [password, setPassword] = useState("");
@@ -267,8 +281,6 @@ function ForcePasswordChange({
         })
         .eq("id", user.tenantUserId);
 
-      // Compatibility: older DBs may not have must_change_password yet.
-      // Login remains usable after auth metadata is updated; the SQL migration below makes this persistent.
       if (
         updateProfileError &&
         !String(updateProfileError.message || "").includes(
@@ -285,7 +297,17 @@ function ForcePasswordChange({
 
     setMessage("Password aggiornata correttamente.");
     setSaving(false);
-    await refreshUser();
+
+    try {
+      await refreshUser();
+    } catch (refreshError) {
+      console.error("ATLAS password refresh failed", refreshError);
+      setError(
+        refreshError instanceof Error
+          ? refreshError.message
+          : "Password aggiornata, ma il profilo non è stato ricaricato.",
+      );
+    }
   }
 
   return (
