@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef } from "react";
-import { Bell, Menu, Search } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Bell, LoaderCircle, MapPin, Menu, Navigation, Search, X } from "lucide-react";
 import TenantSwitcher from "@/components/atlas/TenantSwitcher";
 import UserSessionBadge from "@/components/atlas/UserSessionBadge";
 import OperatorAvatar from "./OperatorAvatar";
@@ -32,6 +32,26 @@ function getDayGreeting() {
   if (hour >= 14 && hour < 17) return "Buon pomeriggio";
   return "Buonasera";
 }
+
+type LocalWeather = {
+  city: string;
+  region: string | null;
+  temperature: number;
+  apparentTemperature: number;
+  description: string;
+  weatherCode: number;
+  isDay: boolean;
+  updatedAt: string;
+};
+
+type CachedLocalWeather = {
+  data: LocalWeather;
+  expiresAt: number;
+};
+
+const LOCAL_WEATHER_ENABLED_KEY = "atlas-local-weather-enabled-v1";
+const LOCAL_WEATHER_CACHE_KEY = "atlas-local-weather-cache-v1";
+const LOCAL_WEATHER_CACHE_MS = 30 * 60 * 1000;
 
 type AtlasHeaderProps = {
   isDesktopShell: boolean;
@@ -105,6 +125,198 @@ export default function AtlasHeader({
   const firstName = getFirstName(currentUser);
   const dayGreeting = getDayGreeting();
   const greetingContainerRef = useRef<HTMLDivElement | null>(null);
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [localWeather, setLocalWeather] = useState<LocalWeather | null>(null);
+  const [weatherEnabled, setWeatherEnabled] = useState(false);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherError, setWeatherError] = useState("");
+
+  const requestLocalWeather = useCallback(async (rememberChoice = true) => {
+    if (!("geolocation" in navigator)) {
+      setWeatherError("Geolocalizzazione non disponibile su questo dispositivo.");
+      return;
+    }
+
+    setWeatherLoading(true);
+    setWeatherError("");
+
+    try {
+      const position = await new Promise<GeolocationPosition>(
+        (resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: false,
+            timeout: 10_000,
+            maximumAge: 15 * 60 * 1000,
+          });
+        },
+      );
+
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
+
+      const response = await fetch("/api/weather/local", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        }),
+        cache: "no-store",
+        signal: controller.signal,
+      }).finally(() => window.clearTimeout(timeoutId));
+
+      const payload = (await response.json()) as
+        | LocalWeather
+        | { error?: string };
+
+      if (!response.ok || !("city" in payload)) {
+        throw new Error(
+          "error" in payload && payload.error
+            ? payload.error
+            : "Meteo locale non disponibile.",
+        );
+      }
+
+      setLocalWeather(payload);
+      setWeatherEnabled(true);
+
+      try {
+        if (rememberChoice) {
+          window.localStorage.setItem(LOCAL_WEATHER_ENABLED_KEY, "on");
+        }
+
+        const cachedWeather: CachedLocalWeather = {
+          data: payload,
+          expiresAt: Date.now() + LOCAL_WEATHER_CACHE_MS,
+        };
+
+        window.localStorage.setItem(
+          LOCAL_WEATHER_CACHE_KEY,
+          JSON.stringify(cachedWeather),
+        );
+      } catch {
+        // Il meteo continua a funzionare anche se lo storage non è disponibile.
+      }
+    } catch (error) {
+      const geolocationCode =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        typeof error.code === "number"
+          ? error.code
+          : null;
+
+      if (geolocationCode === 1) {
+        setWeatherError("Permesso posizione negato.");
+        setWeatherEnabled(false);
+
+        try {
+          window.localStorage.removeItem(LOCAL_WEATHER_ENABLED_KEY);
+        } catch {
+          // Nessuna azione necessaria.
+        }
+      } else if (error instanceof Error && error.name === "AbortError") {
+        setWeatherError("Tempo scaduto durante il caricamento del meteo.");
+      } else {
+        setWeatherError(
+          error instanceof Error
+            ? error.message
+            : "Impossibile caricare il meteo locale.",
+        );
+      }
+    } finally {
+      setWeatherLoading(false);
+    }
+  }, []);
+
+  const disableLocalWeather = useCallback(() => {
+    setWeatherEnabled(false);
+    setLocalWeather(null);
+    setWeatherError("");
+
+    try {
+      window.localStorage.removeItem(LOCAL_WEATHER_ENABLED_KEY);
+      window.localStorage.removeItem(LOCAL_WEATHER_CACHE_KEY);
+    } catch {
+      // Preferenza rimossa per la sessione corrente.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktopShell || !isExecutiveMode) return;
+
+    let enabled = false;
+
+    try {
+      enabled =
+        window.localStorage.getItem(LOCAL_WEATHER_ENABLED_KEY) === "on";
+
+      const cachedRaw = window.localStorage.getItem(LOCAL_WEATHER_CACHE_KEY);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw) as CachedLocalWeather;
+
+        if (
+          cached?.data &&
+          typeof cached.expiresAt === "number" &&
+          cached.expiresAt > Date.now()
+        ) {
+          setLocalWeather(cached.data);
+        }
+      }
+    } catch {
+      // Se lo storage non è disponibile, si parte senza preferenze.
+    }
+
+    setWeatherEnabled(enabled);
+
+    if (enabled) {
+      void requestLocalWeather(false);
+    }
+  }, [isDesktopShell, isExecutiveMode, requestLocalWeather]);
+
+
+  useEffect(() => {
+    if (!isDesktopShell || !isExecutiveMode) {
+      setCurrentTime(null);
+      return;
+    }
+
+    const updateClock = () => setCurrentTime(new Date());
+    updateClock();
+
+    const intervalId = window.setInterval(updateClock, 1000);
+    document.addEventListener("visibilitychange", updateClock);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", updateClock);
+    };
+  }, [isDesktopShell, isExecutiveMode]);
+
+  const executiveHoursMinutes = currentTime
+    ? new Intl.DateTimeFormat("it-IT", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).format(currentTime)
+    : "--:--";
+
+  const executiveSeconds = currentTime
+    ? new Intl.DateTimeFormat("it-IT", {
+        second: "2-digit",
+      }).format(currentTime)
+    : "--";
+
+  const executiveDate = currentTime
+    ? new Intl.DateTimeFormat("it-IT", {
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }).format(currentTime)
+    : "Caricamento data";
 
   if (!isDesktopShell) {
     return (
@@ -157,15 +369,117 @@ export default function AtlasHeader({
               <img src="/secom-logo.png.png" alt="Secom" className="h-10 w-auto object-contain lg:hidden" />
 
               <div className="min-w-0">
-                <h1 className="truncate text-lg font-black md:text-2xl">
-                  {isExecutiveMode ? "ATLAS Executive Command" : "Centrale Operativa ATLAS"}
-                </h1>
-                <p className={`hidden text-sm md:block ${theme === "dark" ? "text-slate-400" : "text-slate-600"}`}>
-                  {isExecutiveMode
-                    ? "Tema Executive attivo · shell premium su moduli ATLAS reali."
-                    : "Clienti, ticket, calendario e operatività."}
-                </p>
+                {isExecutiveMode ? (
+                  <div
+                    className="flex h-[66px] w-[clamp(360px,38vw,520px)] items-center px-1"
+                    aria-label={`Ora locale ${executiveHoursMinutes} e ${executiveSeconds} secondi, ${executiveDate}`}
+                  >
+                    <div className="shrink-0">
+                      <div className="flex items-baseline gap-2">
+                        <time
+                          className="font-mono text-2xl font-black leading-none tracking-[0.08em] text-white md:text-3xl"
+                          dateTime={currentTime?.toISOString()}
+                        >
+                          {executiveHoursMinutes}
+                        </time>
+                        <span className="font-mono text-sm font-black tracking-[0.18em] text-cyan-300">
+                          {executiveSeconds}
+                        </span>
+                      </div>
 
+                      <p className="mt-1 truncate text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+                        {executiveDate}
+                      </p>
+                    </div>
+
+                    <div className="mx-4 h-8 w-px shrink-0 bg-white/[0.09]" />
+
+                    <div className="flex min-w-0 flex-1 items-center">
+                      {localWeather ? (
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <MapPin
+                            size={14}
+                            className="shrink-0 text-cyan-300"
+                            aria-hidden="true"
+                          />
+                          <p
+                            className="min-w-0 flex-1 truncate text-xs font-black text-slate-200"
+                            title={`${localWeather.city}${
+                              localWeather.region
+                                ? `, ${localWeather.region}`
+                                : ""
+                            } · ${localWeather.temperature.toFixed(
+                              0,
+                            )} °C · ${localWeather.description} · percepita ${localWeather.apparentTemperature.toFixed(
+                              0,
+                            )} °C`}
+                          >
+                            {localWeather.city}
+                            <span className="mx-1.5 text-slate-600">·</span>
+                            <span className="text-cyan-200">
+                              {localWeather.temperature.toFixed(0)} °C
+                            </span>
+                            <span className="mx-1.5 text-slate-600">·</span>
+                            <span className="text-slate-400">
+                              {localWeather.description}
+                            </span>
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={disableLocalWeather}
+                            className="shrink-0 rounded-lg p-1 text-slate-500 transition hover:bg-white/[0.07] hover:text-white"
+                            title="Disattiva meteo locale"
+                            aria-label="Disattiva meteo locale"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ) : weatherLoading ? (
+                        <div className="flex min-w-0 items-center gap-2 text-xs font-black text-slate-400">
+                          <LoaderCircle
+                            size={14}
+                            className="shrink-0 animate-spin text-cyan-300"
+                            aria-hidden="true"
+                          />
+                          <span className="truncate">Localizzazione...</span>
+                        </div>
+                      ) : (
+                        <div className="min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => void requestLocalWeather(true)}
+                            className="flex items-center gap-2 rounded-xl px-1 py-1 text-xs font-black text-cyan-200 transition hover:text-white"
+                          >
+                            <Navigation size={14} aria-hidden="true" />
+                            {weatherError
+                              ? "Riprova meteo"
+                              : "Attiva meteo locale"}
+                          </button>
+
+                          {weatherError && (
+                            <p className="mt-0.5 max-w-[220px] truncate text-[10px] font-bold text-amber-300/90">
+                              {weatherError}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h1 className="truncate text-lg font-black md:text-2xl">
+                      Centrale Operativa ATLAS
+                    </h1>
+                    <p
+                      className={`hidden text-sm md:block ${
+                        theme === "dark" ? "text-slate-400" : "text-slate-600"
+                      }`}
+                    >
+                      Clienti, ticket, calendario e operatività.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 
