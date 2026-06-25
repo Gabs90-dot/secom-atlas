@@ -27,6 +27,7 @@ export type TicketWorkspaceProps = {
   open: boolean;
   onClose: () => void;
   onStatusUpdated?: (ticket: any) => void;
+  glpiEnabled?: boolean;
 };
 
 type WorkspaceTab =
@@ -335,7 +336,7 @@ const workOrderTemplateOptions = [
   { key: "custom", label: "Modello personalizzato" },
 ];
 
-export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated }: TicketWorkspaceProps) {
+export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated, glpiEnabled = true }: TicketWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
   const [events, setEvents] = useState<any[]>([]);
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
@@ -503,7 +504,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
       ? [
           {
             id: `ticket-initial-${normalizedTicket.id}`,
-            event_type: "glpi_ticket_content",
+            event_type: glpiEnabled ? "glpi_ticket_content" : "ticket_content",
             title: "Richiesta iniziale",
             description: normalizedTicket.description,
             created_by: normalizedTicket.glpi_requester || normalizedTicket.customerLabel || "Richiedente",
@@ -537,7 +538,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
         return true;
       })
       .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
-  }, [events, normalizedTicket]);
+  }, [events, normalizedTicket, glpiEnabled]);
 
   function isOperatorMessage(event: any) {
     const type = String(event.event_type || "");
@@ -556,7 +557,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
     const type = String(event.event_type || "");
     if (type === "glpi_solution") return "Soluzione / Operatore";
     if (isOperatorMessage(event)) return "Operatore Secom";
-    return event.created_by || "Richiedente / GLPI";
+    return event.created_by || (glpiEnabled ? "Richiedente / GLPI" : "Richiedente");
   }
 
 
@@ -660,6 +661,10 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
   async function refreshGlpiConversation() {
     if (!ticket?.id) return;
+    if (!glpiEnabled) {
+      setConversationMessage("Aggiornamento esterno non disponibile per questo tenant.");
+      return;
+    }
 
     setConversationMessage("");
     setSyncingConversation(true);
@@ -705,6 +710,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
 
 
   async function sendGlpiReply() {
+    if (!glpiEnabled) return;
     if (!ticket?.glpi_ticket_id || !replyDraft.trim()) return;
 
     setSendingReply(true);
@@ -1021,7 +1027,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                     <Flame size={13} /> URGENTE
                   </span>
                 )}
-                {normalizedTicket.glpi_ticket_id && (
+                {glpiEnabled && normalizedTicket.glpi_ticket_id && (
                   <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-slate-300">
                     GLPI #{normalizedTicket.glpi_ticket_id}
                   </span>
@@ -1064,13 +1070,13 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                   </p>
                 </div>
 
-                {latestGlpiCommunication && (
+                {glpiEnabled && latestGlpiCommunication && (
                   <div className="rounded-[2rem] border border-blue-500/20 bg-blue-500/10 p-5">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
-                          Comunicazione GLPI
-                        </p>
+                      <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
+                        Comunicazione GLPI
+                      </p>
                         <h3 className="mt-2 text-xl font-black text-white">
                           Ultimo contenuto operativo
                         </h3>
@@ -1154,7 +1160,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                         Conversazione ticket
                       </p>
                       <h3 className="mt-2 text-xl font-black text-white">
-                        Botta e risposta GLPI
+                        {glpiEnabled ? "Botta e risposta GLPI" : "Conversazione ticket"}
                       </h3>
                       {conversationMessage && (
                         <p className="mt-3 w-fit rounded-2xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-black text-blue-100">
@@ -1167,22 +1173,26 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                       </label>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={refreshGlpiConversation}
-                      disabled={syncingConversation || !normalizedTicket.glpi_ticket_id}
-                      className="inline-flex w-fit items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-2 text-xs font-black text-white hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <RefreshCw size={15} className={syncingConversation ? "animate-spin" : ""} />
-                      {syncingConversation ? "Aggiorno..." : "Aggiorna"}
-                    </button>
+                    {glpiEnabled && (
+                      <button
+                        type="button"
+                        onClick={refreshGlpiConversation}
+                        disabled={syncingConversation || !normalizedTicket.glpi_ticket_id}
+                        className="inline-flex w-fit items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-2 text-xs font-black text-white hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <RefreshCw size={15} className={syncingConversation ? "animate-spin" : ""} />
+                        {syncingConversation ? "Aggiorno..." : "Aggiorna"}
+                      </button>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-5">
                   {conversationEvents.length === 0 ? (
                     <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-sm font-bold text-slate-400">
-                      Nessuna conversazione disponibile. Dopo la prossima sincronizzazione GLPI compariranno follow-up, risposte e soluzioni.
+                      {glpiEnabled
+                        ? "Nessuna conversazione disponibile. Dopo la prossima sincronizzazione GLPI compariranno follow-up, risposte e soluzioni."
+                        : "Nessuna conversazione disponibile per questo ticket."}
                     </div>
                   ) : (
                     <div className="grid gap-4">
@@ -1227,7 +1237,11 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                 </div>
 
                 <div className="border-t border-white/10 bg-slate-950/35 p-5">
-                  {!normalizedTicket.glpi_ticket_id ? (
+                  {!glpiEnabled ? (
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-slate-300">
+                      Le risposte operative esterne non sono abilitate per questo tenant.
+                    </div>
+                  ) : !normalizedTicket.glpi_ticket_id ? (
                     <div className="rounded-3xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
                       Questo ticket non ha un ID GLPI associato: non posso inviare una risposta.
                     </div>
@@ -1351,7 +1365,7 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
               </div>
 
 
-              {normalizedTicket.glpi_ticket_id && (
+              {glpiEnabled && normalizedTicket.glpi_ticket_id && (
                 <div className="rounded-[2rem] border border-emerald-500/20 bg-emerald-500/10 p-5">
                   <div className="flex items-center gap-2">
                     <Send className="text-emerald-300" size={18} />
@@ -1603,7 +1617,9 @@ export default function TicketWorkspace({ ticket, open, onClose, onStatusUpdated
                 <div>
                   <p className="text-lg font-black text-white">Insight AI ticket</p>
                   <p className="mt-2 text-sm font-bold leading-relaxed text-slate-300">
-                    Area predisposta per analizzare pattern, ricorrenze, rischio SLA e possibili cause. La qualità aumenta con eventi, note tecniche, stati e dati GLPI arricchiti. Questo ticket ha già {events.length} eventi disponibili per la lettura operativa.
+                    {glpiEnabled
+                      ? `Area predisposta per analizzare pattern, ricorrenze, rischio SLA e possibili cause. La qualità aumenta con eventi, note tecniche, stati e dati GLPI arricchiti. Questo ticket ha già ${events.length} eventi disponibili per la lettura operativa.`
+                      : `Area predisposta per analizzare pattern, ricorrenze, rischio SLA e possibili cause. La qualità aumenta con eventi, note tecniche e stati. Questo ticket ha già ${events.length} eventi disponibili per la lettura operativa.`}
                   </p>
                 </div>
               </div>

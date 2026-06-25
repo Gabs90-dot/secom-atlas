@@ -18,12 +18,16 @@ type WebvimeTicket = {
   aging: string;
 };
 
+type ExecutiveWebvimeProps = {
+  glpiEnabled?: boolean;
+};
+
 const tickets: WebvimeTicket[] = [
   {
-    id: "ATLAS #24645",
-    glpi: "GLPI #2059045942",
-    title: "Non riesco a vedere i referti. Quando clicco sul referto appare errore.",
-    user: "Utente esterno",
+    id: "DEMO #1045",
+    glpi: "GLPI DEMO #9001045",
+    title: "Richiesta demo: il documento tecnico non risulta disponibile nel portale.",
+    user: "Utente Demo",
     arrival: "11/06/2026 11:09",
     opening: "11/06/2026 06:59",
     closing: "—",
@@ -32,22 +36,22 @@ const tickets: WebvimeTicket[] = [
     aging: "+7 giorni",
   },
   {
-    id: "ATLAS #24644",
-    glpi: "GLPI #2059045943",
-    title: "Password dimenticata per accesso ai referti Webvime.",
-    user: "Utente esterno",
+    id: "DEMO #1044",
+    glpi: "GLPI DEMO #9001044",
+    title: "Richiesta demo: reset credenziali per area riservata.",
+    user: "Utente Demo",
     arrival: "10/06/2026 18:22",
     opening: "10/06/2026 18:23",
     closing: "10/06/2026 19:02",
-    technician: "M. Bianchi",
+    technician: "Tecnico Demo B",
     status: "CHIUSO",
     aging: "Risolto",
   },
   {
-    id: "ATLAS #24643",
-    glpi: "GLPI #2059045940",
-    title: "Errore caricamento referto: timeout durante il download del documento.",
-    user: "Utente esterno",
+    id: "DEMO #1043",
+    glpi: "GLPI DEMO #9001043",
+    title: "Richiesta demo: timeout durante il download di un allegato tecnico.",
+    user: "Utente Demo",
     arrival: "10/06/2026 16:41",
     opening: "10/06/2026 16:42",
     closing: "—",
@@ -56,14 +60,14 @@ const tickets: WebvimeTicket[] = [
     aging: "+3 giorni",
   },
   {
-    id: "ATLAS #24642",
-    glpi: "GLPI #2059045938",
-    title: "Accesso effettuato ma nessun referto disponibile. Verifica richiesta.",
-    user: "Utente esterno",
+    id: "DEMO #1042",
+    glpi: "GLPI DEMO #9001042",
+    title: "Richiesta demo: verifica contenuti disponibili dopo autenticazione.",
+    user: "Utente Demo",
     arrival: "10/06/2026 15:02",
     opening: "10/06/2026 15:03",
     closing: "10/06/2026 15:28",
-    technician: "A. Rossi",
+    technician: "Tecnico Demo A",
     status: "CHIUSO",
     aging: "Risolto",
   },
@@ -75,7 +79,7 @@ const statusClass = {
   "IN LAVORAZIONE": "border-cyan-300/25 bg-cyan-300/10 text-cyan-100",
 };
 
-export default function ExecutiveWebvime() {
+export default function ExecutiveWebvime({ glpiEnabled = true }: ExecutiveWebvimeProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"TUTTI" | "APERTO" | "CHIUSO" | "VECCHI">("TUTTI");
 
@@ -86,14 +90,30 @@ export default function ExecutiveWebvime() {
         !normalizedQuery ||
         ticket.title.toLowerCase().includes(normalizedQuery) ||
         ticket.id.toLowerCase().includes(normalizedQuery) ||
-        ticket.glpi.toLowerCase().includes(normalizedQuery) ||
+        (glpiEnabled && ticket.glpi.toLowerCase().includes(normalizedQuery)) ||
         ticket.technician.toLowerCase().includes(normalizedQuery);
       const matchFilter =
         filter === "TUTTI" ||
         (filter === "VECCHI" ? ticket.aging.includes("+7") : ticket.status === filter);
       return matchQuery && matchFilter;
     });
-  }, [filter, query]);
+  }, [filter, glpiEnabled, query]);
+
+  if (!glpiEnabled) {
+    return (
+      <div className="space-y-5">
+        <ExecutiveGlassCard>
+          <div className="p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-100/55">ATLAS Module</p>
+            <h2 className="mt-1 text-2xl font-black text-white">Registro segnali Webvime</h2>
+            <p className="mt-2 text-sm font-semibold text-slate-400">
+              Integrazione GLPI/Webvime non attiva per questo tenant. Nessun dato sincronizzato da mostrare.
+            </p>
+          </div>
+        </ExecutiveGlassCard>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -102,7 +122,7 @@ export default function ExecutiveWebvime() {
           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-100/55">ATLAS Module</p>
           <h2 className="mt-1 text-2xl font-black text-white">Registro segnali Webvime</h2>
           <p className="mt-1 text-sm font-semibold text-slate-400">
-            Versione estetica parallela. I ticket sotto sono mock per il Design Lab.
+            Versione estetica parallela. I ticket sotto sono demo neutrali per il Design Lab.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -124,10 +144,10 @@ export default function ExecutiveWebvime() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-4">
-        <ExecutiveMetricCard label="Ticket Webvime" value="13.349" detail="Totali sincronizzati" tone="cyan" trend="+" />
-        <ExecutiveMetricCard label="Aperti" value="191" detail="Attualmente aperti" tone="gold" trend="+" />
-        <ExecutiveMetricCard label="Chiusi" value="13.158" detail="Segnali risolti" tone="green" trend="+" />
-        <ExecutiveMetricCard label="Aperti +7g" value="165" detail="Richiedono attenzione" tone="red" trend="+" />
+        <ExecutiveMetricCard label="Ticket Webvime" value="4" detail="Scenario demo" tone="cyan" trend="+" />
+        <ExecutiveMetricCard label="Aperti" value="1" detail="Demo aperti" tone="gold" trend="+" />
+        <ExecutiveMetricCard label="Chiusi" value="2" detail="Demo risolti" tone="green" trend="+" />
+        <ExecutiveMetricCard label="Aperti +7g" value="1" detail="Demo attenzione" tone="red" trend="+" />
       </div>
 
       <ExecutiveGlassCard>
@@ -176,7 +196,9 @@ export default function ExecutiveWebvime() {
                   <Radio size={12} /> Webvime
                 </span>
                 <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">{ticket.id}</span>
-                <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">{ticket.glpi}</span>
+                {glpiEnabled && (
+                  <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">{ticket.glpi}</span>
+                )}
                 <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${statusClass[ticket.status]}`}>
                   {ticket.status}
                 </span>

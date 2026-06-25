@@ -1,11 +1,26 @@
 "use client";
 
+import { UserRound } from "lucide-react";
+
 type OperatorAvatarProps = {
   avatar?: string;
+  displayName?: string;
   onUpload?: (file?: File | null) => void | Promise<void>;
 };
 
-export default function OperatorAvatar({ avatar = "", onUpload }: OperatorAvatarProps) {
+function getInitials(displayName?: string) {
+  const parts = String(displayName || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) return "";
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+}
+
+export default function OperatorAvatar({ avatar = "", displayName = "", onUpload }: OperatorAvatarProps) {
+  const initials = getInitials(displayName);
+
   return (
     <label
       title="Carica foto profilo"
@@ -13,8 +28,10 @@ export default function OperatorAvatar({ avatar = "", onUpload }: OperatorAvatar
     >
       {avatar ? (
         <img src={avatar} alt="Foto profilo" className="h-full w-full object-cover" />
+      ) : initials ? (
+        <span>{initials}</span>
       ) : (
-        <span>GP</span>
+        <UserRound size={20} aria-hidden="true" />
       )}
       {!avatar && (
         <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-slate-950 bg-cyan-400 text-[11px] font-black text-slate-950">

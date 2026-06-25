@@ -3,11 +3,13 @@ import { CornerDownLeft, Search } from "lucide-react";
 type ExecutiveCommandBarProps = {
   compact?: boolean;
   placeholder?: string;
+  glpiEnabled?: boolean;
 };
 
 export default function ExecutiveCommandBar({
   compact = false,
   placeholder = "Cerca cliente, sede, ticket, contratto o asset...",
+  glpiEnabled = true,
 }: ExecutiveCommandBarProps) {
   return (
     <div className="relative overflow-hidden rounded-[30px] border border-cyan-300/15 bg-slate-950/55 p-5 shadow-[0_24px_80px_rgba(8,47,73,0.25)] backdrop-blur-2xl">
@@ -23,7 +25,9 @@ export default function ExecutiveCommandBar({
           </p>
           {!compact && (
             <p className="mt-1 text-xs font-semibold text-slate-400">
-              Esempi: Casoria · GLPI #2059045627 · SLA critici · Webvime Roma
+              {glpiEnabled
+                ? "Esempi: Casoria · GLPI #2059045627 · SLA critici · Webvime Roma"
+                : "Esempi: Casoria · ATLAS #1024 · SLA critici · Webvime Roma"}
             </p>
           )}
         </div>

@@ -32,6 +32,7 @@ type TicketRegistryProps = {
   refreshingTickets?: boolean;
   onDeleteTicket?: (ticket: any) => void;
   executiveMode?: boolean;
+  glpiEnabled?: boolean;
 };
 
 function ticketMaterialsLabel(ticket: any) {
@@ -251,6 +252,7 @@ function RegistryFilters({
   setUrgentOnly,
   availableRegions = [],
   customerEntities = [],
+  glpiEnabled = true,
 }: TicketRegistryProps) {
   const inputClass =
     variant === "mobile"
@@ -269,7 +271,7 @@ function RegistryFilters({
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
             className={`${inputClass} w-full pl-10`}
-            placeholder="Cerca sede, descrizione, ID ATLAS o ID GLPI"
+            placeholder={glpiEnabled ? "Cerca sede, descrizione, ID ATLAS o ID GLPI" : "Cerca sede, descrizione o ID ATLAS"}
             value={filterSite}
             onChange={(e) => setFilterSite?.(e.target.value)}
           />
@@ -468,7 +470,7 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
 }
 
 export default function TicketRegistry(props: TicketRegistryProps) {
-  const { variant, tickets, exportCsv, setMobileView, card = "", onOpenTicketDetail, onRefreshTickets, refreshingTickets = false, executiveMode = false } = props;
+  const { variant, tickets, exportCsv, setMobileView, card = "", onOpenTicketDetail, onRefreshTickets, refreshingTickets = false, executiveMode = false, glpiEnabled = true } = props;
   const isMobile = variant === "mobile";
   const [boardFilter, setBoardFilter] = useState<"all" | "open" | "urgent" | "overdue" | "closed">("all");
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
@@ -627,7 +629,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
               </div>
 
               <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                <p className="text-sm font-black text-slate-400">Descrizione problema GLPI / ATLAS</p>
+                <p className="text-sm font-black text-slate-400">{glpiEnabled ? "Descrizione problema GLPI / ATLAS" : "Descrizione problema"}</p>
                 <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-relaxed text-slate-200">
                   {ticketDescription(selectedTicket)}
                 </p>

@@ -10,6 +10,7 @@ import AtlasEmptyState from "@/components/atlas/ui/AtlasEmptyState";
 import AtlasMetric from "@/components/atlas/ui/AtlasMetric";
 import AtlasModal from "@/components/atlas/ui/AtlasModal";
 import AtlasSection from "@/components/atlas/ui/AtlasSection";
+import type { AtlasTenantOperator } from "@/lib/atlasTenantCatalogs";
 import {
   CalendarDays,
   CheckCircle2,
@@ -25,7 +26,12 @@ import {
 type DispatchCenterProps = {
   tickets: any[];
   technicians: string[];
+  operators?: AtlasTenantOperator[];
+  operatorSectors?: string[];
+  tenant?: { id?: string | null } | null;
   onOpenTicket?: (ticket: any) => void;
+  onAddOperator?: (input: { name: string; title: string; sector: string; status: string }) => void;
+  onAddSector?: (name: string) => void;
 };
 
 type QueueFilter = "all" | "urgent" | "blocked" | "unassigned" | "aging";
@@ -120,7 +126,17 @@ function getRiskTextClass(level: number) {
   return "text-emerald-300";
 }
 
-export default function DispatchCenter({ tickets, technicians, onOpenTicket }: DispatchCenterProps) {
+export default function DispatchCenter({
+  tickets,
+  technicians,
+  operators = [],
+  operatorSectors = [],
+  tenant = null,
+  onOpenTicket,
+  onAddOperator,
+  onAddSector,
+}: DispatchCenterProps) {
+  const tenantId = String(tenant?.id || "").trim();
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
   const [scheduleRange, setScheduleRange] = useState<ScheduleRange>("today");
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
@@ -130,6 +146,23 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
   const [draftDate, setDraftDate] = useState("");
   const [draftSlot, setDraftSlot] = useState("");
   const [localOverrides, setLocalOverrides] = useState<Record<string, any>>({});
+  const [operatorForm, setOperatorForm] = useState({
+    name: "",
+    title: "",
+    sector: "",
+    status: "active",
+  });
+  const [sectorDraft, setSectorDraft] = useState("");
+  const visibleOperators = operators.length
+    ? operators
+    : technicians.map((name) => ({
+        id: `fallback-${normalize(name)}`,
+        tenantId,
+        name,
+        title: "Tecnico",
+        sector: "Assistenza tecnica",
+        status: "active" as const,
+      }));
 
   const mergedTickets = useMemo(() => {
     return tickets.map((ticket) => ({
@@ -205,6 +238,16 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
     };
   });
 
+  function submitOperator() {
+    onAddOperator?.(operatorForm);
+    setOperatorForm({ name: "", title: "", sector: "", status: "active" });
+  }
+
+  function submitSector() {
+    onAddSector?.(sectorDraft);
+    setSectorDraft("");
+  }
+
   function openDispatchModal(ticket: any) {
     setSelectedTicket(ticket);
     setDraftTechnician(ticket.technician || "");
@@ -215,6 +258,7 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
 
   async function saveDispatchUpdate() {
     if (!selectedTicket?.id) return;
+    if (!tenantId) return;
 
     setSaving(true);
 
@@ -231,7 +275,11 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
       closed_at: draftStatus === "Chiuso" ? new Date().toISOString() : selectedTicket.closedAt || selectedTicket.closed_at || null,
     };
 
-    const { error } = await supabase.from("tickets").update(payload).eq("id", Number(selectedTicket.id));
+    const { error } = await supabase
+      .from("tickets")
+      .update(payload)
+      .eq("id", Number(selectedTicket.id))
+      .eq("tenant_id", tenantId);
 
     if (error) {
       console.log(error);
@@ -261,6 +309,7 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
     if (normalize(previousTechnician) !== normalize(draftTechnician)) {
       events.push({
         ticket_id: Number(selectedTicket.id),
+        tenant_id: tenantId,
         customer_id: selectedTicket.customerId || selectedTicket.customer_id || null,
         site_id: selectedTicket.site_id || null,
         event_type: "ticket_assigned",
@@ -277,6 +326,7 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
     if (normalize(previousStatus) !== normalize(draftStatus)) {
       events.push({
         ticket_id: Number(selectedTicket.id),
+        tenant_id: tenantId,
         customer_id: selectedTicket.customerId || selectedTicket.customer_id || null,
         site_id: selectedTicket.site_id || null,
         event_type: "ticket_status_changed",
@@ -293,6 +343,7 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
     if ((previousDate || "") !== (draftDate || "") || (previousSlot || "") !== (draftSlot || "")) {
       events.push({
         ticket_id: Number(selectedTicket.id),
+        tenant_id: tenantId,
         customer_id: selectedTicket.customerId || selectedTicket.customer_id || null,
         site_id: selectedTicket.site_id || null,
         event_type: "ticket_scheduled",
@@ -507,6 +558,95 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
           </div>
         }
       >
+        <div className="mb-5 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+          <AtlasCard variant="compact">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">Operatori tenant</p>
+                <p className="mt-1 text-sm font-bold text-slate-400">
+                  {visibleOperators.length > 0 ? `${visibleOperators.length} operatori configurati` : "Nessun operatore configurato"}
+                </p>
+              </div>
+              <AtlasBadge tone={visibleOperators.length > 0 ? "emerald" : "amber"}>
+                {visibleOperators.length > 0 ? "Attivo" : "Empty state"}
+              </AtlasBadge>
+            </div>
+
+            {visibleOperators.length === 0 ? (
+              <AtlasEmptyState description="Questo tenant non ha ancora tecnici o operatori. Aggiungi un operatore o almeno una mansione per iniziare." />
+            ) : (
+              <div className="grid gap-2 md:grid-cols-2">
+                {visibleOperators.slice(0, 6).map((operator) => (
+                  <div key={operator.id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                    <p className="truncate text-sm font-black text-white">{operator.name}</p>
+                    <p className="mt-1 truncate text-xs font-bold text-slate-500">
+                      {operator.title || "Operatore"} · {operator.sector || "Mansione n/d"}
+                    </p>
+                    <p className="mt-2 text-[10px] font-black uppercase tracking-wide text-slate-500">{operator.status}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </AtlasCard>
+
+          <AtlasCard variant="compact">
+            <p className="mb-3 text-xs font-black uppercase tracking-wide text-slate-500">Nuovo operatore</p>
+            <div className="grid gap-2">
+              <input
+                value={operatorForm.name}
+                onChange={(event) => setOperatorForm((prev) => ({ ...prev, name: event.target.value }))}
+                placeholder="Nome operatore"
+                className={atlasDesign.input.compact}
+              />
+              <input
+                value={operatorForm.title}
+                onChange={(event) => setOperatorForm((prev) => ({ ...prev, title: event.target.value }))}
+                placeholder="Titolo / qualifica"
+                className={atlasDesign.input.compact}
+              />
+              <input
+                value={operatorForm.sector}
+                onChange={(event) => setOperatorForm((prev) => ({ ...prev, sector: event.target.value }))}
+                placeholder="Settore / mansione"
+                list="atlas-operator-sectors"
+                className={atlasDesign.input.compact}
+              />
+              <datalist id="atlas-operator-sectors">
+                {operatorSectors.map((sector) => (
+                  <option key={sector} value={sector} />
+                ))}
+              </datalist>
+              <select
+                value={operatorForm.status}
+                onChange={(event) => setOperatorForm((prev) => ({ ...prev, status: event.target.value }))}
+                className={atlasDesign.input.compact}
+              >
+                <option value="active">Attivo</option>
+                <option value="paused">Sospeso</option>
+                <option value="inactive">Non attivo</option>
+              </select>
+              <AtlasButton onClick={submitOperator} disabled={!tenantId || !operatorForm.name.trim()}>
+                Aggiungi operatore
+              </AtlasButton>
+            </div>
+
+            <div className="mt-4 border-t border-white/10 pt-4">
+              <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500">Mansione personalizzata</p>
+              <div className="flex gap-2">
+                <input
+                  value={sectorDraft}
+                  onChange={(event) => setSectorDraft(event.target.value)}
+                  placeholder="Es. Networking"
+                  className={atlasDesign.input.compact}
+                />
+                <AtlasButton variant="secondary" onClick={submitSector} disabled={!tenantId || !sectorDraft.trim()}>
+                  Salva
+                </AtlasButton>
+              </div>
+            </div>
+          </AtlasCard>
+        </div>
+
         <div className="mb-4 grid gap-3 md:grid-cols-3">
           <AtlasMetric label="Ticket pianificati" value={plannedTickets.length} />
           <AtlasMetric label="Non pianificati" value={unscheduledTickets.length} toneClass="text-violet-300" onClick={() => setQueueFilter("unassigned")} />
@@ -519,7 +659,9 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
         </div>
 
         <div className="grid gap-3 xl:grid-cols-3">
-          {scheduleByTechnician.map((item) => (
+          {scheduleByTechnician.length === 0 ? (
+            <AtlasEmptyState description="Nessun tecnico attivo configurato per la pianificazione." />
+          ) : scheduleByTechnician.map((item) => (
             <AtlasCard key={item.technician} variant={item.overload ? "danger" : "compact"}>
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -540,7 +682,9 @@ export default function DispatchCenter({ tickets, technicians, onOpenTicket }: D
       <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
         <AtlasSection eyebrow="Team workload" title="Carico tecnici" action={<UserRound className="text-blue-300" size={26} />}>
           <div className="grid gap-3">
-            {workload.map((item) => (
+            {workload.length === 0 ? (
+              <AtlasEmptyState description="Nessun tecnico attivo configurato per il calcolo del carico." />
+            ) : workload.map((item) => (
               <AtlasCard key={item.technician} variant="compact">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">

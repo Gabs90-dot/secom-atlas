@@ -9,6 +9,7 @@ type TodoUrgency = "low" | "normal" | "urgent";
 
 type TodoTask = {
   id: string;
+  tenant_id?: string | null;
   title: string;
   description: string | null;
   urgency: TodoUrgency;
@@ -102,9 +103,13 @@ function Metric({ label, value, icon: Icon, tone }: any) {
   );
 }
 
-type TodoListPanelProps = { executiveMode?: boolean };
+type TodoListPanelProps = {
+  executiveMode?: boolean;
+  tenant?: { id?: string | null } | null;
+};
 
-export default function TodoListPanel({ executiveMode = false }: TodoListPanelProps = {}) {
+export default function TodoListPanel({ executiveMode = false, tenant = null }: TodoListPanelProps = {}) {
+  const tenantId = String(tenant?.id || "").trim();
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -124,11 +129,18 @@ export default function TodoListPanel({ executiveMode = false }: TodoListPanelPr
   async function loadTasks() {
     setLoading(true);
     setError("");
+    if (!tenantId) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       const { data, error } = await withTimeout(
         supabase
           .from("todo_tasks")
-          .select("id,title,description,urgency,status,created_by,created_by_name,assigned_to,assigned_to_name,taken_at,completed_at,completion_note,created_at,updated_at")
+          .select("id,tenant_id,title,description,urgency,status,created_by,created_by_name,assigned_to,assigned_to_name,taken_at,completed_at,completion_note,created_at,updated_at")
+          .eq("tenant_id", tenantId)
           .order("created_at", { ascending: false })
           .limit(1000),
         12000,
@@ -148,12 +160,12 @@ export default function TodoListPanel({ executiveMode = false }: TodoListPanelPr
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user || null));
     loadTasks();
-  }, []);
+  }, [tenantId]);
 
   const userLabel = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || "Operatore ATLAS";
 
   async function createTask() {
-    if (!title.trim() || saving) return;
+    if (!title.trim() || saving || !tenantId) return;
     setSaving(true);
     setError("");
 
@@ -170,13 +182,14 @@ export default function TodoListPanel({ executiveMode = false }: TodoListPanelPr
           .from("todo_tasks")
           .insert({
             title: title.trim(),
+            tenant_id: tenantId,
             description: description.trim() || null,
             urgency,
             status: "new",
             created_by: liveUser?.id || null,
             created_by_name: liveUserLabel,
           })
-          .select("id,title,description,urgency,status,created_by,created_by_name,assigned_to,assigned_to_name,taken_at,completed_at,completion_note,created_at,updated_at")
+          .select("id,tenant_id,title,description,urgency,status,created_by,created_by_name,assigned_to,assigned_to_name,taken_at,completed_at,completion_note,created_at,updated_at")
           .single(),
         12000,
         "Inserimento To Do List",
@@ -203,6 +216,7 @@ export default function TodoListPanel({ executiveMode = false }: TodoListPanelPr
   }
 
   async function takeTask(task: TodoTask) {
+    if (!tenantId) return;
     setError("");
     try {
       const { error } = await supabase
@@ -214,7 +228,8 @@ export default function TodoListPanel({ executiveMode = false }: TodoListPanelPr
           taken_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq("id", task.id);
+        .eq("id", task.id)
+        .eq("tenant_id", tenantId);
       if (error) throw error;
       await loadTasks();
       window.dispatchEvent(new Event("atlas-todo-updated"));
@@ -225,7 +240,7 @@ export default function TodoListPanel({ executiveMode = false }: TodoListPanelPr
   }
 
   async function closeTask() {
-    if (!closingTask) return;
+    if (!closingTask || !tenantId) return;
     setError("");
     try {
       const { error } = await supabase
@@ -236,7 +251,8 @@ export default function TodoListPanel({ executiveMode = false }: TodoListPanelPr
           completed_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq("id", closingTask.id);
+        .eq("id", closingTask.id)
+        .eq("tenant_id", tenantId);
       if (error) throw error;
       setClosingTask(null);
       setClosingNote("");

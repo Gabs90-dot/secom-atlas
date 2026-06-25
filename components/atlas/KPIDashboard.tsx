@@ -17,6 +17,7 @@ import {
 type KPIDashboardProps = {
   tickets: any[];
   technicians: string[];
+  currentUser?: { tenantId?: string | null } | null;
 };
 
 type RangeFilter = "all" | "7" | "30" | "90";
@@ -174,11 +175,26 @@ function getCustomerLabel(ticket: any) {
   );
 }
 
-export default function KPIDashboard({ tickets, technicians }: KPIDashboardProps) {
+export default function KPIDashboard({ tickets, currentUser = null }: KPIDashboardProps) {
   const [range, setRange] = useState<RangeFilter>("30");
+  const tenantId = String(currentUser?.tenantId || "").trim();
+
+  const tenantScopedTickets = useMemo(() => {
+    if (!tenantId) return [];
+    return tickets.filter((ticket) => String(ticket?.tenantId || ticket?.tenant_id || "") === tenantId);
+  }, [tickets, tenantId]);
+
+  const tenantTechnicians = useMemo(() => {
+    const seen = new Set<string>();
+    tenantScopedTickets.forEach((ticket) => {
+      const technician = String(ticket?.technician || "").trim();
+      if (technician) seen.add(technician);
+    });
+    return Array.from(seen).sort((a, b) => a.localeCompare(b, "it"));
+  }, [tenantScopedTickets]);
 
   const scopedTickets = useMemo(() => {
-    if (range === "all") return tickets;
+    if (range === "all") return tenantScopedTickets;
 
     const days = Number(range);
     const from = new Date();
@@ -186,11 +202,11 @@ export default function KPIDashboard({ tickets, technicians }: KPIDashboardProps
     from.setDate(from.getDate() - days);
     from.setHours(0, 0, 0, 0);
 
-    return tickets.filter((ticket) => {
+    return tenantScopedTickets.filter((ticket) => {
       const parsed = parseDate(ticketDateValue(ticket));
       return parsed ? parsed >= from : false;
     });
-  }, [tickets, range]);
+  }, [tenantScopedTickets, range]);
 
   const activeTickets = useMemo(
     () => scopedTickets.filter((ticket) => !isClosed(ticket)),
@@ -235,7 +251,7 @@ export default function KPIDashboard({ tickets, technicians }: KPIDashboardProps
     ? (slaCompliant / slaEvaluatedTickets.length) * 100
     : 100;
 
-  const workload = technicians
+  const workload = tenantTechnicians
     .map((technician) => {
       const assigned = activeTickets.filter(
         (ticket) => normalize(ticket.technician) === normalize(technician),
@@ -362,7 +378,7 @@ export default function KPIDashboard({ tickets, technicians }: KPIDashboardProps
 
       const weekEnd = endOfWeek(new Date(weekStart));
 
-      const count = tickets.filter((ticket) => {
+      const count = tenantScopedTickets.filter((ticket) => {
         const parsed = parseDate(ticketDateValue(ticket));
         return parsed ? parsed >= weekStart && parsed <= weekEnd : false;
       }).length;
@@ -372,7 +388,7 @@ export default function KPIDashboard({ tickets, technicians }: KPIDashboardProps
         count,
       };
     });
-  }, [tickets]);
+  }, [tenantScopedTickets]);
 
   const maxTrend = Math.max(1, ...weeklyTrend.map((item) => item.count));
 

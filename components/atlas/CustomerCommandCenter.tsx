@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -17,6 +17,7 @@ type CustomerCommandCenterProps = {
   customerEntities?: any[];
   onOpenTicket?: (customer: any, site?: any) => void;
   executiveMode?: boolean;
+  glpiEnabled?: boolean;
 };
 
 function normalize(value: any) {
@@ -374,6 +375,7 @@ export default function CustomerCommandCenter({
   customerEntities = [],
   onOpenTicket,
   executiveMode = false,
+  glpiEnabled = true,
 }: CustomerCommandCenterProps) {
   const [search, setSearch] = useState("");
   const [selectedSite, setSelectedSite] = useState<any | null>(null);
@@ -463,6 +465,12 @@ export default function CustomerCommandCenter({
         return;
       }
 
+      const entityTenantId = String(selectedEntity.tenant_id || selectedEntity.tenantId || "").trim();
+      if (!entityTenantId || !glpiEnabled) {
+        setEntityTickets([]);
+        return;
+      }
+
       const rawPath =
         selectedEntity.raw_complete_name ||
         selectedEntity.complete_name ||
@@ -511,6 +519,7 @@ export default function CustomerCommandCenter({
           ticket_type,
           created_at
         `)
+        .eq("tenant_id", entityTenantId)
         .eq("source", "glpi")
         .ilike("glpi_entity_path", `${queryPath}%`)
         .order("opened_at", { ascending: false, nullsFirst: false })
@@ -527,12 +536,18 @@ export default function CustomerCommandCenter({
     }
 
     loadEntityTickets();
-  }, [selectedEntity?.id, selectedEntity?.complete_name, selectedEntity?.normalized_complete_name]);
+  }, [selectedEntity?.id, selectedEntity?.tenant_id, selectedEntity?.complete_name, selectedEntity?.normalized_complete_name, glpiEnabled]);
 
 
   useEffect(() => {
     async function loadSiteTickets() {
       if (!selectedSite?.id) {
+        setSiteTickets([]);
+        return;
+      }
+
+      const siteTenantId = String(selectedSite.tenant_id || selectedSite.tenantId || "").trim();
+      if (!siteTenantId) {
         setSiteTickets([]);
         return;
       }
@@ -567,6 +582,7 @@ export default function CustomerCommandCenter({
           ticket_type,
           created_at
         `)
+        .eq("tenant_id", siteTenantId)
         .eq("site_id", selectedSite.id)
         .order("created_at", { ascending: false })
         .range(0, 99);
@@ -581,7 +597,7 @@ export default function CustomerCommandCenter({
     }
 
     loadSiteTickets();
-  }, [selectedSite?.id]);
+  }, [selectedSite?.id, selectedSite?.tenant_id]);
 
   const relatedSites = useMemo(() => {
     if (selectedSite) return [selectedSite];

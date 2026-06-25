@@ -17,6 +17,7 @@ type ContractProfilePanelProps = {
   currentCustomer?: any | null;
   selectedSite?: any | null;
   currentLabel?: string;
+  glpiEnabled?: boolean;
 };
 
 type ContractProfile = Record<string, any>;
@@ -112,6 +113,7 @@ export default function ContractProfilePanel({
   currentCustomer,
   selectedSite,
   currentLabel,
+  glpiEnabled = true,
 }: ContractProfilePanelProps) {
   const [profiles, setProfiles] = useState<ContractProfile[]>([]);
   const [linkedContract, setLinkedContract] = useState<any | null>(null);
@@ -122,7 +124,7 @@ export default function ContractProfilePanel({
   const [linking, setLinking] = useState(false);
   const [selectedContractId, setSelectedContractId] = useState("");
 
-  const glpiEntityId = currentCustomer?.glpi_entity_id || selectedSite?.glpi_entity_id || null;
+  const glpiEntityId = glpiEnabled ? currentCustomer?.glpi_entity_id || selectedSite?.glpi_entity_id || null : null;
 
   const matchText = useMemo(
     () =>
@@ -282,7 +284,7 @@ export default function ContractProfilePanel({
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <label className="grid flex-1 gap-2">
             <span className="text-xs font-black uppercase tracking-[0.2em] text-blue-300">
-              Contratto collegato al cliente / entity GLPI
+              {glpiEnabled ? "Contratto collegato al cliente / entity GLPI" : "Contratto collegato al cliente / sede"}
             </span>
 
             <select

@@ -32,6 +32,7 @@ type CustomerWorkspaceProps = {
   onSelectSite?: (site: any) => void;
   onOpenTicket?: (customer: any, site?: any) => void;
   onReset: () => void;
+  glpiEnabled?: boolean;
 };
 
 type WorkspaceTab =
@@ -132,6 +133,7 @@ export default function CustomerWorkspace({
   onSelectSite,
   onOpenTicket,
   onReset,
+  glpiEnabled = true,
 }: CustomerWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
   const [modal, setModal] = useState<ModalType>(null);
@@ -670,6 +672,7 @@ export default function CustomerWorkspace({
               currentCustomer={currentCustomer}
               selectedSite={selectedSite}
               currentLabel={currentLabel}
+              glpiEnabled={glpiEnabled}
             />
           )}
 
@@ -955,6 +958,7 @@ export default function CustomerWorkspace({
           currentCustomer={currentCustomer}
           selectedSite={selectedSite}
           currentLabel={currentLabel}
+          glpiEnabled={glpiEnabled}
         />
       </div>
     );

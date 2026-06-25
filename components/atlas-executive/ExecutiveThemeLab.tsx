@@ -64,7 +64,7 @@ export default function ExecutiveThemeLab({ uiMode = "classic", onUiModeChange }
         </div>
       </div>
 
-      {view === "dashboard" && <ExecutiveDashboard />}
+      {view === "dashboard" && <ExecutiveDashboard demoMode />}
       {view === "analytics" && <ExecutiveAnalytics />}
       {view === "webvime" && <ExecutiveWebvime />}
     </ExecutiveShell>

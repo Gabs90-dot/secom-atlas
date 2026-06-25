@@ -40,6 +40,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
   const {
     tenantLoading,
     activeTenant,
+    glpiEnabled = true,
     mobileView,
     setMobileView,
     canAccessTab,
@@ -118,12 +119,17 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     technician,
     setTechnician,
     technicians,
+    operators = [],
+    operatorSectors = [],
+    addTenantOperator,
+    addTenantOperatorSector,
     renderDateInput,
     selectedDate,
     setSelectedDate,
     selectedSlot,
     setSelectedSlot,
     materials,
+    addTenantMaterial,
     toggleMaterial,
     selectedMaterials,
     materialCost,
@@ -186,6 +192,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     promptAddClient,
     selectedSystem,
     setSelectedSystem,
+    systemsCatalogItems,
     systemSearch,
     setSystemSearch,
     showMessage,
@@ -254,6 +261,8 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     tickets,
     customerEntities,
     technicians,
+    operators,
+    operatorSectors,
     currentUser,
     activeTenant,
     filteredTickets,
@@ -280,6 +289,9 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     onRefreshTickets: refreshTickets,
     refreshingTickets,
     onDeleteTicketFromRegistry: deleteTicketFromRegistry,
+    glpiEnabled,
+    onAddTenantOperator: addTenantOperator,
+    onAddTenantOperatorSector: addTenantOperatorSector,
   };
 
   return (
@@ -335,6 +347,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
         customerEntities={customerEntities}
         currentUser={currentUser}
         activeTenant={activeTenant}
+        glpiEnabled={glpiEnabled}
         onOpenTicket={openTicketFromCustomer}
         onNavigate={(view) => setMobileView(view as any)}
       />
@@ -346,6 +359,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
           tickets={tickets}
           customerEntities={customerEntities}
           onOpenTicket={openTicketFromCustomer}
+          glpiEnabled={glpiEnabled}
         />
       </div>
     )
@@ -361,22 +375,30 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     />
   )}
 
-  {effectiveMobileView === "webvime" && (isExecutiveMode ? <ExecutiveWebvime /> : <WebvimeBoard />)}
+  {effectiveMobileView === "webvime" && (isExecutiveMode ? <ExecutiveWebvime glpiEnabled={glpiEnabled} /> : <WebvimeBoard tenant={activeTenant} currentUser={currentUser} glpiEnabled={glpiEnabled} />)}
 
   {effectiveMobileView === "dispatch" && (
-    <DispatchCenter tickets={tickets} technicians={technicians} />
+    <DispatchCenter
+      tickets={tickets}
+      technicians={technicians}
+      operators={operators}
+      operatorSectors={operatorSectors}
+      tenant={activeTenant}
+      onAddOperator={addTenantOperator}
+      onAddSector={addTenantOperatorSector}
+    />
   )}
 
   {effectiveMobileView === "piani" && (
     <AtlasModuleRenderer activeTab="piani" {...sharedRendererProps} />
   )}
 
-  {effectiveMobileView === "todo" && <TodoListPanel />}
+  {effectiveMobileView === "todo" && <TodoListPanel tenant={activeTenant} />}
 
-  {effectiveMobileView === "activity" && <GlobalActivityFeed />}
+  {effectiveMobileView === "activity" && <GlobalActivityFeed tenant={activeTenant} glpiEnabled={glpiEnabled} />}
 
   {effectiveMobileView === "analytics" && (
-    isExecutiveMode ? <ExecutiveAnalytics /> : <KPIDashboard tickets={tickets} technicians={technicians} />
+    isExecutiveMode ? <ExecutiveAnalytics /> : <KPIDashboard tickets={tickets} technicians={technicians} currentUser={currentUser} />
   )}
 
   {effectiveMobileView === "ai" && (
@@ -416,6 +438,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
       addTicket={addTicket}
       ticketFormReturnTarget={ticketFormReturnTarget}
       goBackFromTicketForm={goBackFromTicketForm}
+      glpiEnabled={glpiEnabled}
     />
   )}
   {effectiveMobileView === "calendario" && (
@@ -483,7 +506,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     <AtlasModuleRenderer activeTab="utenti" {...sharedRendererProps} />
   )}
 
-  {effectiveMobileView === "glpiImport" && (
+  {effectiveMobileView === "glpiImport" && glpiEnabled && (
     <AtlasModuleRenderer activeTab="glpiImport" {...sharedRendererProps} />
   )}
 
@@ -510,6 +533,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
       onRefreshTickets={refreshTickets}
       refreshingTickets={refreshingTickets}
       onDeleteTicket={deleteTicketFromRegistry}
+      glpiEnabled={glpiEnabled}
     />
   )}
 
@@ -584,6 +608,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
       input={input}
       selectedSystem={selectedSystem}
       setSelectedSystem={setSelectedSystem}
+      systemsCatalog={systemsCatalogItems}
       systemSearch={systemSearch}
       setSystemSearch={setSystemSearch}
       euro={euro}
@@ -718,6 +743,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
   onRefreshTickets={refreshTickets}
   refreshingTickets={refreshingTickets}
   onDeleteTicketFromRegistry={deleteTicketFromRegistry}
+  glpiEnabled={glpiEnabled}
 />
 
 {activeTab === "operativo" && (
@@ -749,6 +775,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     addTicket={addTicket}
     ticketFormReturnTarget={ticketFormReturnTarget}
     goBackFromTicketForm={goBackFromTicketForm}
+    glpiEnabled={glpiEnabled}
     selectedContract={selectedContract}
     getContractStatus={getContractStatus}
     euro={euro}
@@ -767,6 +794,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     selectedSlot={selectedSlot}
     setSelectedSlot={setSelectedSlot}
     materials={materials}
+    onAddMaterial={addTenantMaterial}
     toggleMaterial={toggleMaterial}
     selectedMaterials={selectedMaterials}
     materialCost={materialCost}
@@ -845,6 +873,7 @@ export default function AtlasWorkspaceContent({ ctx }: AtlasWorkspaceContentProp
     input={input}
     selectedSystem={selectedSystem}
     setSelectedSystem={setSelectedSystem}
+    systemsCatalog={systemsCatalogItems}
     systemSearch={systemSearch}
     setSystemSearch={setSystemSearch}
     euro={euro}

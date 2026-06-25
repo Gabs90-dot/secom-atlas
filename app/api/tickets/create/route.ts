@@ -139,14 +139,7 @@ export async function POST(request: NextRequest) {
       return jsonError("Payload non valido.", 400);
     }
 
-    const requestedTenantId = text(payload.tenantId ?? payload.tenant_id);
-
-    if (!requestedTenantId) {
-      return jsonError("tenantId mancante.", 400);
-    }
-
     const auth = await requireAtlasUser(request, {
-      tenantId: requestedTenantId,
       allowedRoles: TICKET_CREATE_ALLOWED_ROLES,
       allowedLegacyRoles: TICKET_CREATE_ALLOWED_LEGACY_ROLES,
     });
@@ -156,6 +149,12 @@ export async function POST(request: NextRequest) {
     }
 
     const tenantId = auth.requester.tenantId;
+    const requestedTenantId = text(payload.tenantId ?? payload.tenant_id);
+
+    if (requestedTenantId && requestedTenantId !== tenantId) {
+      return jsonError("Tenant non autorizzato.", 403);
+    }
+
     const provider = await resolveTicketProviderForTenant(auth.serviceClient, auth.requester);
     const site = text(payload.site);
     const problem = text(payload.problem);

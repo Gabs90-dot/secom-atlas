@@ -32,6 +32,8 @@ type ExecutiveDashboardProps = {
   activeTenant?: { id?: string | null } | null;
   onOpenTicket?: (customer: any, site?: any) => void;
   onNavigate?: (view: string) => void;
+  glpiEnabled?: boolean;
+  demoMode?: boolean;
 };
 
 type SearchResult = {
@@ -190,6 +192,8 @@ export default function ExecutiveDashboard({
   activeTenant,
   onOpenTicket,
   onNavigate,
+  glpiEnabled = true,
+  demoMode = false,
 }: ExecutiveDashboardProps) {
   const [query, setQuery] = useState("");
   const [editMode, setEditMode] = useState(false);
@@ -286,13 +290,13 @@ export default function ExecutiveDashboard({
     time: shortTime(ticketDate(ticket)),
     level: (ticket?.urgent ? "CRITICO" : isClosed(ticket) ? "CHIUSO" : unassignedTickets.includes(ticket) ? "ALTA" : "INFO") as "CRITICO" | "ALTA" | "INFO" | "CHIUSO",
     title: ticketTitle(ticket),
-    meta: `${ticketCustomer(ticket)} · ${ticket?.glpi_ticket_id ? `GLPI #${ticket.glpi_ticket_id}` : `ATLAS #${ticket?.id || "n/d"}`} · ${ticket?.technician || "Tecnico N/D"}`,
+    meta: `${ticketCustomer(ticket)} · ${glpiEnabled && ticket?.glpi_ticket_id ? `GLPI #${ticket.glpi_ticket_id}` : `ATLAS #${ticket?.id || "n/d"}`} · ${ticket?.technician || "Tecnico N/D"}`,
     status: ticketStatus(ticket),
     onClick: () => onNavigate?.("registro"),
   }));
 
   const metricById = {
-    "metric-open": { label: "Ticket aperti", value: openTickets.length, detail: "Backlog reale", tone: "cyan" as const, sparkline: metricSeries(openTickets.length || 9), onClick: () => onNavigate?.("registro") },
+    "metric-open": { label: "Ticket aperti", value: openTickets.length, detail: demoMode ? "Scenario demo" : "Backlog reale", tone: "cyan" as const, sparkline: metricSeries(openTickets.length || 9), onClick: () => onNavigate?.("registro") },
     "metric-unassigned": { label: "Da assegnare", value: unassignedTickets.length, detail: "Senza tecnico", tone: "gold" as const, sparkline: metricSeries(unassignedTickets.length || 4), onClick: () => onNavigate?.("registro") },
     "metric-critical": { label: "Critici", value: criticalTickets.length, detail: "Urgenti attivi", tone: "red" as const, sparkline: metricSeries(criticalTickets.length || 2), onClick: () => onNavigate?.("registro") },
     "metric-sla": { label: "SLA Compliance", value: closedTickets.length && tickets.length ? `${Math.round((closedTickets.length / tickets.length) * 100)}%` : "—", detail: "Calcolo su ticket", tone: "green" as const, sparkline: metricSeries(closedTickets.length || 8), onClick: () => onNavigate?.("analytics") },
@@ -355,7 +359,7 @@ export default function ExecutiveDashboard({
                 placeholder="Cerca cliente o sede operativa..."
                 className="mt-1 w-full bg-transparent text-2xl font-black text-white outline-none placeholder:text-slate-500 md:text-3xl"
               />
-              <p className="mt-1 text-xs font-semibold text-slate-400">Esempi: Casoria · Carabinieri Roma · UST Roma · Provinciale Roma</p>
+              <p className="mt-1 text-xs font-semibold text-slate-400">Esempi: Cliente Demo Alfa - Sede Demo Nord - Area Demo Est</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.055] px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-300">
               {realSearchResults.length > 0 ? `${realSearchResults.length} risultati` : "Ricerca cliente"}
@@ -442,7 +446,7 @@ export default function ExecutiveDashboard({
       return (
         <ExecutiveGlassCard
           title="Operazioni recenti"
-          eyebrow="Dati reali ATLAS"
+          eyebrow={demoMode ? "Scenario demo" : "Dati reali ATLAS"}
           action={<button onClick={() => onNavigate?.("registro")} className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-100">Mostra tutto</button>}
         >
           <ExecutiveSignalFeed items={signalItems} emptyLabel="Nessun ticket reale recente da mostrare." />
@@ -451,6 +455,16 @@ export default function ExecutiveDashboard({
     }
 
     if (id === "copilot") {
+      if (demoMode) {
+        return (
+          <ExecutiveGlassCard title="ATLAS Copilot" eyebrow="Demo isolata">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 text-sm font-semibold text-slate-400">
+              Copilot operativo disattivato nel Design Lab: nessuna query reale viene eseguita.
+            </div>
+          </ExecutiveGlassCard>
+        );
+      }
+
       return (
         <ExecutiveCopilotPanel
           tenant={activeTenant}

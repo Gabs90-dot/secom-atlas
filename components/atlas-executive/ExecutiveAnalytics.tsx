@@ -5,18 +5,18 @@ import ExecutiveRiskRadar from "./ExecutiveRiskRadar";
 
 const weekly = [78, 64, 61, 50, 45, 54];
 const techLoad = [
-  ["Fabbri", "92%", "w-[92%]", "bg-rose-300/70"],
-  ["Canossi", "78%", "w-[78%]", "bg-amber-300/70"],
-  ["Pedroli", "65%", "w-[65%]", "bg-cyan-300/70"],
-  ["Romano", "48%", "w-[48%]", "bg-emerald-300/70"],
-  ["Appolloni", "30%", "w-[30%]", "bg-blue-300/70"],
+  ["Tecnico Demo A", "92%", "w-[92%]", "bg-rose-300/70"],
+  ["Tecnico Demo B", "78%", "w-[78%]", "bg-amber-300/70"],
+  ["Tecnico Demo C", "65%", "w-[65%]", "bg-cyan-300/70"],
+  ["Tecnico Demo D", "48%", "w-[48%]", "bg-emerald-300/70"],
+  ["Tecnico Demo E", "30%", "w-[30%]", "bg-blue-300/70"],
 ];
 
 const criticalClients = [
-  ["COMANDO PROVINCIALE ROMA", "7 criticità", "920"],
-  ["UST ROMA", "4 criticità", "820"],
-  ["CARABINIERI CASORIA", "3 criticità", "610"],
-  ["POLFER TARVISIO", "2 criticità", "540"],
+  ["Cliente Demo Alfa", "7 criticita", "920"],
+  ["Cliente Demo Beta", "4 criticita", "820"],
+  ["Cliente Demo Gamma", "3 criticita", "610"],
+  ["Cliente Demo Delta", "2 criticita", "540"],
 ];
 
 export default function ExecutiveAnalytics() {
@@ -24,28 +24,28 @@ export default function ExecutiveAnalytics() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
-          {['7g', '30g', '90g', 'Tutto'].map((range) => (
+          {["7g", "30g", "90g", "Tutto"].map((range) => (
             <button
               key={range}
               className={`rounded-full border px-4 py-2 text-xs font-black ${
-                range === '30g'
-                  ? 'border-cyan-300/25 bg-cyan-400/10 text-cyan-100'
-                  : 'border-white/10 bg-white/[0.045] text-slate-400'
+                range === "30g"
+                  ? "border-cyan-300/25 bg-cyan-400/10 text-cyan-100"
+                  : "border-white/10 bg-white/[0.045] text-slate-400"
               }`}
             >
               {range}
             </button>
           ))}
         </div>
-        <p className="text-xs font-bold text-slate-500">Dati mock · Design Lab isolato</p>
+        <p className="text-xs font-bold text-slate-500">Dati demo neutrali - Design Lab isolato</p>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-5">
-        <ExecutiveMetricCard label="Ticket aperti" value="54" detail="Backlog reale" tone="cyan" trend="+8" />
-        <ExecutiveMetricCard label="Da assegnare" value="32" detail="Aperti senza tecnico" tone="gold" trend="+4" />
-        <ExecutiveMetricCard label="Critici" value="3" detail="Urgenti attivi" tone="red" trend="+1" />
-        <ExecutiveMetricCard label="SLA compliance" value="92%" detail="Ultimi 30 giorni" tone="green" trend="+2" />
-        <ExecutiveMetricCard label="Risoluzione media" value="2.8g" detail="30 ticket chiusi" tone="blue" trend="-0.4" />
+        <ExecutiveMetricCard label="Ticket aperti" value="54" detail="Scenario demo" tone="cyan" trend="+8" />
+        <ExecutiveMetricCard label="Da assegnare" value="32" detail="Demo senza tecnico" tone="gold" trend="+4" />
+        <ExecutiveMetricCard label="Critici" value="3" detail="Demo urgenti" tone="red" trend="+1" />
+        <ExecutiveMetricCard label="SLA compliance" value="92%" detail="Ultimi 30 giorni demo" tone="green" trend="+2" />
+        <ExecutiveMetricCard label="Risoluzione media" value="2.8g" detail="30 ticket demo chiusi" tone="blue" trend="-0.4" />
       </div>
 
       <div className="grid gap-5 2xl:grid-cols-[0.8fr_1.2fr_0.8fr]">
@@ -97,7 +97,7 @@ export default function ExecutiveAnalytics() {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_1fr_1fr]">
-        <ExecutiveGlassCard title="Critical Clients" eyebrow="Clienti attenzionati">
+        <ExecutiveGlassCard title="Critical Clients" eyebrow="Clienti demo">
           <div className="space-y-3">
             {criticalClients.map(([name, detail, score]) => (
               <div key={name} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] p-4">
@@ -111,7 +111,7 @@ export default function ExecutiveAnalytics() {
           </div>
         </ExecutiveGlassCard>
 
-        <ExecutiveGlassCard title="Priority Distribution" eyebrow="Ticket aperti">
+        <ExecutiveGlassCard title="Priority Distribution" eyebrow="Ticket demo">
           <div className="grid gap-4 md:grid-cols-[150px_1fr] md:items-center">
             <div className="relative flex h-36 w-36 items-center justify-center rounded-full border-[18px] border-cyan-300/35 bg-black/20 shadow-[0_0_50px_rgba(34,211,238,0.1)]">
               <div className="absolute inset-[-18px] rounded-full border-r-[18px] border-t-[18px] border-rose-300/65" />
@@ -133,7 +133,7 @@ export default function ExecutiveAnalytics() {
           </div>
         </ExecutiveGlassCard>
 
-        <ExecutiveGlassCard title="SLA Compliance" eyebrow="Performance">
+        <ExecutiveGlassCard title="SLA Compliance" eyebrow="Performance demo">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-300/10 text-emerald-100">
@@ -141,7 +141,7 @@ export default function ExecutiveAnalytics() {
               </div>
               <div>
                 <p className="text-4xl font-black text-white">92%</p>
-                <p className="text-xs font-bold text-slate-500">Ultimi 30 giorni</p>
+                <p className="text-xs font-bold text-slate-500">Ultimi 30 giorni demo</p>
               </div>
             </div>
             <div className="h-28 rounded-[22px] border border-white/10 bg-black/20 p-4">

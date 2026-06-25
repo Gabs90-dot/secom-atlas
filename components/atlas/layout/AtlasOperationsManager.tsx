@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import TicketForm from "@/components/atlas/TicketForm";
 
 function toPositiveNumberOrNull(value: any) {
@@ -60,11 +61,19 @@ export default function AtlasOperationsManager(props: any) {
     selectedSlot = "",
     setSelectedSlot,
     materials = [],
+    onAddMaterial,
     toggleMaterial,
     selectedMaterials = [],
     materialCost = () => 0,
     creatingTicket = false,
+    glpiEnabled = true,
   } = props;
+  const [materialForm, setMaterialForm] = useState({ name: "", code: "", cost: "" });
+
+  function submitMaterial() {
+    onAddMaterial?.(materialForm);
+    setMaterialForm({ name: "", code: "", cost: "" });
+  }
 
   if (mode === "mobile") {
     return (
@@ -102,6 +111,7 @@ export default function AtlasOperationsManager(props: any) {
           ticketCategoryOptions={ticketCategoryOptions}
           ticketStatusOptions={ticketStatusOptions}
           addTicket={addTicket}
+          glpiEnabled={glpiEnabled}
         />
       </div>
     );
@@ -318,7 +328,43 @@ export default function AtlasOperationsManager(props: any) {
 
       <h3 className="mt-6 mb-3 font-black">Materiali necessari</h3>
 
+      <div className="mb-4 grid gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4 md:grid-cols-[1fr_160px_160px_auto]">
+        <input
+          className={input}
+          value={materialForm.name}
+          onChange={(event) => setMaterialForm((prev) => ({ ...prev, name: event.target.value }))}
+          placeholder="Nuovo materiale tenant"
+        />
+        <input
+          className={input}
+          value={materialForm.code}
+          onChange={(event) => setMaterialForm((prev) => ({ ...prev, code: event.target.value }))}
+          placeholder="Codice"
+        />
+        <input
+          className={input}
+          value={materialForm.cost}
+          onChange={(event) => setMaterialForm((prev) => ({ ...prev, cost: event.target.value }))}
+          placeholder="Costo"
+          inputMode="decimal"
+        />
+        <button
+          type="button"
+          onClick={submitMaterial}
+          disabled={!materialForm.name.trim()}
+          className="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Aggiungi
+        </button>
+      </div>
+
       <div className="grid gap-3 md:grid-cols-4">
+        {materials.length === 0 && (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-slate-400 md:col-span-4">
+            Nessun materiale configurato per questo tenant.
+          </div>
+        )}
+
         {materials.map((m: any) => (
           <button
             key={m.id}

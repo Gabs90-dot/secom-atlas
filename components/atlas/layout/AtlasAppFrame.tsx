@@ -49,6 +49,7 @@ type AtlasAppFrameProps = {
   selectedTicketWorkspace: any | null;
   onCloseTicketWorkspace: () => void;
   onTicketWorkspaceStatusUpdated: (ticket: any) => void;
+  glpiEnabled?: boolean;
 };
 
 type NotificationPanelAnchor = {
@@ -95,6 +96,7 @@ export default function AtlasAppFrame({
   selectedTicketWorkspace,
   onCloseTicketWorkspace,
   onTicketWorkspaceStatusUpdated,
+  glpiEnabled = true,
 }: AtlasAppFrameProps) {
   const isDesktopShell = useIsDesktopShell();
   const mobilePrimaryTabs = useMemo(
@@ -130,6 +132,7 @@ export default function AtlasAppFrame({
         open={Boolean(selectedTicketWorkspace)}
         onClose={onCloseTicketWorkspace}
         onStatusUpdated={onTicketWorkspaceStatusUpdated}
+        glpiEnabled={glpiEnabled}
       />
 
       <div className="flex min-h-screen">

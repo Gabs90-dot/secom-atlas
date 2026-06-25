@@ -36,6 +36,7 @@ type Props = {
   ticketStatusOptions: any[];
 
   addTicket: (customerId: string) => void;
+  glpiEnabled?: boolean;
 };
 
 export default function TicketForm({
@@ -57,6 +58,7 @@ export default function TicketForm({
   setTicketType,
   ticketCategoryOptions,
   addTicket,
+  glpiEnabled = true,
 }: Props) {
   const [customerId, setCustomerId] = useState("");
 
@@ -93,14 +95,14 @@ export default function TicketForm({
 
       <input
         className={input}
-        placeholder="Titolo ticket GLPI"
+        placeholder={glpiEnabled ? "Titolo ticket GLPI" : "Titolo ticket"}
         value={ticketTitle}
         onChange={(e) => setTicketTitle(e.target.value)}
       />
 
       <textarea
         className={`${input} min-h-[170px]`}
-        placeholder="Descrizione da inviare nel campo descrizione GLPI"
+        placeholder={glpiEnabled ? "Descrizione da inviare nel campo descrizione GLPI" : "Descrizione ticket"}
         value={problem}
         onChange={(e) => setProblem(e.target.value)}
       />

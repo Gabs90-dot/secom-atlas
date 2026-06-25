@@ -1,12 +1,29 @@
 "use client";
 
-import { systemsCatalog } from "@/lib/systemsCatalog";
+import type {
+  SystemCatalogComponent,
+  SystemCatalogItem,
+} from "@/lib/systemsCatalog";
 import { ChevronRight } from "lucide-react";
+
+type AtlasSystemCatalogComponent = SystemCatalogComponent & {
+  id?: string;
+  type?: string;
+  cost?: number;
+  price?: number;
+  parent?: string;
+  imageSearchUrl?: string;
+};
+
+type AtlasSystemCatalogItem = Omit<SystemCatalogItem, "components"> & {
+  components: AtlasSystemCatalogComponent[];
+};
 
 type AtlasSystemsManagerProps = {
   mode: "mobile" | "desktop";
   card?: string;
   input: string;
+  systemsCatalog: AtlasSystemCatalogItem[];
   selectedSystem: string | null;
   setSelectedSystem: (value: string | null) => void;
   systemSearch: string;
@@ -19,6 +36,7 @@ export default function AtlasSystemsManager({
   mode,
   card = "",
   input,
+  systemsCatalog,
   selectedSystem,
   setSelectedSystem,
   systemSearch,
@@ -26,15 +44,18 @@ export default function AtlasSystemsManager({
   euro,
   showMessage,
 }: AtlasSystemsManagerProps) {
+  const systems = Array.isArray(systemsCatalog) ? systemsCatalog : [];
   const openSystemMobile = (systemName: string) => {
     setSelectedSystem(selectedSystem === systemName ? null : systemName);
   };
+  const getComponentCost = (component: AtlasSystemCatalogComponent) =>
+    Number(component.cost || component.price || component.totalCost || 0);
 
   if (mode === "mobile") {
-    const filteredSystems = systemsCatalog.filter((system: any) => {
+    const filteredSystems = systems.filter((system) => {
       const q = systemSearch.toLowerCase();
       return `${system.name} ${system.productName} ${system.components
-        ?.map((component: any) => component.name)
+        ?.map((component) => component.name)
         .join(" ")}`.toLowerCase().includes(q);
     });
 
@@ -72,14 +93,14 @@ export default function AtlasSystemsManager({
         <div className="grid grid-cols-4 rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-center text-xs text-slate-400">
           <div>
             <p className="text-xl font-black text-white">
-              {systemsCatalog.length}
+              {systems.length}
             </p>
             <p>Sistemi</p>
           </div>
           <div>
             <p className="text-xl font-black text-white">
-              {systemsCatalog.reduce(
-                (sum, system: any) => sum + (system.components?.length || 0),
+              {systems.reduce(
+                (sum, system) => sum + (system.components?.length || 0),
                 0,
               )}
             </p>
@@ -88,8 +109,8 @@ export default function AtlasSystemsManager({
           <div className="col-span-2">
             <p className="text-xl font-black text-white">
               {euro(
-                systemsCatalog.reduce(
-                  (sum, system: any) => sum + Number(system.totalCost || 0),
+                systems.reduce(
+                  (sum, system) => sum + Number(system.totalCost || 0),
                   0,
                 ),
               )}
@@ -98,7 +119,7 @@ export default function AtlasSystemsManager({
           </div>
         </div>
 
-        {filteredSystems.map((system: any) => (
+        {filteredSystems.map((system) => (
           <div
             key={system.name}
             className="rounded-3xl border border-white/10 bg-white/[0.06]"
@@ -139,7 +160,7 @@ export default function AtlasSystemsManager({
               <div className="grid gap-2 border-t border-white/10 p-4">
                 {(system.components || [])
                   .slice(0, 20)
-                  .map((component: any, index: number) => (
+                  .map((component, index) => (
                     <div
                       key={`${component.name}-${index}`}
                       className="rounded-2xl bg-slate-950/40 p-3"
@@ -157,7 +178,7 @@ export default function AtlasSystemsManager({
                         </div>
                         <p className="shrink-0 text-sm font-black text-white">
                           {euro(
-                            Number(component.cost || component.price || 0),
+                            getComponentCost(component),
                           )}
                         </p>
                       </div>
@@ -172,11 +193,11 @@ export default function AtlasSystemsManager({
   }
 
   const selectedSystemData = selectedSystem
-    ? systemsCatalog.find((system: any) => system.name === selectedSystem)
+    ? systems.find((system) => system.name === selectedSystem)
     : null;
 
   const filteredComponents =
-    selectedSystemData?.components?.filter((component: any) => {
+    selectedSystemData?.components?.filter((component) => {
       const q = systemSearch.toLowerCase();
 
       return (
@@ -211,7 +232,7 @@ export default function AtlasSystemsManager({
 
       {!selectedSystem && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          {systemsCatalog.map((system: any) => (
+          {systems.map((system) => (
             <button
               key={system.name}
               onClick={() => setSelectedSystem(system.name)}
@@ -255,9 +276,9 @@ export default function AtlasSystemsManager({
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {filteredComponents.map((component: any) => (
+            {filteredComponents.map((component) => (
               <div
-                key={component.id}
+                key={component.id || component.code || component.name}
                 className="rounded-3xl border border-white/10 bg-white/[0.04] p-4"
               >
                 <div className="mb-2 flex items-start justify-between gap-3">
@@ -275,7 +296,7 @@ export default function AtlasSystemsManager({
                     <b>Quantità:</b> {component.quantity || "N/D"}
                   </p>
                   <p>
-                    <b>Prezzo:</b> {euro(Number(component.cost || 0))}
+                    <b>Prezzo:</b> {euro(getComponentCost(component))}
                   </p>
                   {component.parent && (
                     <p>

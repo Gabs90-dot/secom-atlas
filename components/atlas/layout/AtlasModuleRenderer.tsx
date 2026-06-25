@@ -30,6 +30,8 @@ type AtlasModuleRendererProps = {
   tickets: any[];
   customerEntities: any[];
   technicians: any[];
+  operators?: any[];
+  operatorSectors?: string[];
   currentUser: any;
   activeTenant: any;
   filteredTickets: any[];
@@ -56,6 +58,9 @@ type AtlasModuleRendererProps = {
   onRefreshTickets: () => void;
   refreshingTickets: boolean;
   onDeleteTicketFromRegistry: (ticket: any) => void;
+  glpiEnabled?: boolean;
+  onAddTenantOperator?: (input: { name: string; title: string; sector: string; status: string }) => void;
+  onAddTenantOperatorSector?: (name: string) => void;
 };
 
 function canAdmin(currentUser: any) {
@@ -70,6 +75,8 @@ export default function AtlasModuleRenderer({
   tickets,
   customerEntities,
   technicians,
+  operators = [],
+  operatorSectors = [],
   currentUser,
   activeTenant,
   filteredTickets,
@@ -96,19 +103,23 @@ export default function AtlasModuleRenderer({
   onRefreshTickets,
   refreshingTickets,
   onDeleteTicketFromRegistry,
+  glpiEnabled = true,
+  onAddTenantOperator,
+  onAddTenantOperatorSector,
 }: AtlasModuleRendererProps) {
   if (activeTab === "home") {
     return isExecutiveMode ? (
       <ExecutiveDashboard
         customers={customers}
         sites={sites}
-        tickets={tickets}
-        customerEntities={customerEntities}
-        currentUser={currentUser}
-        activeTenant={activeTenant}
-        onOpenTicket={onOpenTicketFromCustomer}
-        onNavigate={(view) => onSetActiveTab(view as any)}
-      />
+          tickets={tickets}
+          customerEntities={customerEntities}
+          currentUser={currentUser}
+          activeTenant={activeTenant}
+          glpiEnabled={glpiEnabled}
+          onOpenTicket={onOpenTicketFromCustomer}
+          onNavigate={(view) => onSetActiveTab(view as any)}
+        />
     ) : (
       <section className="hidden min-h-[calc(100vh-160px)] items-center justify-center md:flex">
         <div className="w-full max-w-5xl">
@@ -118,15 +129,28 @@ export default function AtlasModuleRenderer({
             tickets={tickets}
             customerEntities={customerEntities}
             onOpenTicket={onOpenTicketFromCustomer}
+            glpiEnabled={glpiEnabled}
           />
         </div>
       </section>
     );
   }
 
-  if (activeTab === "webvime") return isExecutiveMode ? <ExecutiveWebvime /> : <WebvimeBoard />;
+  if (activeTab === "webvime") return isExecutiveMode ? <ExecutiveWebvime glpiEnabled={glpiEnabled} /> : <WebvimeBoard tenant={activeTenant} currentUser={currentUser} glpiEnabled={glpiEnabled} />;
 
-  if (activeTab === "dispatch") return <DispatchCenter tickets={tickets} technicians={technicians} />;
+  if (activeTab === "dispatch") {
+    return (
+      <DispatchCenter
+        tickets={tickets}
+        technicians={technicians}
+        operators={operators}
+        operatorSectors={operatorSectors}
+        tenant={activeTenant}
+        onAddOperator={onAddTenantOperator}
+        onAddSector={onAddTenantOperatorSector}
+      />
+    );
+  }
 
   if (activeTab === "piani") {
     return (
@@ -142,9 +166,9 @@ export default function AtlasModuleRenderer({
     );
   }
 
-  if (activeTab === "todo") return <TodoListPanel />;
-  if (activeTab === "activity") return <GlobalActivityFeed />;
-  if (activeTab === "analytics") return isExecutiveMode ? <ExecutiveAnalytics /> : <KPIDashboard tickets={tickets} technicians={technicians} />;
+  if (activeTab === "todo") return <TodoListPanel tenant={activeTenant} />;
+  if (activeTab === "activity") return <GlobalActivityFeed tenant={activeTenant} glpiEnabled={glpiEnabled} />;
+  if (activeTab === "analytics") return isExecutiveMode ? <ExecutiveAnalytics /> : <KPIDashboard tickets={tickets} technicians={technicians} currentUser={currentUser} />;
 
   if (activeTab === "ai") {
     return (
@@ -185,7 +209,7 @@ export default function AtlasModuleRenderer({
     );
   }
 
-  if (activeTab === "glpiImport" && canAdmin(currentUser)) {
+  if (activeTab === "glpiImport" && canAdmin(currentUser) && glpiEnabled) {
     return (
       <div className="p-4 md:p-8">
         <GlpiImportCenter tenant={activeTenant} />
@@ -226,6 +250,7 @@ export default function AtlasModuleRenderer({
         refreshingTickets={refreshingTickets}
         onDeleteTicket={onDeleteTicketFromRegistry}
         executiveMode={isExecutiveMode}
+        glpiEnabled={glpiEnabled}
       />
     );
   }

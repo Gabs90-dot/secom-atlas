@@ -35,6 +35,11 @@ type AtlasTimelineEvent = {
   status?: string;
 };
 
+type GlobalActivityFeedProps = {
+  tenant?: { id?: string | null } | null;
+  glpiEnabled?: boolean;
+};
+
 function normalize(value: any) {
   return String(value || "")
     .toLowerCase()
@@ -195,7 +200,7 @@ function EventIcon({ event }: { event: AtlasTimelineEvent }) {
   return <Ticket size={20} />;
 }
 
-export default function GlobalActivityFeed() {
+export default function GlobalActivityFeed({ tenant = null, glpiEnabled = true }: GlobalActivityFeedProps) {
   const [events, setEvents] = useState<AtlasTimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -209,10 +214,20 @@ export default function GlobalActivityFeed() {
       setLoading(true);
       setLoadError("");
 
+      const tenantId = String(tenant?.id || "").trim();
+
+      if (!glpiEnabled || !tenantId) {
+        if (!mounted) return;
+        setEvents([]);
+        setLoading(false);
+        return;
+      }
+
       try {
         const { data, error } = await supabase
           .from("tickets")
           .select("id, glpi_ticket_id, site, entity, city, glpi_entity_path, problem, urgent, opened_at, closed_at, created_at, expected_close_date, technician, source")
+          .eq("tenant_id", tenantId)
           .eq("source", "glpi")
           .not("glpi_entity_path", "ilike", "%webvime%")
           .order("created_at", { ascending: false })
@@ -240,7 +255,7 @@ export default function GlobalActivityFeed() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [glpiEnabled, tenant?.id]);
 
   const metrics = useMemo(() => ({
     total: events.length,
@@ -273,7 +288,11 @@ export default function GlobalActivityFeed() {
       <div>
         <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-400">ATLAS EVENT CENTER</p>
         <h2 className="mt-2 text-3xl font-black text-white">Timeline operativa</h2>
-        <p className="mt-1 text-sm font-bold text-slate-400">Eventi GLPI tradotti in segnali operativi. Webvime è escluso e vive nel tab dedicato.</p>
+        <p className="mt-1 text-sm font-bold text-slate-400">
+          {glpiEnabled
+            ? "Eventi GLPI tradotti in segnali operativi. Webvime è escluso e vive nel tab dedicato."
+            : "Eventi operativi ATLAS, ticket e pianificazioni in un'unica vista."}
+        </p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">

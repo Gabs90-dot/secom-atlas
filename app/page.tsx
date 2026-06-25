@@ -25,11 +25,9 @@ import type { AtlasTicketCategory, AtlasTicketStatus } from "@/lib/atlasTypes";
 import type { AtlasContract } from "@/lib/atlasTypes";
 import {
   atlasStatusToDbStatus,
-  initialInventory as legacyInitialInventory,
   ticketCategoryOptions,
   ticketStatusOptions,
 } from "@/lib/atlasConstants";
-import { systemsCatalog as legacySystemsCatalog } from "@/lib/systemsCatalog";
 import {
   euro,
   getContractStatus,
@@ -61,6 +59,13 @@ import {
   tenantSlaContractToDbPayload,
   type AtlasBudgetItem,
 } from "@/lib/atlasTenantContracts";
+import {
+  normalizeTenantInventoryRows,
+  normalizeTenantSystemRows,
+  tenantInventoryToDbPayload,
+  type AtlasTenantInventoryItem,
+  type AtlasTenantSystemItem,
+} from "@/lib/atlasTenantAssets";
 import type {
   CustomerRegistrationPayload,
   PublicCustomerEntityOption,
@@ -639,11 +644,6 @@ export default function Home() {
   const isLegacySecomTenant =
     hasValidTenantSession &&
     String(activeTenant?.slug || "").trim().toLowerCase() === "secom";
-  const tenantLocalStorageSuffix = hasValidTenantSession ? authenticatedTenantId : "";
-  const inventoryStorageKey = tenantLocalStorageSuffix
-    ? `atlas-inventory:${tenantLocalStorageSuffix}`
-    : "";
-
   const [site, setSite] = useState("");
   const [siteSearch, setSiteSearch] = useState("");
   const [region, setRegion] = useState("");
@@ -864,8 +864,9 @@ export default function Home() {
   const [contractFormOpen, setContractFormOpen] = useState(false);
   const [editingSlaContractKey, setEditingSlaContractKey] = useState<string | null>(null);
   const [slaContractForm, setSlaContractForm] = useState<AtlasSlaContractProfile>(() => createEmptySlaContractProfile());
-  const [inventory, setInventory] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<AtlasTenantInventoryItem[]>([]);
   const [inventorySearch, setInventorySearch] = useState("");
+  const [systemsCatalogItems, setSystemsCatalogItems] = useState<AtlasTenantSystemItem[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [contactSearch, setContactSearch] = useState("");
   const [contactClientSearch, setContactClientSearch] = useState("");
@@ -1041,7 +1042,6 @@ export default function Home() {
       setContractOverrides({});
       setTenantContracts([]);
       setTenantSlaContractProfiles([]);
-      setInventory([]);
       setBudgets([]);
       setBudget(0);
       setContacts([]);
@@ -1051,17 +1051,6 @@ export default function Home() {
       setTicketTypesById({});
       return;
     }
-
-    const scopedInventory =
-      readLocalStorageArray<Record<string, unknown>>(inventoryStorageKey);
-    const legacyInventory = isLegacySecomTenant
-      ? readLocalStorageArray<Record<string, unknown>>("atlas-inventory")
-      : null;
-    setInventory(
-      scopedInventory ||
-        legacyInventory ||
-        (isLegacySecomTenant ? legacyInitialInventory : []),
-    );
 
     if (!contactStorageKey || !currentUser?.tenantId) {
       setContacts([]);
@@ -1088,9 +1077,57 @@ export default function Home() {
     customerDataScope.isCustomer,
     contactStorageKey,
     currentUser?.tenantId,
-    inventoryStorageKey,
     hasValidTenantSession,
-    isLegacySecomTenant,
+  ]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadTenantInventoryAndAssets() {
+      if (authLoading || customerDataScope.isCustomer || !hasValidTenantSession || !authenticatedTenantId) {
+        setInventory([]);
+        setSystemsCatalogItems([]);
+        setSelectedSystem(null);
+        return;
+      }
+
+      const [inventoryRes, systemsRes] = await Promise.all([
+        supabase
+          .from("atlas_inventory_items")
+          .select("*")
+          .eq("tenant_id", authenticatedTenantId)
+          .order("name", { ascending: true }),
+        supabase
+          .from("atlas_asset_systems")
+          .select("*")
+          .eq("tenant_id", authenticatedTenantId)
+          .order("name", { ascending: true }),
+      ]);
+
+      if (!mounted) return;
+
+      if (inventoryRes.error || systemsRes.error) {
+        console.log(inventoryRes.error || systemsRes.error);
+        setInventory([]);
+        setSystemsCatalogItems([]);
+        setSelectedSystem(null);
+        return;
+      }
+
+      setInventory(normalizeTenantInventoryRows(inventoryRes.data || []));
+      setSystemsCatalogItems(normalizeTenantSystemRows(systemsRes.data || []));
+    }
+
+    loadTenantInventoryAndAssets();
+
+    return () => {
+      mounted = false;
+    };
+  }, [
+    authLoading,
+    authenticatedTenantId,
+    customerDataScope.isCustomer,
+    hasValidTenantSession,
   ]);
 
   useEffect(() => {
@@ -1436,8 +1473,6 @@ export default function Home() {
       ticket: result.ticket,
     };
   }
-
-  const systemsCatalogItems = isLegacySecomTenant ? legacySystemsCatalog : [];
 
   const editableContracts = buildEditableContracts(
     tenantContracts,
@@ -1991,46 +2026,79 @@ export default function Home() {
     }, 500);
   }
 
-  function updateInventoryItem(index: number, field: string, value: string) {
-    if (!inventoryStorageKey) {
+  async function updateInventoryItem(index: number, field: string, value: string) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
       return;
     }
 
-    const updated = inventory.map((item, i) => {
-      if (i !== index) return item;
+    const current = inventory[index];
+    if (!current) return;
 
-      return {
-        ...item,
-        [field]:
-          field === "value" || field === "quantity"
-            ? Number(value || 0)
-            : value,
-      };
-    });
+    const updatedItem: AtlasTenantInventoryItem = {
+      ...current,
+      [field]:
+        field === "value" || field === "quantity" || field === "threshold"
+          ? Number(value || 0)
+          : value,
+    };
 
-    setInventory(updated);
-    writeLocalStorageJson(inventoryStorageKey, updated);
+    const query = supabase
+      .from("atlas_inventory_items")
+      .update(tenantInventoryToDbPayload(activeTenant.id, updatedItem))
+      .eq("tenant_id", activeTenant.id);
+
+    const { data, error } = await (current.dbId
+      ? query.eq("id", current.dbId)
+      : query.eq("code", current.id)
+    )
+      .select("*")
+      .single();
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore salvataggio articolo", "error");
+      return;
+    }
+
+    const normalized = normalizeTenantInventoryRows(data ? [data] : []);
+    const savedItem = normalized[0] || updatedItem;
+    setInventory((prev) =>
+      prev.map((item, itemIndex) => (itemIndex === index ? savedItem : item)),
+    );
   }
 
-  function addInventoryItem() {
-    if (!inventoryStorageKey) {
+  async function addInventoryItem() {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
       return;
     }
 
-    const updated = [
-      ...inventory,
-      {
-        id: `ART-${Date.now()}`,
-        name: "Nuovo articolo",
-        value: 0,
-        quantity: 0,
-      },
-    ];
+    const item: AtlasTenantInventoryItem = {
+      id: `ART-${Date.now()}`,
+      name: "Nuovo articolo",
+      value: 0,
+      quantity: 0,
+      threshold: 10,
+      status: "active",
+    };
 
-    setInventory(updated);
-    writeLocalStorageJson(inventoryStorageKey, updated);
+    const { data, error } = await supabase
+      .from("atlas_inventory_items")
+      .insert(tenantInventoryToDbPayload(activeTenant.id, item))
+      .select("*")
+      .single();
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore creazione articolo", "error");
+      return;
+    }
+
+    setInventory((prev) => [
+      ...(data ? normalizeTenantInventoryRows([data]) : [item]),
+      ...prev,
+    ]);
   }
 
   function mapCustomerEntityToSearchSite(entity: any) {
@@ -3637,8 +3705,8 @@ export default function Home() {
     setMobileInventoryFormOpen(true);
   }
 
-  function saveInventoryItemMobile() {
-    if (!inventoryStorageKey) {
+  async function saveInventoryItemMobile() {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
       return;
     }
@@ -3652,22 +3720,49 @@ export default function Home() {
       return;
     }
 
-    const payload = {
+    const currentItem =
+      editingInventoryIndex === null ? null : inventory[editingInventoryIndex];
+    const payload: AtlasTenantInventoryItem = {
+      dbId: currentItem?.dbId,
       id,
       name,
       value: Number(String(inventoryForm.value || "0").replace(",", ".")),
       quantity: Number(String(inventoryForm.quantity || "0").replace(",", ".")),
+      threshold: currentItem?.threshold ?? 10,
+      status: currentItem?.status || "active",
     };
 
+    const query =
+      editingInventoryIndex === null || !currentItem?.dbId
+        ? supabase
+            .from("atlas_inventory_items")
+            .upsert(tenantInventoryToDbPayload(activeTenant.id, payload), {
+              onConflict: "tenant_id,code",
+            })
+        : supabase
+            .from("atlas_inventory_items")
+            .update(tenantInventoryToDbPayload(activeTenant.id, payload))
+            .eq("tenant_id", activeTenant.id)
+            .eq("id", currentItem.dbId);
+
+    const { data, error } = await query.select("*").single();
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore salvataggio articolo", "error");
+      return;
+    }
+
+    const normalized = normalizeTenantInventoryRows(data ? [data] : []);
+    const savedItem = normalized[0] || payload;
     const updated =
       editingInventoryIndex === null
-        ? [payload, ...inventory]
+        ? [savedItem, ...inventory]
         : inventory.map((item, index) =>
-            index === editingInventoryIndex ? { ...item, ...payload } : item,
+            index === editingInventoryIndex ? savedItem : item,
           );
 
     setInventory(updated);
-    writeLocalStorageJson(inventoryStorageKey, updated);
     setMobileInventoryFormOpen(false);
     setEditingInventoryIndex(null);
     showMessage(
@@ -3677,10 +3772,29 @@ export default function Home() {
     );
   }
 
-  function deleteInventoryItemMobile() {
+  async function deleteInventoryItemMobile() {
     if (editingInventoryIndex === null) return;
-    if (!inventoryStorageKey) {
+    if (!hasValidTenantSession || !activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
+      return;
+    }
+
+    const currentItem = inventory[editingInventoryIndex];
+    if (!currentItem) return;
+
+    const query = supabase
+      .from("atlas_inventory_items")
+      .delete()
+      .eq("tenant_id", activeTenant.id);
+
+    const { error } = await (currentItem.dbId
+      ? query.eq("id", currentItem.dbId)
+      : query.eq("code", currentItem.id)
+    );
+
+    if (error) {
+      console.log(error);
+      showMessage("Errore eliminazione articolo", "error");
       return;
     }
 
@@ -3688,7 +3802,6 @@ export default function Home() {
       (_, index) => index !== editingInventoryIndex,
     );
     setInventory(updated);
-    writeLocalStorageJson(inventoryStorageKey, updated);
     setMobileInventoryFormOpen(false);
     setEditingInventoryIndex(null);
     showMessage("Articolo eliminato");

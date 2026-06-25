@@ -24,6 +24,12 @@ import TicketWorkspace from "@/components/atlas/TicketWorkspace";
 
 type WebvimeTicket = Record<string, any>;
 
+type WebvimeBoardProps = {
+  tenant?: { id?: string | null } | null;
+  currentUser?: { tenantId?: string | null } | null;
+  glpiEnabled?: boolean;
+};
+
 type HelpContent = {
   id: string;
   category: string;
@@ -315,7 +321,9 @@ function topEntries(
     .slice(0, limit);
 }
 
-export default function WebvimeBoard() {
+export default function WebvimeBoard({ tenant = null, currentUser = null, glpiEnabled = true }: WebvimeBoardProps) {
+  const tenantId = String(currentUser?.tenantId || "").trim();
+  const tenantMatchesSession = Boolean(tenantId && tenant?.id && String(tenant.id) === tenantId);
   const [tickets, setTickets] = useState<WebvimeTicket[]>([]);
   const [metrics, setMetrics] = useState({
     total: 0,
@@ -365,6 +373,7 @@ export default function WebvimeBoard() {
     let q = supabase
       .from("tickets")
       .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId)
       .eq("source", "glpi")
       .or(WEBVIME_OR);
 
@@ -379,6 +388,14 @@ export default function WebvimeBoard() {
     setLoading(true);
     setLoadError("");
 
+    if (!glpiEnabled || !tenantMatchesSession) {
+      setTickets([]);
+      setMetrics({ total: 0, open: 0, closed: 0, old: 0 });
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     try {
       const [{ data, error }, total, open, closed, old] = await Promise.all([
         supabase
@@ -386,6 +403,7 @@ export default function WebvimeBoard() {
           .select(
             "id, glpi_ticket_id, site, entity, city, glpi_entity_path, problem, status, urgent, opened_at, closed_at, created_at, imported_at, expected_close_date, technician, source, customer_id, tenant_id",
           )
+          .eq("tenant_id", tenantId)
           .eq("source", "glpi")
           .or(WEBVIME_OR)
           .order("imported_at", { ascending: false, nullsFirst: false })
@@ -582,7 +600,7 @@ export default function WebvimeBoard() {
 
   useEffect(() => {
     loadWebvime();
-  }, []);
+  }, [glpiEnabled, tenantId, tenantMatchesSession]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -785,7 +803,7 @@ export default function WebvimeBoard() {
   function exportCsv() {
     const header = [
       "ID ATLAS",
-      "ID GLPI",
+      ...(glpiEnabled ? ["ID GLPI"] : []),
       "Stato",
       "Esito",
       "Provenienza rilevata",
@@ -799,7 +817,7 @@ export default function WebvimeBoard() {
     ];
     const rows = filteredTickets.map((ticket) => [
       ticket.id,
-      ticket.glpi_ticket_id,
+      ...(glpiEnabled ? [ticket.glpi_ticket_id] : []),
       ticket.status,
       isClosed(ticket) ? "Chiuso" : "Aperto",
       extractWebvimeOrigin(ticket) || "",
@@ -1011,7 +1029,7 @@ export default function WebvimeBoard() {
                         <span className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-black text-slate-300">
                           ATLAS #{ticket.id}
                         </span>
-                        {ticket.glpi_ticket_id && (
+                        {glpiEnabled && ticket.glpi_ticket_id && (
                           <span className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-black text-slate-300">
                             GLPI #{ticket.glpi_ticket_id}
                           </span>
@@ -1261,6 +1279,7 @@ export default function WebvimeBoard() {
             setSelectedTicket(null);
             loadWebvime();
           }}
+          glpiEnabled={glpiEnabled}
           onStatusUpdated={(updatedTicket) => {
             setSelectedTicket(updatedTicket);
             setTickets((prev) =>

@@ -173,7 +173,7 @@ export default function AtlasHeader({
               <TenantSwitcher tenants={tenants} activeTenant={activeTenant} onTenantChange={onTenantChange} />
 
               {isExecutiveMode && (
-                <OperatorAvatar avatar={operatorAvatar} onUpload={onOperatorAvatarUpload} />
+                <OperatorAvatar avatar={operatorAvatar} displayName={getDisplayName(currentUser)} onUpload={onOperatorAvatarUpload} />
               )}
 
               <UserSessionBadge user={currentUser} onLogout={onLogout} />
