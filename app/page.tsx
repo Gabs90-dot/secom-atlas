@@ -1,18 +1,12 @@
-"use client";
+﻿"use client";
 
 import { supabase } from "@/lib/supabase";
 import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import LoginScreen from "@/components/atlas/LoginScreen";
 import { useAtlasAuth } from "@/components/atlas/AuthProvider";
 import { canViewModule, isCustomerRole, type AtlasUser } from "@/lib/auth";
 import type { AtlasTenant } from "@/lib/tenant";
-import { storeTenantSlug } from "@/lib/tenant";
-import {
-  isGlpiEnabledForTenantConfig,
-  normalizeTenantConfig,
-  resolveTicketProviderFromTenantConfig,
-} from "@/lib/tenantConfig";
+import { getStoredTenantSlug, storeTenantSlug } from "@/lib/tenant";
 import AtlasAppFrame from "@/components/atlas/layout/AtlasAppFrame";
 import SlaContractsManager from "@/components/atlas/layout/SlaContractsManager";
 import AtlasWorkspaceContent from "@/components/atlas/layout/AtlasWorkspaceContent";
@@ -22,9 +16,13 @@ import { ATLAS_LOGO_CARD_IMAGE } from "@/components/atlas/layout/atlasLogoImage"
 import { CalendarDays, CheckCircle2, X } from "lucide-react";
 
 import type { AtlasTicketCategory, AtlasTicketStatus } from "@/lib/atlasTypes";
-import type { AtlasContract } from "@/lib/atlasTypes";
 import {
+  INITIAL_BUDGET,
   atlasStatusToDbStatus,
+  contracts,
+  initialInventory,
+  materials,
+  technicians,
   ticketCategoryOptions,
   ticketStatusOptions,
 } from "@/lib/atlasConstants";
@@ -32,40 +30,17 @@ import {
   euro,
   getContractStatus,
   getInventoryStatus,
+  materialCost,
   normalizeSiteRegion,
 } from "@/lib/atlasUtils";
 import {
-  materialCostFromCatalog,
-  normalizeMaterialRows,
-  normalizeOperatorRows,
-  normalizeOperatorSectorRows,
-  type AtlasTenantMaterial,
-  type AtlasTenantOperator,
-  type AtlasTenantOperatorSector,
-} from "@/lib/atlasTenantCatalogs";
-import {
+  SLA_BASE_CONTRACT_PROFILES,
   SLA_CONTRACT_FIELDS,
   buildSlaContractExportRows,
   createEmptySlaContractProfile,
   escapeHtml,
   type AtlasSlaContractProfile,
 } from "@/lib/atlasSlaContracts";
-import {
-  normalizeTenantBudgetRows,
-  normalizeTenantContractRows,
-  normalizeTenantSlaContractRows,
-  tenantBudgetToDbPayload,
-  tenantContractToDbPayload,
-  tenantSlaContractToDbPayload,
-  type AtlasBudgetItem,
-} from "@/lib/atlasTenantContracts";
-import {
-  normalizeTenantInventoryRows,
-  normalizeTenantSystemRows,
-  tenantInventoryToDbPayload,
-  type AtlasTenantInventoryItem,
-  type AtlasTenantSystemItem,
-} from "@/lib/atlasTenantAssets";
 import type {
   CustomerRegistrationPayload,
   PublicCustomerEntityOption,
@@ -132,29 +107,6 @@ function valueAsString(value: unknown) {
 
 function valueAsBoolean(value: unknown) {
   return Boolean(value);
-}
-
-function readLocalStorageJson<T>(key: string): T | null {
-  if (typeof window === "undefined" || !key) return null;
-
-  const raw = localStorage.getItem(key);
-  if (!raw) return null;
-
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
-
-function readLocalStorageArray<T>(key: string): T[] | null {
-  const parsed = readLocalStorageJson<unknown>(key);
-  return Array.isArray(parsed) ? (parsed as T[]) : null;
-}
-
-function writeLocalStorageJson(key: string, value: unknown) {
-  if (typeof window === "undefined" || !key) return;
-  localStorage.setItem(key, JSON.stringify(value));
 }
 
 function buildCustomerDataScope(user: AtlasUser | null): CustomerDataScope {
@@ -270,6 +222,70 @@ export default function Home() {
     registrationCode: "",
   });
   const [forgotEmail, setForgotEmail] = useState("");
+  const [authRestoreTimedOut, setAuthRestoreTimedOut] = useState(false);
+  const [authRestoreRetrying, setAuthRestoreRetrying] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading) {
+      setAuthRestoreTimedOut(false);
+      setAuthRestoreRetrying(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setAuthRestoreTimedOut(true);
+    }, 8000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [authLoading]);
+
+  async function retrySessionRestore() {
+    setAuthRestoreRetrying(true);
+    setAuthRestoreTimedOut(false);
+
+    try {
+      await Promise.race([
+        Promise.resolve(refreshUser()),
+        new Promise((_, reject) => {
+          window.setTimeout(
+            () => reject(new Error("Timeout ripristino sessione")),
+            8000,
+          );
+        }),
+      ]);
+    } catch (error) {
+      console.error("ATLAS session restore retry failed", error);
+      setAuthRestoreTimedOut(true);
+    } finally {
+      setAuthRestoreRetrying(false);
+    }
+  }
+
+  async function returnToLogin() {
+    setAuthRestoreRetrying(true);
+
+    try {
+      await Promise.race([
+        Promise.resolve(signOut()),
+        new Promise((_, reject) => {
+          window.setTimeout(
+            () => reject(new Error("Timeout chiusura sessione")),
+            5000,
+          );
+        }),
+      ]);
+    } catch (error) {
+      console.error("ATLAS forced sign out failed", error);
+
+      try {
+        await supabase.auth.signOut();
+      } catch (fallbackError) {
+        console.error("ATLAS fallback sign out failed", fallbackError);
+      }
+    } finally {
+      window.location.replace("/");
+    }
+  }
 
   async function loadCustomerOptions() {
   setCustomerOptionsLoading(true);
@@ -298,7 +314,7 @@ export default function Home() {
       (result.entities || []).map((entity: any) => ({
         id: String(entity.id),
         customerId: String(entity.customerId || entity.customer_id || ""),
-        name: entity.name || "Entità senza nome",
+        name: entity.name || "EntitÃ  senza nome",
         completeName: entity.completeName || entity.complete_name || null,
         glpiEntityId: entity.glpiEntityId || entity.glpi_entity_id || null,
       })),
@@ -335,7 +351,7 @@ export default function Home() {
     const registrationCode = registerForm.registrationCode.trim().toUpperCase();
 
     if (!email || !password || !displayName || !fiscalCode || !customerId || !customerEntityId || !registrationCode) {
-      setAuthActionMessage("Compila email, password, nome, codice fiscale, cliente, entità e codice invito.");
+      setAuthActionMessage("Compila email, password, nome, codice fiscale, cliente, entitÃ  e codice invito.");
       return;
     }
 
@@ -531,7 +547,7 @@ export default function Home() {
                   {!registerForm.customerId
                     ? "Prima seleziona il cliente"
                     : availableCustomerEntities.length === 0
-                    ? "Nessuna entità disponibile"
+                    ? "Nessuna entitÃ  disponibile"
                     : "Seleziona comando / sede"}
                 </option>
                 {availableCustomerEntities.map((entity) => (
@@ -631,19 +647,7 @@ export default function Home() {
   const [tenants, setTenants] = useState<AtlasTenant[]>([]);
   const [activeTenant, setActiveTenant] = useState<AtlasTenant | null>(null);
   const [tenantLoading, setTenantLoading] = useState(true);
-  const authenticatedTenantId = currentUser?.tenantId || "";
-  const activeTenantConfig = normalizeTenantConfig(activeTenant || null);
-  const ticketProvider = resolveTicketProviderFromTenantConfig(activeTenantConfig);
-  const glpiEnabled = Boolean(activeTenant?.id) && ticketProvider === "glpi" && isGlpiEnabledForTenantConfig(activeTenantConfig);
-  const hasValidTenantSession = Boolean(
-    currentUser?.id &&
-      authenticatedTenantId &&
-      activeTenant?.id &&
-      activeTenant.id === authenticatedTenantId,
-  );
-  const isLegacySecomTenant =
-    hasValidTenantSession &&
-    String(activeTenant?.slug || "").trim().toLowerCase() === "secom";
+
   const [site, setSite] = useState("");
   const [siteSearch, setSiteSearch] = useState("");
   const [region, setRegion] = useState("");
@@ -659,9 +663,6 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
-  const [tenantOperators, setTenantOperators] = useState<AtlasTenantOperator[]>([]);
-  const [tenantOperatorSectors, setTenantOperatorSectors] = useState<AtlasTenantOperatorSector[]>([]);
-  const [tenantMaterials, setTenantMaterials] = useState<AtlasTenantMaterial[]>([]);
   const [ticketType, setTicketType] =
     useState<AtlasTicketCategory>("ordinaria");
   const [ticketStatus, setTicketStatus] = useState<AtlasTicketStatus>("nuova");
@@ -746,16 +747,10 @@ export default function Home() {
     localStorage.setItem("atlas-ui-mode", uiMode);
   }, [uiMode]);
 
-  const [operatorAvatar, setOperatorAvatar] = useState<string>("");
-  const operatorAvatarStorageKey = useMemo(() => {
-    if (!currentUser?.id || !currentUser?.tenantId) return "";
-    return `atlas-operator-avatar-v1:${currentUser.tenantId}:${currentUser.id}`;
-  }, [currentUser?.id, currentUser?.tenantId]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setOperatorAvatar(operatorAvatarStorageKey ? window.localStorage.getItem(operatorAvatarStorageKey) || "" : "");
-  }, [operatorAvatarStorageKey]);
+  const [operatorAvatar, setOperatorAvatar] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem("atlas-operator-avatar-v1") || "";
+  });
 
   async function resizeOperatorAvatar(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -797,12 +792,8 @@ export default function Home() {
 
     try {
       const dataUrl = await resizeOperatorAvatar(file);
-      if (!operatorAvatarStorageKey) {
-        showMessage("Sessione non valida: fai logout/login e riprova.", "error");
-        return;
-      }
       setOperatorAvatar(dataUrl);
-      window.localStorage.setItem(operatorAvatarStorageKey, dataUrl);
+      window.localStorage.setItem("atlas-operator-avatar-v1", dataUrl);
       showMessage("Foto profilo aggiornata.", "success");
     } catch (error: any) {
       showMessage(error?.message || "Errore caricamento foto profilo.", "error");
@@ -824,15 +815,9 @@ export default function Home() {
     let mounted = true;
 
     async function loadTodoNewCount() {
-      if (authLoading || !currentUser?.tenantId) {
-        setTodoNewCount(0);
-        return;
-      }
-
       const { count, error } = await supabase
         .from("todo_tasks")
         .select("id", { count: "exact", head: true })
-        .eq("tenant_id", currentUser.tenantId)
         .eq("status", "new");
 
       if (!mounted || error) return;
@@ -848,34 +833,60 @@ export default function Home() {
       window.removeEventListener("atlas-todo-updated", loadTodoNewCount);
       window.clearInterval(interval);
     };
-  }, [authLoading, currentUser?.tenantId]);
-  const [tenantContracts, setTenantContracts] = useState<AtlasContract[]>([]);
-  const [budget, setBudget] = useState(0);
-  const [budgets, setBudgets] = useState<AtlasBudgetItem[]>([]);
+  }, []);
+  const [budget, setBudget] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("atlas-budget");
+      return saved ? Number(saved) : INITIAL_BUDGET;
+    }
+
+    return INITIAL_BUDGET;
+  });
+
+  const [budgets, setBudgets] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("atlas-budgets");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch {
+          // fallback sotto
+        }
+      }
+    }
+
+    return [
+      {
+        id: "BUD-CARABINIERI-2024-2026",
+        contractName: "CARABINIERI ASSISTENZA 2024-2026",
+        entity: "Carabinieri",
+        value: INITIAL_BUDGET,
+        notes:
+          "Budget iniziale collegato al contratto Carabinieri Assistenza 2024-2026",
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+  });
 
   const [clientSearch, setClientSearch] = useState("");
   const [customerInvitePanelOpen, setCustomerInvitePanelOpen] = useState(false);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [contractOverrides, setContractOverrides] = useState<any>({});
-  const [tenantSlaContractProfiles, setTenantSlaContractProfiles] = useState<AtlasSlaContractProfile[]>([]);
+  const [customSlaContracts, setCustomSlaContracts] = useState<AtlasSlaContractProfile[]>([]);
   const [contractSearchText, setContractSearchText] = useState("");
   const [contractCategoryFilter, setContractCategoryFilter] = useState("Tutte");
   const [selectedSlaContractKeys, setSelectedSlaContractKeys] = useState<Record<string, boolean>>({});
   const [contractFormOpen, setContractFormOpen] = useState(false);
   const [editingSlaContractKey, setEditingSlaContractKey] = useState<string | null>(null);
   const [slaContractForm, setSlaContractForm] = useState<AtlasSlaContractProfile>(() => createEmptySlaContractProfile());
-  const [inventory, setInventory] = useState<AtlasTenantInventoryItem[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
   const [inventorySearch, setInventorySearch] = useState("");
-  const [systemsCatalogItems, setSystemsCatalogItems] = useState<AtlasTenantSystemItem[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [contactSearch, setContactSearch] = useState("");
   const [contactClientSearch, setContactClientSearch] = useState("");
   const [contactClient, setContactClient] = useState<any | null>(null);
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
-  const contactStorageKey = useMemo(() => {
-    const tenantId = String(currentUser?.tenantId || "").trim();
-    return tenantId ? `atlas-contacts:${tenantId}` : "";
-  }, [currentUser?.tenantId]);
 
   const [contactForm, setContactForm] = useState({
     name: "",
@@ -959,8 +970,8 @@ export default function Home() {
   const [budgetClientSearch, setBudgetClientSearch] = useState("");
   const [budgetClient, setBudgetClient] = useState<any | null>(null);
   const [budgetForm, setBudgetForm] = useState({
-    contractName: "",
-    value: "0",
+    contractName: "CARABINIERI ASSISTENZA 2024-2026",
+    value: String(budget),
     notes: "",
   });
   const [mobileCalendarFormOpen, setMobileCalendarFormOpen] = useState(false);
@@ -970,55 +981,41 @@ export default function Home() {
   >("Tutti");
 
   useEffect(() => {
-    let mounted = true;
-
-    async function loadAuthenticatedTenant() {
-      if (authLoading) return;
-
-      if (!currentUser?.tenantId) {
-        if (!mounted) return;
-        setTenants([]);
-        setActiveTenant(null);
-        setTenantLoading(false);
-        return;
-      }
-
+    async function loadTenants() {
       setTenantLoading(true);
 
       const { data, error } = await supabase
         .from("tenants")
         .select("*")
-        .eq("id", currentUser.tenantId)
         .eq("status", "active")
-        .maybeSingle();
+        .order("name", { ascending: true });
 
-      if (!mounted) return;
-
-      if (error || !data?.id) {
-        console.log(error || "Tenant autenticato non trovato o non attivo");
-        setTenants([]);
-        setActiveTenant(null);
-        setTickets([]);
-        setSites([]);
-        setCustomers([]);
-        setCustomerEntities([]);
+      if (error) {
+        console.log(error);
         setTenantLoading(false);
         return;
       }
 
-      const tenant = data as AtlasTenant;
-      setTenants([tenant]);
-      setActiveTenant(tenant);
-      storeTenantSlug(tenant.slug);
+      const list = (data || []) as AtlasTenant[];
+      const storedSlug = getStoredTenantSlug();
+      const selected =
+        list.find((tenant) => tenant.slug === storedSlug) ||
+        list.find((tenant) => tenant.slug === "secom") ||
+        list[0] ||
+        null;
+
+      setTenants(list);
+      setActiveTenant(selected);
+
+      if (selected?.slug) {
+        storeTenantSlug(selected.slug);
+      }
+
       setTenantLoading(false);
     }
 
-    loadAuthenticatedTenant();
-
-    return () => {
-      mounted = false;
-    };
-  }, [authLoading, currentUser?.tenantId]);
+    loadTenants();
+  }, []);
 
   useEffect(() => {
     if (authLoading || !currentUser) return;
@@ -1038,182 +1035,37 @@ export default function Home() {
   useEffect(() => {
     if (authLoading) return;
 
-    if (customerDataScope.isCustomer || !hasValidTenantSession || !currentUser?.tenantId) {
+    if (customerDataScope.isCustomer) {
       setContractOverrides({});
-      setTenantContracts([]);
-      setTenantSlaContractProfiles([]);
-      setBudgets([]);
-      setBudget(0);
+      setCustomSlaContracts([]);
+      setInventory([]);
       setContacts([]);
-      setTenantOperators([]);
-      setTenantOperatorSectors([]);
-      setTenantMaterials([]);
       setTicketTypesById({});
       return;
     }
 
-    if (!contactStorageKey || !currentUser?.tenantId) {
-      setContacts([]);
-    } else {
-      const savedContacts = localStorage.getItem(contactStorageKey);
-      if (savedContacts) {
-        try {
-          const parsed = JSON.parse(savedContacts);
-          const tenantContacts = Array.isArray(parsed)
-            ? parsed.filter((contact) => String(contact?.tenantId || contact?.tenant_id || "") === currentUser.tenantId)
-            : [];
-          setContacts(tenantContacts);
-        } catch {
-          setContacts([]);
-        }
-      } else {
-        setContacts([]);
-      }
-    }
+    const savedContracts = localStorage.getItem("atlas-contract-overrides");
+    if (savedContracts) setContractOverrides(JSON.parse(savedContracts));
+
+    const savedInventory = localStorage.getItem("atlas-inventory");
+    setInventory(savedInventory ? JSON.parse(savedInventory) : initialInventory);
+    const savedContacts = localStorage.getItem("atlas-contacts");
+    if (savedContacts) setContacts(JSON.parse(savedContacts));
     const savedTicketTypes = localStorage.getItem("atlas-ticket-types");
     if (savedTicketTypes) setTicketTypesById(JSON.parse(savedTicketTypes));
-  }, [
-    authLoading,
-    customerDataScope.isCustomer,
-    contactStorageKey,
-    currentUser?.tenantId,
-    hasValidTenantSession,
-  ]);
+
+    const savedCustomSlaContracts = localStorage.getItem("atlas-custom-sla-contracts");
+    if (savedCustomSlaContracts) {
+      try {
+        setCustomSlaContracts(JSON.parse(savedCustomSlaContracts));
+      } catch {
+        setCustomSlaContracts([]);
+      }
+    }
+  }, [authLoading, customerDataScope.isCustomer]);
 
   useEffect(() => {
-    let mounted = true;
-
-    async function loadTenantInventoryAndAssets() {
-      if (authLoading || customerDataScope.isCustomer || !hasValidTenantSession || !authenticatedTenantId) {
-        setInventory([]);
-        setSystemsCatalogItems([]);
-        setSelectedSystem(null);
-        return;
-      }
-
-      const [inventoryRes, systemsRes] = await Promise.all([
-        supabase
-          .from("atlas_inventory_items")
-          .select("*")
-          .eq("tenant_id", authenticatedTenantId)
-          .order("name", { ascending: true }),
-        supabase
-          .from("atlas_asset_systems")
-          .select("*")
-          .eq("tenant_id", authenticatedTenantId)
-          .order("name", { ascending: true }),
-      ]);
-
-      if (!mounted) return;
-
-      if (inventoryRes.error || systemsRes.error) {
-        console.log(inventoryRes.error || systemsRes.error);
-        setInventory([]);
-        setSystemsCatalogItems([]);
-        setSelectedSystem(null);
-        return;
-      }
-
-      setInventory(normalizeTenantInventoryRows(inventoryRes.data || []));
-      setSystemsCatalogItems(normalizeTenantSystemRows(systemsRes.data || []));
-    }
-
-    loadTenantInventoryAndAssets();
-
-    return () => {
-      mounted = false;
-    };
-  }, [
-    authLoading,
-    authenticatedTenantId,
-    customerDataScope.isCustomer,
-    hasValidTenantSession,
-  ]);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadTenantContractsAndBudgets() {
-      if (authLoading || customerDataScope.isCustomer || !hasValidTenantSession || !authenticatedTenantId) {
-        setContractOverrides({});
-        setTenantContracts([]);
-        setTenantSlaContractProfiles([]);
-        setBudgets([]);
-        setBudget(0);
-        return;
-      }
-
-      const [contractsRes, slaContractsRes, budgetsRes] = await Promise.all([
-        supabase
-          .from("atlas_contract_catalog")
-          .select("*")
-          .eq("tenant_id", authenticatedTenantId)
-          .order("sort_order", { ascending: true })
-          .order("name", { ascending: true }),
-        supabase
-          .from("atlas_contract_sla_profiles")
-          .select("*")
-          .eq("tenant_id", authenticatedTenantId)
-          .eq("is_active", true)
-          .order("sort_order", { ascending: true })
-          .order("match_priority", { ascending: false }),
-        supabase
-          .from("atlas_contract_budgets")
-          .select("*")
-          .eq("tenant_id", authenticatedTenantId)
-          .order("updated_at", { ascending: false }),
-      ]);
-
-      if (!mounted) return;
-
-      if (contractsRes.error || slaContractsRes.error || budgetsRes.error) {
-        console.log(
-          contractsRes.error || slaContractsRes.error || budgetsRes.error,
-        );
-        setContractOverrides({});
-        setTenantContracts([]);
-        setTenantSlaContractProfiles([]);
-        setBudgets([]);
-        setBudget(0);
-        return;
-      }
-
-      const nextBudgets = normalizeTenantBudgetRows(budgetsRes.data || []);
-      setContractOverrides({});
-      setTenantContracts(normalizeTenantContractRows(contractsRes.data || []));
-      setTenantSlaContractProfiles(
-        normalizeTenantSlaContractRows(slaContractsRes.data || []),
-      );
-      setBudgets(nextBudgets);
-      setBudget(
-        nextBudgets.reduce((sum, item) => sum + Number(item.value || 0), 0),
-      );
-    }
-
-    loadTenantContractsAndBudgets();
-
-    return () => {
-      mounted = false;
-    };
-  }, [
-    authLoading,
-    authenticatedTenantId,
-    customerDataScope.isCustomer,
-    hasValidTenantSession,
-  ]);
-
-  useEffect(() => {
-    if (authLoading) return;
-
-    if (!hasValidTenantSession) {
-      setSites([]);
-      setCustomers([]);
-      setCustomerEntities([]);
-      setTickets([]);
-      return;
-    }
-
-    const tenantId = authenticatedTenantId;
+    if (!activeTenant?.id) return;
 
     async function loadSites() {
       if (customerDataScope.isCustomer && !customerDataScope.hasScope) {
@@ -1224,7 +1076,7 @@ export default function Home() {
       let query = supabase
         .from("sites")
         .select(customerDataScope.isCustomer ? CUSTOMER_SITE_SELECT : "*")
-        .eq("tenant_id", tenantId);
+        .eq("tenant_id", activeTenant?.id);
 
       if (customerDataScope.isCustomer) {
         if (customerDataScope.siteIds.length) {
@@ -1256,7 +1108,7 @@ export default function Home() {
       let query = supabase
         .from("customers")
         .select(customerDataScope.isCustomer ? "id,tenant_id,name,city,region,category,type" : "*")
-        .eq("tenant_id", tenantId);
+        .eq("tenant_id", activeTenant?.id);
 
       if (customerDataScope.isCustomer && customerDataScope.customerId) {
         query = query.eq("id", customerDataScope.customerId);
@@ -1281,7 +1133,7 @@ export default function Home() {
       let query = supabase
         .from("v_customer_entities_active")
         .select(customerDataScope.isCustomer ? CUSTOMER_ENTITY_SELECT : "*")
-        .eq("tenant_id", tenantId);
+        .eq("tenant_id", activeTenant?.id);
 
       if (customerDataScope.isCustomer) {
         const filters = [
@@ -1317,7 +1169,7 @@ export default function Home() {
       let query = supabase
         .from("v_operational_tickets")
         .select(customerDataScope.isCustomer ? CUSTOMER_TICKET_SELECT : "*")
-        .eq("tenant_id", tenantId)
+        .eq("tenant_id", activeTenant?.id)
         .or("glpi_entity_path.is.null,glpi_entity_path.not.ilike.%webvime%");
 
       if (customerDataScope.isCustomer) {
@@ -1357,67 +1209,13 @@ export default function Home() {
     loadCustomers();
     loadCustomerEntities();
   }, [
-    authLoading,
-    hasValidTenantSession,
-    authenticatedTenantId,
+    activeTenant?.id,
     customerDataScope.isCustomer,
     customerDataScope.hasScope,
     customerDataScope.customerId,
     customerDataScope.customerEntityId,
     customerDataScope.siteIds.join("|"),
   ]);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadOperationalCatalogs() {
-      if (authLoading || customerDataScope.isCustomer || !hasValidTenantSession || !authenticatedTenantId) {
-        setTenantOperators([]);
-        setTenantOperatorSectors([]);
-        setTenantMaterials([]);
-        return;
-      }
-
-      const [sectorsRes, operatorsRes, materialsRes] = await Promise.all([
-        supabase
-          .from("atlas_operator_sectors")
-          .select("id,tenant_id,name,status")
-          .eq("tenant_id", authenticatedTenantId)
-          .eq("status", "active")
-          .order("name", { ascending: true }),
-        supabase
-          .from("atlas_operators")
-          .select("id,tenant_id,tenant_user_id,name,title,sector_id,sector,status")
-          .eq("tenant_id", authenticatedTenantId)
-          .order("name", { ascending: true }),
-        supabase
-          .from("atlas_material_catalog")
-          .select("id,tenant_id,code,name,cost,status")
-          .eq("tenant_id", authenticatedTenantId)
-          .order("name", { ascending: true }),
-      ]);
-
-      if (!mounted) return;
-
-      if (sectorsRes.error || operatorsRes.error || materialsRes.error) {
-        console.log(sectorsRes.error || operatorsRes.error || materialsRes.error);
-        setTenantOperators([]);
-        setTenantOperatorSectors([]);
-        setTenantMaterials([]);
-        return;
-      }
-
-      setTenantOperatorSectors(normalizeOperatorSectorRows(sectorsRes.data || [], authenticatedTenantId));
-      setTenantOperators(normalizeOperatorRows(operatorsRes.data || [], authenticatedTenantId));
-      setTenantMaterials(normalizeMaterialRows(materialsRes.data || [], authenticatedTenantId));
-    }
-
-    loadOperationalCatalogs();
-
-    return () => {
-      mounted = false;
-    };
-  }, [authLoading, authenticatedTenantId, customerDataScope.isCustomer, hasValidTenantSession]);
 
   function showMessage(text: string, type: "success" | "error" = "success") {
     setMessage(text);
@@ -1437,54 +1235,19 @@ export default function Home() {
     });
   }
 
-  async function createAtlasTicket(payload: Record<string, unknown>) {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-
-    if (!accessToken || !hasValidTenantSession || !activeTenant?.id) {
-      throw new Error("Sessione o tenant non validi.");
-    }
-
-    const response = await fetch("/api/tickets/create", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        ...payload,
-        tenantId: activeTenant.id,
-      }),
-    });
-
-    const result = (await response.json().catch(() => null)) as {
-      ok?: boolean;
-      error?: string;
-      provider?: "atlas" | "glpi";
-      ticket?: Record<string, unknown>;
-    } | null;
-
-    if (!response.ok || !result?.ok || !result.ticket) {
-      throw new Error(result?.error || "Errore salvataggio ticket.");
-    }
-
-    return {
-      provider: result.provider || "glpi",
-      ticket: result.ticket,
-    };
-  }
-
   const editableContracts = buildEditableContracts(
-    tenantContracts,
+    contracts,
     contractOverrides,
   );
 
   const slaContractProfiles = useMemo(() => {
-    return tenantSlaContractProfiles.map((profile) => ({
+    const merged = [...SLA_BASE_CONTRACT_PROFILES, ...customSlaContracts];
+
+    return merged.map((profile) => ({
       ...profile,
       ...(contractOverrides?.[profile.key] || {}),
     }));
-  }, [contractOverrides, tenantSlaContractProfiles]);
+  }, [contractOverrides, customSlaContracts]);
 
   const slaContractCategories = useMemo(
     () => [
@@ -1545,7 +1308,7 @@ export default function Home() {
 
   const totalBudget =
     budgets.reduce(
-      (sum, item) => sum + Number(item.value || 0),
+      (sum, item) => sum + Number(item.value || item.total || 0),
       0,
     ) || budget;
 
@@ -1585,271 +1348,39 @@ export default function Home() {
     });
   }
 
-  const operationalOperators = useMemo(() => {
-    if (customerDataScope.isCustomer || !hasValidTenantSession || !authenticatedTenantId) return [];
-    return tenantOperators;
-  }, [authenticatedTenantId, customerDataScope.isCustomer, hasValidTenantSession, tenantOperators]);
-
-  const operationalTechnicians = useMemo(
-    () =>
-      operationalOperators
-        .filter((operator) => operator.status === "active")
-        .map((operator) => operator.name),
-    [operationalOperators],
-  );
-
-  const operationalOperatorSectors = useMemo(() => {
-    if (customerDataScope.isCustomer || !hasValidTenantSession) return [];
-
-    return Array.from(
-      new Set(
-        [
-          ...tenantOperatorSectors
-            .filter((sector) => sector.status === "active")
-            .map((sector) => sector.name),
-          ...tenantOperators.map((operator) => operator.sector),
-        ]
-          .map((value) => String(value || "").trim())
-          .filter(Boolean),
-      ),
-    ).sort((a, b) => a.localeCompare(b, "it"));
-  }, [customerDataScope.isCustomer, hasValidTenantSession, tenantOperatorSectors, tenantOperators]);
-
-  const operationalMaterials = useMemo(() => {
-    if (customerDataScope.isCustomer || !hasValidTenantSession) return [];
-    return tenantMaterials.filter((material) => material.status === "active");
-  }, [customerDataScope.isCustomer, hasValidTenantSession, tenantMaterials]);
-
-  const operationalMaterialCost = (ids: string[]) => materialCostFromCatalog(operationalMaterials, ids);
-
-  useEffect(() => {
-    if (selectedMaterials.length === 0) return;
-    const allowed = new Set(operationalMaterials.map((material) => material.id));
-    setSelectedMaterials((prev) => prev.filter((id) => allowed.has(id)));
-  }, [operationalMaterials, selectedMaterials.length]);
-
-  async function addTenantOperator(input: { name: string; title: string; sector: string; status: string }) {
-    if (!hasValidTenantSession || !currentUser?.tenantId) {
-      showMessage("Organizzazione non configurata", "error");
-      return;
-    }
-
-    const name = input.name.trim();
-    if (!name) {
-      showMessage("Inserisci il nome operatore.", "error");
-      return;
-    }
-
-    const status = input.status === "paused" || input.status === "inactive" ? input.status : "active";
-    const sectorName = input.sector.trim() || "Operativita";
-    let sectorId =
-      tenantOperatorSectors.find((sector) => normalizeFilterText(sector.name) === normalizeFilterText(sectorName))?.id ||
-      null;
-
-    if (!sectorId) {
-      const sector = await addTenantOperatorSector(sectorName, { silent: true });
-      sectorId = sector?.id || null;
-    }
-
-    const { data, error } = await supabase
-      .from("atlas_operators")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        name,
-        title: input.title.trim() || "Operatore",
-        sector_id: sectorId,
-        sector: sectorName,
-        status,
-      })
-      .select("id,tenant_id,tenant_user_id,name,title,sector_id,sector,status")
-      .single();
-
-    if (error) {
-      console.log(error);
-      showMessage("Errore salvataggio operatore", "error");
-      return;
-    }
-
-    setTenantOperators((prev) => [
-      ...normalizeOperatorRows(data ? [data] : [], currentUser.tenantId),
-      ...prev,
-    ]);
-    showMessage("Operatore aggiunto.");
-  }
-
-  async function addTenantOperatorSector(name: string, options?: { silent?: boolean }) {
-    if (!hasValidTenantSession || !currentUser?.tenantId) {
-      showMessage("Organizzazione non configurata", "error");
-      return null;
-    }
-
-    const sector = name.trim();
-    if (!sector) {
-      if (!options?.silent) showMessage("Inserisci una mansione.", "error");
-      return null;
-    }
-
-    const existing = tenantOperatorSectors.find(
-      (item) => normalizeFilterText(item.name) === normalizeFilterText(sector),
-    );
-
-    if (existing) return existing;
-
-    const { data, error } = await supabase
-      .from("atlas_operator_sectors")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        name: sector,
-        status: "active",
-      })
-      .select("id,tenant_id,name,status")
-      .single();
-
-    if (error) {
-      console.log(error);
-      if (!options?.silent) showMessage("Errore salvataggio mansione", "error");
-      return null;
-    }
-
-    const normalized = normalizeOperatorSectorRows(data ? [data] : [], currentUser.tenantId)[0] || null;
-    if (normalized) setTenantOperatorSectors((prev) => [normalized, ...prev]);
-
-    if (!options?.silent) showMessage("Mansione aggiunta.");
-    return normalized;
-  }
-
-  async function addTenantMaterial(input: { name: string; code?: string; cost: string }) {
-    if (!hasValidTenantSession || !currentUser?.tenantId) {
-      showMessage("Organizzazione non configurata", "error");
-      return;
-    }
-
-    const name = input.name.trim();
-    if (!name) {
-      showMessage("Inserisci il nome materiale.", "error");
-      return;
-    }
-
-    const cost = Number(String(input.cost || "0").replace(",", "."));
-
-    const { data, error } = await supabase
-      .from("atlas_material_catalog")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        code: input.code?.trim() || null,
-        name,
-        cost: Number.isFinite(cost) && cost > 0 ? cost : 0,
-        status: "active",
-      })
-      .select("id,tenant_id,code,name,cost,status")
-      .single();
-
-    if (error) {
-      console.log(error);
-      showMessage("Errore salvataggio materiale", "error");
-      return;
-    }
-
-    setTenantMaterials((prev) => [
-      ...normalizeMaterialRows(data ? [data] : [], currentUser.tenantId),
-      ...prev,
-    ]);
-    showMessage("Materiale aggiunto.");
-  }
-
-  async function updateContractField(
+  function updateContractField(
     contractName: string,
     field: string,
     value: string,
   ) {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
-    const currentContract = tenantContracts.find(
-      (contract) => contract.name === contractName,
-    );
-
-    if (!currentContract || !(field in currentContract)) {
-      showMessage("Contratto non trovato", "error");
-      return;
-    }
-
-    const nextContract = {
-      ...currentContract,
-      [field]: field === "renewalAlertDays" ? Number(value || 0) : value,
+    const updated = {
+      ...contractOverrides,
+      [contractName]: {
+        ...(contractOverrides[contractName] || {}),
+        [field]: value,
+      },
     };
 
-    const { data, error } = await supabase
-      .from("atlas_contract_catalog")
-      .update(tenantContractToDbPayload(activeTenant.id, nextContract))
-      .eq("tenant_id", activeTenant.id)
-      .eq("name", contractName)
-      .select("*")
-      .single();
-
-    if (error) {
-      console.log(error);
-      showMessage("Errore salvataggio contratto", "error");
-      return;
-    }
-
-    const normalized = normalizeTenantContractRows(data ? [data] : []);
-    const savedContract = normalized[0] || nextContract;
-    setTenantContracts((prev) =>
-      prev.map((contract) =>
-        contract.name === contractName ? savedContract : contract,
-      ),
-    );
+    setContractOverrides(updated);
+    localStorage.setItem("atlas-contract-overrides", JSON.stringify(updated));
     showMessage("Contratto aggiornato");
   }
 
-  async function updateSlaContractField(
+  function updateSlaContractField(
     contractKey: string,
     field: keyof AtlasSlaContractProfile,
     value: string | number | boolean,
   ) {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
-    const currentProfile = tenantSlaContractProfiles.find(
-      (contract) => contract.key === contractKey,
-    );
-
-    if (!currentProfile) {
-      showMessage("Contratto non trovato", "error");
-      return;
-    }
-
-    const nextProfile = {
-      ...currentProfile,
-      [field]: field === "matchPriority" ? Number(value || 0) : value,
+    const updated = {
+      ...contractOverrides,
+      [contractKey]: {
+        ...(contractOverrides[contractKey] || {}),
+        [field]: value,
+      },
     };
 
-    const { data, error } = await supabase
-      .from("atlas_contract_sla_profiles")
-      .upsert(tenantSlaContractToDbPayload(activeTenant.id, nextProfile), {
-        onConflict: "tenant_id,profile_key",
-      })
-      .select("*")
-      .single();
-
-    if (error) {
-      console.log(error);
-      showMessage("Errore salvataggio contratto", "error");
-      return;
-    }
-
-    const normalized = normalizeTenantSlaContractRows(data ? [data] : []);
-    const savedProfile = normalized[0] || nextProfile;
-    setTenantSlaContractProfiles((prev) =>
-      prev.map((contract) =>
-        contract.key === contractKey ? savedProfile : contract,
-      ),
-    );
+    setContractOverrides(updated);
+    localStorage.setItem("atlas-contract-overrides", JSON.stringify(updated));
     showMessage("Contratto aggiornato");
   }
 
@@ -1895,12 +1426,7 @@ export default function Home() {
     setContractFormOpen(true);
   }
 
-  async function saveSlaContractForm() {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
+  function saveSlaContractForm() {
     const cleanForm: AtlasSlaContractProfile = {
       ...slaContractForm,
       key:
@@ -1910,29 +1436,29 @@ export default function Home() {
       isActive: true,
     };
 
-    const { data, error } = await supabase
-      .from("atlas_contract_sla_profiles")
-      .upsert(tenantSlaContractToDbPayload(activeTenant.id, cleanForm), {
-        onConflict: "tenant_id,profile_key",
-      })
-      .select("*")
-      .single();
+    const isBaseContract = SLA_BASE_CONTRACT_PROFILES.some(
+      (contract) => contract.key === cleanForm.key,
+    );
 
-    if (error) {
-      console.log(error);
-      showMessage("Errore salvataggio contratto", "error");
-      return;
+    if (editingSlaContractKey && isBaseContract) {
+      const updated = {
+        ...contractOverrides,
+        [cleanForm.key]: cleanForm,
+      };
+
+      setContractOverrides(updated);
+      localStorage.setItem("atlas-contract-overrides", JSON.stringify(updated));
+    } else {
+      const next = customSlaContracts.some((contract) => contract.key === cleanForm.key)
+        ? customSlaContracts.map((contract) =>
+            contract.key === cleanForm.key ? cleanForm : contract,
+          )
+        : [cleanForm, ...customSlaContracts];
+
+      setCustomSlaContracts(next);
+      localStorage.setItem("atlas-custom-sla-contracts", JSON.stringify(next));
     }
 
-    const normalized = normalizeTenantSlaContractRows(data ? [data] : []);
-    const savedProfile = normalized[0] || cleanForm;
-    setTenantSlaContractProfiles((prev) =>
-      prev.some((contract) => contract.key === savedProfile.key)
-        ? prev.map((contract) =>
-            contract.key === savedProfile.key ? savedProfile : contract,
-          )
-        : [savedProfile, ...prev],
-    );
     setContractFormOpen(false);
     showMessage("Contratto salvato");
   }
@@ -2001,7 +1527,7 @@ export default function Home() {
         </head>
         <body>
           <h1>SERVIZIO DI ASSISTENZA - SLA CONTRATTUALI</h1>
-          <p>Esportazione ATLAS · ${new Date().toLocaleString("it-IT")} · ${selectedSlaContractsForExport.length} contratti</p>
+          <p>Esportazione ATLAS Â· ${new Date().toLocaleString("it-IT")} Â· ${selectedSlaContractsForExport.length} contratti</p>
           <table>
             <thead>
               <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
@@ -2026,79 +1552,36 @@ export default function Home() {
     }, 500);
   }
 
-  async function updateInventoryItem(index: number, field: string, value: string) {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
+  function updateInventoryItem(index: number, field: string, value: string) {
+    const updated = inventory.map((item, i) => {
+      if (i !== index) return item;
 
-    const current = inventory[index];
-    if (!current) return;
+      return {
+        ...item,
+        [field]:
+          field === "value" || field === "quantity"
+            ? Number(value || 0)
+            : value,
+      };
+    });
 
-    const updatedItem: AtlasTenantInventoryItem = {
-      ...current,
-      [field]:
-        field === "value" || field === "quantity" || field === "threshold"
-          ? Number(value || 0)
-          : value,
-    };
-
-    const query = supabase
-      .from("atlas_inventory_items")
-      .update(tenantInventoryToDbPayload(activeTenant.id, updatedItem))
-      .eq("tenant_id", activeTenant.id);
-
-    const { data, error } = await (current.dbId
-      ? query.eq("id", current.dbId)
-      : query.eq("code", current.id)
-    )
-      .select("*")
-      .single();
-
-    if (error) {
-      console.log(error);
-      showMessage("Errore salvataggio articolo", "error");
-      return;
-    }
-
-    const normalized = normalizeTenantInventoryRows(data ? [data] : []);
-    const savedItem = normalized[0] || updatedItem;
-    setInventory((prev) =>
-      prev.map((item, itemIndex) => (itemIndex === index ? savedItem : item)),
-    );
+    setInventory(updated);
+    localStorage.setItem("atlas-inventory", JSON.stringify(updated));
   }
 
-  async function addInventoryItem() {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
+  function addInventoryItem() {
+    const updated = [
+      ...inventory,
+      {
+        id: `ART-${Date.now()}`,
+        name: "Nuovo articolo",
+        value: 0,
+        quantity: 0,
+      },
+    ];
 
-    const item: AtlasTenantInventoryItem = {
-      id: `ART-${Date.now()}`,
-      name: "Nuovo articolo",
-      value: 0,
-      quantity: 0,
-      threshold: 10,
-      status: "active",
-    };
-
-    const { data, error } = await supabase
-      .from("atlas_inventory_items")
-      .insert(tenantInventoryToDbPayload(activeTenant.id, item))
-      .select("*")
-      .single();
-
-    if (error) {
-      console.log(error);
-      showMessage("Errore creazione articolo", "error");
-      return;
-    }
-
-    setInventory((prev) => [
-      ...(data ? normalizeTenantInventoryRows([data]) : [item]),
-      ...prev,
-    ]);
+    setInventory(updated);
+    localStorage.setItem("atlas-inventory", JSON.stringify(updated));
   }
 
   function mapCustomerEntityToSearchSite(entity: any) {
@@ -2108,7 +1591,7 @@ export default function Home() {
       entity.canonical_name ||
       entity.name ||
       completeName ||
-      "Sede / entità cliente";
+      "Sede / entitÃ  cliente";
 
     return {
       id: null,
@@ -2178,14 +1661,14 @@ export default function Home() {
     () =>
       tickets
         .filter((t) => getTicketType(t) === "straordinaria")
-        .reduce((sum, t) => sum + operationalMaterialCost(t.materialIds || []), 0),
-    [tickets, ticketTypesById, operationalMaterials],
+        .reduce((sum, t) => sum + materialCost(t.materialIds || []), 0),
+    [tickets, ticketTypesById],
   );
 
   const remainingBudget = totalBudget - totalForecast;
 
   async function refreshTickets() {
-    if (!hasValidTenantSession || !activeTenant?.id) {
+    if (!activeTenant?.id) {
       showMessage("Organizzazione non configurata", "error");
       return;
     }
@@ -2455,7 +1938,7 @@ export default function Home() {
   async function addTicket(customerId?: string) {
     if (creatingTicket) return;
 
-    if (!hasValidTenantSession || !activeTenant?.id) {
+    if (!activeTenant?.id) {
       showMessage("Organizzazione non configurata", "error");
       return;
     }
@@ -2471,7 +1954,7 @@ export default function Home() {
     setCreatingTicket(true);
 
     try {
-      const cost = operationalMaterialCost(selectedMaterials);
+      const cost = materialCost(selectedMaterials);
       const dbStatus = atlasStatusToDbStatus[ticketStatus] || "Aperto";
       const selectedEntityFromState =
         customerEntities.find(
@@ -2520,34 +2003,39 @@ export default function Home() {
         "";
       const currentCity = city || selectedEntityFromState?.city || "";
 
-      const createdTicket = await createAtlasTicket({
-        site,
-        region: currentRegion,
-        entity: currentEntity,
-        city: currentCity,
-        siteId,
-        glpiEntityId: currentGlpiEntityId,
-        glpiEntityPath: currentGlpiEntityPath || null,
-        problem,
-        materials: selectedMaterials,
-        technician,
-        status: dbStatus,
-        cost,
-        slot: selectedSlot,
-        interventionDate: selectedDate || null,
-        expectedCloseDate: expectedCloseDate || null,
-        urgent: false,
-        customerId: customerId || null,
-        eventTitle: "Ticket creato",
-        eventDescription: `${site} - ${ticketTitle}`,
-        eventMetadata: {
-          status: dbStatus,
-          urgent: false,
-          ticket_type: ticketType,
-        },
-      });
-      const data = createdTicket.ticket;
-      const ticketProvider = createdTicket.provider;
+      const { data, error } = await supabase
+        .from("tickets")
+        .insert([
+          {
+            site,
+            region: currentRegion,
+            entity: currentEntity,
+            city: currentCity,
+            site_id: siteId,
+            glpi_entity_id: currentGlpiEntityId,
+            glpi_entity_path: currentGlpiEntityPath || null,
+            problem,
+            materials: selectedMaterials,
+            technician,
+            status: dbStatus,
+            cost,
+            slot: selectedSlot,
+            intervention_date: selectedDate || null,
+            opened_at: new Date().toISOString(),
+            expected_close_date: expectedCloseDate || null,
+            urgent: false,
+            customer_id: customerId || null,
+            tenant_id: activeTenant?.id || null,
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        console.log(error);
+        showMessage("Errore salvataggio ticket", "error");
+        return;
+      }
 
       const newTicket = {
         id: data.id,
@@ -2562,17 +2050,17 @@ export default function Home() {
         status: dbStatus,
         date: selectedDate || "",
         slot: selectedSlot || "",
-        openedAt: toNullableString(data.opened_at) || new Date().toISOString(),
-        expectedCloseDate: toNullableString(data.expected_close_date) || expectedCloseDate || "",
-        closedAt: toNullableString(data.closed_at) || "",
+        openedAt: data.opened_at || new Date().toISOString(),
+        expectedCloseDate: data.expected_close_date || expectedCloseDate || "",
+        closedAt: data.closed_at || "",
         urgent: Boolean(data.urgent),
         customerId: data.customer_id || customerId || null,
         tenantId: data.tenant_id || activeTenant?.id || null,
         tenant_id: data.tenant_id || activeTenant?.id || null,
-        glpiEntityId: data.glpi_entity_id || null,
-        glpi_entity_id: data.glpi_entity_id || null,
-        glpiEntityPath: toNullableString(data.glpi_entity_path) || "",
-        glpi_entity_path: toNullableString(data.glpi_entity_path) || "",
+        glpiEntityId: currentGlpiEntityId,
+        glpi_entity_id: currentGlpiEntityId,
+        glpiEntityPath: currentGlpiEntityPath,
+        glpi_entity_path: currentGlpiEntityPath,
         resolved: true,
         closingNotes: "",
         futureNeeds: "",
@@ -2607,14 +2095,8 @@ export default function Home() {
       setExpectedCloseDate("");
       setSelectedGlpiEntityId(null);
                         setSelectedGlpiEntityPath("");
-      let glpiResult: Awaited<ReturnType<typeof syncTicketToGlpi>> | null = null;
-
-      if (ticketProvider === "glpi") {
-        showMessage("Ticket creato in ATLAS, sincronizzazione GLPI in corso...");
-        glpiResult = await syncTicketToGlpi(newTicket);
-      } else {
-        showMessage("Ticket creato in ATLAS.");
-      }
+      showMessage("Ticket creato in ATLAS, sincronizzazione GLPI in corso...");
+      const glpiResult = await syncTicketToGlpi(newTicket);
 
       if (glpiResult?.glpiTicketId) {
         const syncedTicket = {
@@ -2636,6 +2118,24 @@ export default function Home() {
         );
       }
 
+      await supabase.from("ticket_events").insert([
+        {
+          ticket_id: data.id,
+          customer_id: customerId || null,
+          site_id: siteId || null,
+          event_type: "ticket_created",
+          title: "Ticket creato",
+          description: `${site} - ${ticketTitle}`,
+          created_by: "Operatore",
+          tenant_id: activeTenant?.id || null,
+          metadata: {
+            status: dbStatus,
+            urgent: false,
+            ticket_type: ticketType,
+          },
+        },
+      ]);
+
       setSelectedMaterials([]);
       setTicketType("ordinaria");
       setTicketStatus("nuova");
@@ -2655,7 +2155,7 @@ export default function Home() {
   }
 
   async function planTicket(id: string) {
-    if (!hasValidTenantSession || !activeTenant?.id) {
+    if (!activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
       return;
     }
@@ -2703,7 +2203,7 @@ export default function Home() {
   }
 
   async function closeTicket(id: string) {
-    if (!hasValidTenantSession || !activeTenant?.id) {
+    if (!activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
       return;
     }
@@ -2756,7 +2256,7 @@ export default function Home() {
   }
 
   async function toggleTicketUrgent(ticket: any) {
-    if (!hasValidTenantSession || !activeTenant?.id) {
+    if (!activeTenant?.id) {
       showMessage("Organizzazione non valida: ricarica e riprova.", "error");
       return;
     }
@@ -2784,7 +2284,7 @@ export default function Home() {
     );
 
     showMessage(
-      nextUrgent ? "Intervento marcato urgente" : "Intervento non più urgente",
+      nextUrgent ? "Intervento marcato urgente" : "Intervento non piÃ¹ urgente",
     );
   }
 
@@ -2793,7 +2293,7 @@ export default function Home() {
       "ID",
       "Sede",
       "Ente",
-      "Città",
+      "CittÃ ",
       "Regione",
       "Problema",
       "Materiali",
@@ -2809,7 +2309,7 @@ export default function Home() {
       "Data intervento",
       "Slot",
       "Note chiusura",
-      "Necessità future",
+      "NecessitÃ  future",
     ];
 
     const rows = tickets.map((t) => [
@@ -2820,17 +2320,17 @@ export default function Home() {
       t.region || "",
       t.problem,
       (t.materialIds || [])
-        .map((id: string) => operationalMaterials.find((m) => m.id === id)?.name)
+        .map((id: string) => materials.find((m) => m.id === id)?.name)
         .join(" + "),
-      operationalMaterialCost(t.materialIds || []),
+      materialCost(t.materialIds || []),
       t.technician || "",
       getTicketType(t),
       t.status,
-      t.resolved === false ? "No" : "Sì",
+      t.resolved === false ? "No" : "SÃ¬",
       t.openedAt || "",
       t.expectedCloseDate || "",
       t.closedAt || "",
-      t.urgent ? "Sì" : "No",
+      t.urgent ? "SÃ¬" : "No",
       t.date || "",
       t.slot || "",
       t.closingNotes || "",
@@ -2933,7 +2433,7 @@ export default function Home() {
       entity.canonical_name ||
       parts[parts.length - 1] ||
       entity.name ||
-      "Sede / entità cliente";
+      "Sede / entitÃ  cliente";
 
     return {
       id: null,
@@ -3000,11 +2500,6 @@ export default function Home() {
       .slice(0, 12);
   }, [calendarSiteSearch, sites, customerEntities]);
   async function updateCalendarTicket() {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
     if (
       !editingCalendarTicketId ||
       !selectedCalendarDay ||
@@ -3031,8 +2526,7 @@ export default function Home() {
         intervention_date: selectedCalendarDay,
         status: "Pianificato",
       })
-      .eq("id", Number(editingCalendarTicketId))
-      .eq("tenant_id", activeTenant.id);
+      .eq("id", Number(editingCalendarTicketId));
 
     if (error) {
       console.log(error);
@@ -3082,7 +2576,7 @@ export default function Home() {
     showMessage("Intervento aggiornato");
   }
   async function addCalendarTicket() {
-    if (!hasValidTenantSession || !activeTenant?.id) {
+    if (!activeTenant?.id) {
       showMessage("Organizzazione non configurata", "error");
       return;
     }
@@ -3097,37 +2591,39 @@ export default function Home() {
       return;
     }
 
-    let createdTicket: Awaited<ReturnType<typeof createAtlasTicket>>;
+    const { data, error } = await supabase
+      .from("tickets")
+      .insert([
+        {
+          site: calendarSite.name,
+          region: calendarSite.region || "Da definire",
+          entity: calendarSite.entity || "",
+          city: calendarSite.city || "",
+          site_id: calendarSite.id || null,
+          customer_id: calendarSite.customer_id || calendarSite.customerId || null,
+          glpi_entity_id: calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
+          glpi_entity_path: calendarSite.glpi_entity_path || calendarSite.complete_name || null,
+          problem: "Intervento pianificato da calendario",
+          materials: [],
+          technician: calendarTechnician,
+          status: "Pianificato",
+          cost: 0,
+          slot: calendarTime,
+          intervention_date: selectedCalendarDay,
+          opened_at: new Date().toISOString(),
+          expected_close_date: selectedCalendarDay,
+          urgent: false,
+          tenant_id: activeTenant?.id || null,
+        },
+      ])
+      .select()
+      .single();
 
-    try {
-      createdTicket = await createAtlasTicket({
-        site: calendarSite.name,
-        region: calendarSite.region || "Da definire",
-        entity: calendarSite.entity || "",
-        city: calendarSite.city || "",
-        siteId: calendarSite.id || null,
-        customerId: calendarSite.customer_id || calendarSite.customerId || null,
-        glpiEntityId: calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
-        glpiEntityPath: calendarSite.glpi_entity_path || calendarSite.complete_name || null,
-        problem: "Intervento pianificato da calendario",
-        materials: [],
-        technician: calendarTechnician,
-        status: "Pianificato",
-        cost: 0,
-        slot: calendarTime,
-        interventionDate: selectedCalendarDay,
-        expectedCloseDate: selectedCalendarDay,
-        urgent: false,
-        createEvent: false,
-      });
-    } catch (error) {
-      console.error("Errore creazione intervento calendario", error);
+    if (error) {
+      console.log(error);
       showMessage("Errore creazione intervento calendario", "error");
       return;
     }
-
-    const data = createdTicket.ticket;
-    const ticketProvider = createdTicket.provider;
 
     const newTicket = {
       id: data.id,
@@ -3139,18 +2635,18 @@ export default function Home() {
       customer_id: data.customer_id || calendarSite.customer_id || calendarSite.customerId || null,
       siteId: data.site_id || calendarSite.id || null,
       site_id: data.site_id || calendarSite.id || null,
-      glpiEntityId: data.glpi_entity_id || null,
-      glpi_entity_id: data.glpi_entity_id || null,
-      glpi_entity_path: toNullableString(data.glpi_entity_path) || "",
+      glpiEntityId: data.glpi_entity_id || calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
+      glpi_entity_id: data.glpi_entity_id || calendarSite.glpi_entity_id || calendarSite.glpiEntityId || null,
+      glpi_entity_path: data.glpi_entity_path || calendarSite.glpi_entity_path || calendarSite.complete_name || "",
       problem: "Intervento pianificato da calendario",
       materialIds: [],
       technician: calendarTechnician,
       status: "Pianificato",
       date: selectedCalendarDay,
       slot: calendarTime,
-      openedAt: toNullableString(data.opened_at) || new Date().toISOString(),
-      expectedCloseDate: toNullableString(data.expected_close_date) || selectedCalendarDay || "",
-      closedAt: toNullableString(data.closed_at) || "",
+      openedAt: data.opened_at || new Date().toISOString(),
+      expectedCloseDate: data.expected_close_date || selectedCalendarDay || "",
+      closedAt: data.closed_at || "",
       urgent: Boolean(data.urgent),
       tenantId: data.tenant_id || activeTenant?.id || null,
       tenant_id: data.tenant_id || activeTenant?.id || null,
@@ -3174,7 +2670,7 @@ export default function Home() {
 
     setTickets((prev) => [newTicket, ...prev]);
 
-    const glpiResult = ticketProvider === "glpi" ? await syncTicketToGlpi(newTicket) : null;
+    const glpiResult = await syncTicketToGlpi(newTicket);
 
     if (glpiResult?.glpiTicketId) {
       const syncedTicket = {
@@ -3261,11 +2757,6 @@ export default function Home() {
   }
 
   function saveContact() {
-    if (!contactStorageKey || !currentUser?.tenantId) {
-      showMessage("Sessione o tenant non validi.", "error");
-      return;
-    }
-
     if (!contactForm.name || !contactForm.phone) {
       showMessage("Nome e telefono sono obbligatori", "error");
       return;
@@ -3282,8 +2773,6 @@ export default function Home() {
       clientName: contactClient?.name || contactClientSearch || "",
       clientCity: contactClient?.city || "",
       clientRegion: contactClient?.region || "",
-      tenantId: currentUser.tenantId,
-      tenant_id: currentUser.tenantId,
       updatedAt: new Date().toISOString(),
     };
 
@@ -3294,7 +2783,7 @@ export default function Home() {
       : [payload, ...contacts];
 
     setContacts(updated);
-    localStorage.setItem(contactStorageKey, JSON.stringify(updated));
+    localStorage.setItem("atlas-contacts", JSON.stringify(updated));
     resetContactForm();
 
     showMessage(editingContactId ? "Contatto aggiornato" : "Contatto aggiunto");
@@ -3322,9 +2811,7 @@ export default function Home() {
   function deleteContact(id: string) {
     const updated = contacts.filter((contact) => contact.id !== id);
     setContacts(updated);
-    if (contactStorageKey) {
-      localStorage.setItem(contactStorageKey, JSON.stringify(updated));
-    }
+    localStorage.setItem("atlas-contacts", JSON.stringify(updated));
     resetContactForm();
     showMessage("Contatto eliminato");
   }
@@ -3349,25 +2836,20 @@ export default function Home() {
 
     setBudgetForm({
       contractName: selectedContractName,
-      value: String(existing?.value || budget || 0),
+      value: String(existing?.value || budget || INITIAL_BUDGET),
       notes: existing?.notes || "",
     });
     setMobileBudgetFormOpen(true);
   }
 
-  async function saveMobileBudget() {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
+  function saveMobileBudget() {
     const parsed = Number(String(budgetForm.value || "0").replace(",", "."));
     const contract = editableContracts.find(
       (item) => item.name === budgetForm.contractName,
     );
 
     if (!contract) {
-      showMessage("Seleziona un contratto / entità", "error");
+      showMessage("Seleziona un contratto / entitÃ ", "error");
       return;
     }
 
@@ -3377,56 +2859,33 @@ export default function Home() {
     }
 
     const payload = {
+      id: `BUD-${contract.name.replace(/[^A-Z0-9]+/gi, "-").toUpperCase()}`,
       contractName: contract.name,
       entity: contract.clientType || contract.name,
       value: parsed,
       notes: budgetForm.notes || "",
-    };
-
-    const { data, error } = await supabase
-      .from("atlas_contract_budgets")
-      .upsert(
-        tenantBudgetToDbPayload({
-          tenantId: activeTenant.id,
-          ...payload,
-        }),
-        { onConflict: "tenant_id,contract_name" },
-      )
-      .select("*")
-      .single();
-
-    if (error) {
-      console.log(error);
-      showMessage("Errore salvataggio budget", "error");
-      return;
-    }
-
-    const normalized = normalizeTenantBudgetRows(data ? [data] : []);
-    const savedBudget = normalized[0] || {
-      id: `BUD-${contract.name.replace(/[^A-Z0-9]+/gi, "-").toUpperCase()}`,
-      ...payload,
       updatedAt: new Date().toISOString(),
     };
+
     const updated = budgets.some((item) => item.contractName === contract.name)
       ? budgets.map((item) =>
-          item.contractName === contract.name ? savedBudget : item,
+          item.contractName === contract.name ? payload : item,
         )
-      : [savedBudget, ...budgets];
+      : [payload, ...budgets];
 
     setBudgets(updated);
-    const nextBudget = updated.reduce((sum, item) => sum + Number(item.value || 0), 0);
-    setBudget(nextBudget);
+    localStorage.setItem("atlas-budgets", JSON.stringify(updated));
+    setBudget(updated.reduce((sum, item) => sum + Number(item.value || 0), 0));
+    localStorage.setItem(
+      "atlas-budget",
+      String(updated.reduce((sum, item) => sum + Number(item.value || 0), 0)),
+    );
 
     setMobileBudgetFormOpen(false);
     showMessage("Budget contratto aggiornato");
   }
 
   async function promptPlanTicket(id: string) {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
     const current = tickets.find((t) => String(t.id) === String(id));
     const date = prompt(
       "Data intervento (AAAA-MM-GG):",
@@ -3442,7 +2901,7 @@ export default function Home() {
 
     const tech = prompt(
       "Tecnico:",
-      current?.technician || technician || operationalTechnicians[0] || "",
+      current?.technician || technician || technicians[0],
     );
     if (!tech) return;
 
@@ -3454,8 +2913,7 @@ export default function Home() {
         slot,
         status: "Pianificato",
       })
-      .eq("id", Number(id))
-      .eq("tenant_id", activeTenant.id);
+      .eq("id", Number(id));
 
     if (error) {
       console.log(error);
@@ -3475,15 +2933,10 @@ export default function Home() {
   }
 
   async function promptCloseTicket(id: string) {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
     const notes = prompt("Note chiusura:", closingNotes || "");
     if (notes === null) return;
 
-    const future = prompt("Necessità future:", futureNeeds || "");
+    const future = prompt("NecessitÃ  future:", futureNeeds || "");
     if (future === null) return;
 
     const today = formatLocalDate(new Date());
@@ -3498,8 +2951,7 @@ export default function Home() {
         future_needs: future,
         resolved: true,
       })
-      .eq("id", Number(id))
-      .eq("tenant_id", activeTenant.id);
+      .eq("id", Number(id));
 
     if (error) {
       console.log(error);
@@ -3594,15 +3046,10 @@ export default function Home() {
   }
 
   async function promptAddClient() {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
     const name = prompt("Nome sede/cliente:");
     if (!name) return;
 
-    const cityValue = prompt("Città:", "") || "";
+    const cityValue = prompt("CittÃ :", "") || "";
     const entityValue = prompt("Ente:", "") || "";
     const regionValue = prompt("Regione:", "Da definire") || "Da definire";
 
@@ -3610,7 +3057,6 @@ export default function Home() {
       .from("sites")
       .insert([
         {
-          tenant_id: activeTenant.id,
           name,
           city: cityValue,
           entity: entityValue,
@@ -3705,12 +3151,7 @@ export default function Home() {
     setMobileInventoryFormOpen(true);
   }
 
-  async function saveInventoryItemMobile() {
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
+  function saveInventoryItemMobile() {
     const name = inventoryForm.name.trim();
     const id =
       inventoryForm.id.trim() || name.toUpperCase().replace(/\s+/g, "-");
@@ -3720,49 +3161,22 @@ export default function Home() {
       return;
     }
 
-    const currentItem =
-      editingInventoryIndex === null ? null : inventory[editingInventoryIndex];
-    const payload: AtlasTenantInventoryItem = {
-      dbId: currentItem?.dbId,
+    const payload = {
       id,
       name,
       value: Number(String(inventoryForm.value || "0").replace(",", ".")),
       quantity: Number(String(inventoryForm.quantity || "0").replace(",", ".")),
-      threshold: currentItem?.threshold ?? 10,
-      status: currentItem?.status || "active",
     };
 
-    const query =
-      editingInventoryIndex === null || !currentItem?.dbId
-        ? supabase
-            .from("atlas_inventory_items")
-            .upsert(tenantInventoryToDbPayload(activeTenant.id, payload), {
-              onConflict: "tenant_id,code",
-            })
-        : supabase
-            .from("atlas_inventory_items")
-            .update(tenantInventoryToDbPayload(activeTenant.id, payload))
-            .eq("tenant_id", activeTenant.id)
-            .eq("id", currentItem.dbId);
-
-    const { data, error } = await query.select("*").single();
-
-    if (error) {
-      console.log(error);
-      showMessage("Errore salvataggio articolo", "error");
-      return;
-    }
-
-    const normalized = normalizeTenantInventoryRows(data ? [data] : []);
-    const savedItem = normalized[0] || payload;
     const updated =
       editingInventoryIndex === null
-        ? [savedItem, ...inventory]
+        ? [payload, ...inventory]
         : inventory.map((item, index) =>
-            index === editingInventoryIndex ? savedItem : item,
+            index === editingInventoryIndex ? { ...item, ...payload } : item,
           );
 
     setInventory(updated);
+    localStorage.setItem("atlas-inventory", JSON.stringify(updated));
     setMobileInventoryFormOpen(false);
     setEditingInventoryIndex(null);
     showMessage(
@@ -3772,36 +3186,14 @@ export default function Home() {
     );
   }
 
-  async function deleteInventoryItemMobile() {
+  function deleteInventoryItemMobile() {
     if (editingInventoryIndex === null) return;
-    if (!hasValidTenantSession || !activeTenant?.id) {
-      showMessage("Organizzazione non valida: ricarica e riprova.", "error");
-      return;
-    }
-
-    const currentItem = inventory[editingInventoryIndex];
-    if (!currentItem) return;
-
-    const query = supabase
-      .from("atlas_inventory_items")
-      .delete()
-      .eq("tenant_id", activeTenant.id);
-
-    const { error } = await (currentItem.dbId
-      ? query.eq("id", currentItem.dbId)
-      : query.eq("code", currentItem.id)
-    );
-
-    if (error) {
-      console.log(error);
-      showMessage("Errore eliminazione articolo", "error");
-      return;
-    }
 
     const updated = inventory.filter(
       (_, index) => index !== editingInventoryIndex,
     );
     setInventory(updated);
+    localStorage.setItem("atlas-inventory", JSON.stringify(updated));
     setMobileInventoryFormOpen(false);
     setEditingInventoryIndex(null);
     showMessage("Articolo eliminato");
@@ -3879,7 +3271,7 @@ export default function Home() {
         id: reminder.id,
         type: "Reminder",
         title: reminder.title,
-        detail: `${reminder.date}${reminder.note ? ` · ${reminder.note}` : ""}`,
+        detail: `${reminder.date}${reminder.note ? ` Â· ${reminder.note}` : ""}`,
         tone: "blue",
         action: () => toggleReminderDone(reminder.id),
       })),
@@ -3899,14 +3291,14 @@ export default function Home() {
       id: `today-${ticket.id}`,
       type: "Oggi",
       title: ticket.site || "Intervento",
-      detail: `${ticket.slot || "Slot n/d"} · ${ticket.technician || "Tecnico n/d"}`,
+      detail: `${ticket.slot || "Slot n/d"} Â· ${ticket.technician || "Tecnico n/d"}`,
       tone: "emerald",
     })),
     ...tomorrowTickets.map((ticket) => ({
       id: `tomorrow-${ticket.id}`,
       type: "Domani",
       title: ticket.site || "Intervento",
-      detail: `${ticket.slot || "Slot n/d"} · ${ticket.technician || "Tecnico n/d"}`,
+      detail: `${ticket.slot || "Slot n/d"} Â· ${ticket.technician || "Tecnico n/d"}`,
       tone: "blue",
     })),
     ...expiringContracts.map((contract) => ({
@@ -3927,7 +3319,7 @@ export default function Home() {
       id: `inventory-${item.id}`,
       type: "Magazzino",
       title: item.name,
-      detail: `Quantità ${item.quantity}`,
+      detail: `QuantitÃ  ${item.quantity}`,
       tone: Number(item.quantity) <= 0 ? "red" : "amber",
     })),
   ];
@@ -3966,11 +3358,6 @@ export default function Home() {
   }
 
   function handleTenantChange(tenant: AtlasTenant) {
-    if (!currentUser?.tenantId || tenant.id !== currentUser.tenantId) {
-      showMessage("Cambio tenant non autorizzato per questa sessione.", "error");
-      return;
-    }
-
     setActiveTenant(tenant);
     storeTenantSlug(tenant.slug);
     setSite("");
@@ -4025,7 +3412,7 @@ export default function Home() {
       return;
     }
 
-    const glpiTicketId = glpiEnabled ? ticket?.glpi_ticket_id || ticket?.glpiTicketId || null : null;
+    const glpiTicketId = ticket?.glpi_ticket_id || ticket?.glpiTicketId || null;
     const ticketLabel = ticket?.site || ticket?.title || ticket?.problem || `#${ticketId}`;
 
     const confirmed = window.confirm(
@@ -4035,7 +3422,7 @@ export default function Home() {
 
     if (!confirmed) return;
 
-    const deleteFromGlpi = glpiEnabled && glpiTicketId
+    const deleteFromGlpi = glpiTicketId
       ? window.confirm(`Vuoi provare a cancellare anche il ticket GLPI #${glpiTicketId}?\n\nOK = ATLAS + GLPI\nAnnulla = solo ATLAS`)
       : false;
 
@@ -4050,7 +3437,7 @@ export default function Home() {
         return;
       }
 
-      const tenantId = hasValidTenantSession && activeTenant?.id ? activeTenant.id : null;
+      const tenantId = activeTenant?.id || ticket?.tenant_id || ticket?.tenantId || null;
 
       if (!tenantId) {
         showMessage("Organizzazione non valida: ricarica e riprova.", "error");
@@ -4137,61 +3524,30 @@ export default function Home() {
   }
 
   function renderNotificationsDrawer() {
-    if (!notificationsOpen || typeof document === "undefined") return null;
+    if (!notificationsOpen) return null;
 
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
+    const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1024;
+    const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 768;
     const margin = 12;
     const gap = 10;
-    const minimumPanelHeight = 240;
-    const panelWidth = Math.min(448, Math.max(0, viewportWidth - margin * 2));
+    const panelWidth = Math.min(448, viewportWidth - margin * 2);
     const anchorBottom = notificationAnchor?.bottom ?? 72;
     const anchorRight = notificationAnchor?.right ?? viewportWidth - margin;
     const preferredTop = anchorBottom + gap;
-    const maximumTop = Math.max(margin, viewportHeight - margin - minimumPanelHeight);
-    const panelTop = Math.min(Math.max(preferredTop, margin), maximumTop);
+    const minimumUsableHeight = Math.min(360, viewportHeight - margin * 2);
+    const panelTop = Math.max(
+      margin,
+      Math.min(preferredTop, viewportHeight - margin - minimumUsableHeight),
+    );
     const panelLeft = Math.max(
       margin,
       Math.min(anchorRight - panelWidth, viewportWidth - panelWidth - margin),
     );
-    const panelMaxHeight = Math.max(
-      0,
-      viewportHeight - panelTop - margin,
-    );
+    const panelMaxHeight = Math.max(240, viewportHeight - panelTop - margin);
 
-    const panelTone = isExecutiveMode
-      ? "border-cyan-300/20 bg-[#050b16] text-white shadow-[0_28px_90px_rgba(0,0,0,0.58)]"
-      : theme === "dark"
-        ? "border-white/10 bg-[#07111f] text-white shadow-2xl"
-        : "border-slate-200 bg-[#f4f7fb] text-slate-950 shadow-2xl";
-
-    const sectionTone = isExecutiveMode
-      ? "border-cyan-300/12 bg-[#0b1424]"
-      : theme === "dark"
-        ? "border-white/10 bg-[#101b2b]"
-        : "border-slate-200 bg-white";
-
-    const emptyTone = isExecutiveMode
-      ? "border-cyan-300/12 bg-[#0b1424] text-slate-300"
-      : theme === "dark"
-        ? "border-white/10 bg-[#101b2b] text-slate-300"
-        : "border-slate-200 bg-white text-slate-600";
-
-    const itemTone = isExecutiveMode
-      ? "border-cyan-300/12 bg-[#101a2a]"
-      : theme === "dark"
-        ? "border-white/10 bg-[#101b2b]"
-        : "border-slate-200 bg-white shadow-sm";
-
-    return createPortal(
-      <div
-        className="fixed inset-0 z-[120] bg-transparent"
-        onMouseDown={closeNotifications}
-      >
+    return (
+      <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm" onMouseDown={closeNotifications}>
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="atlas-notifications-title"
           onMouseDown={(event) => event.stopPropagation()}
           style={{
             left: panelLeft,
@@ -4199,24 +3555,24 @@ export default function Home() {
             width: panelWidth,
             maxHeight: panelMaxHeight,
           }}
-          className={`fixed flex w-[calc(100vw-1.5rem)] max-w-md flex-col overflow-hidden rounded-3xl border p-5 ${panelTone}`}
+          className={`fixed flex w-[calc(100vw-1.5rem)] max-w-md flex-col overflow-hidden rounded-3xl border p-5 shadow-2xl ${
+            theme === "dark"
+              ? "border-white/10 bg-[#07111f] text-white"
+              : "border-slate-200 bg-[#f4f7fb] text-slate-950"
+          }`}
         >
-          <div className="mb-5 flex shrink-0 items-center justify-between">
+          <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-400">
                 ATLAS
               </p>
-              <h2 id="atlas-notifications-title" className="text-2xl font-black">
-                Notifiche
-              </h2>
+              <h2 className="text-2xl font-black">Notifiche</h2>
             </div>
 
             <button
-              type="button"
               onClick={closeNotifications}
-              aria-label="Chiudi notifiche"
               className={`rounded-2xl p-3 ${
-                isExecutiveMode || theme === "dark"
+                theme === "dark"
                   ? "bg-white/10 text-white"
                   : "bg-white text-slate-900 shadow-sm"
               }`}
@@ -4225,8 +3581,14 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pr-1">
-            <div className={`rounded-3xl border p-4 ${sectionTone}`}>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            <div
+              className={`rounded-3xl border p-4 ${
+                theme === "dark"
+                  ? "border-white/10 bg-white/[0.05]"
+                  : "border-slate-200 bg-white"
+              }`}
+            >
               <p className="mb-3 text-sm font-black">Nuovo reminder manuale</p>
               <div className="grid gap-3">
                 <input
@@ -4242,7 +3604,6 @@ export default function Home() {
                 })}
                 <input id="atlas-reminder-date" type="hidden" />
                 <button
-                  type="button"
                   onClick={() => {
                     const title =
                       (
@@ -4268,14 +3629,24 @@ export default function Home() {
 
             <div className="space-y-3">
               {notificationItems.length === 0 ? (
-                <div className={`rounded-3xl border p-5 text-sm ${emptyTone}`}>
+                <div
+                  className={`rounded-3xl border p-5 text-sm ${
+                    theme === "dark"
+                      ? "border-white/10 bg-white/[0.05] text-slate-300"
+                      : "border-slate-200 bg-white text-slate-600"
+                  }`}
+                >
                   Nessuna notifica attiva.
                 </div>
               ) : (
                 notificationItems.map((item) => (
                   <div
                     key={item.id}
-                    className={`rounded-3xl border p-4 ${itemTone}`}
+                    className={`rounded-3xl border p-4 ${
+                      theme === "dark"
+                        ? "border-white/10 bg-white/[0.06]"
+                        : "border-slate-200 bg-white shadow-sm"
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -4295,7 +3666,7 @@ export default function Home() {
                         <p className="mt-3 font-black">{item.title}</p>
                         <p
                           className={
-                            isExecutiveMode || theme === "dark"
+                            theme === "dark"
                               ? "text-sm text-slate-400"
                               : "text-sm text-slate-600"
                           }
@@ -4306,7 +3677,6 @@ export default function Home() {
 
                       {"action" in item && (
                         <button
-                          type="button"
                           onClick={() => (item as any).action?.()}
                           className="rounded-2xl bg-emerald-600 p-3 text-white"
                         >
@@ -4320,11 +3690,9 @@ export default function Home() {
             </div>
           </div>
         </div>
-      </div>,
-      document.body,
+      </div>
     );
   }
-
   const tabGroups = createAtlasTabGroups(todoNewCount);
 
   const tabs = tabGroups.flatMap((group) => group.items);
@@ -4337,8 +3705,7 @@ export default function Home() {
 
     if (isCustomer) return (key === "customerPortal" || key === "download") && canViewModule(currentUser, key);
 
-    if (key === "glpiImport") return isAdminLike && glpiEnabled;
-    if (key === "utenti" || key === "designLab") return isAdminLike;
+    if (key === "utenti" || key === "glpiImport" || key === "designLab") return isAdminLike;
 
     return canViewModule(currentUser, key);
   }
@@ -4424,11 +3791,57 @@ export default function Home() {
   if (authLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#07111f] px-5 text-white">
-        <div className="rounded-[2rem] border border-white/10 bg-white/[0.06] p-6 text-center shadow-2xl">
+        <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.06] p-6 text-center shadow-2xl backdrop-blur-xl">
           <p className="text-xs font-black uppercase tracking-[0.35em] text-blue-300">
             ATLAS
           </p>
-          <p className="mt-3 text-xl font-black">Ripristino sessione...</p>
+
+          {!authRestoreTimedOut ? (
+            <>
+              <div className="mx-auto mt-5 h-10 w-10 animate-spin rounded-full border-4 border-white/15 border-t-cyan-300" />
+              <p className="mt-4 text-xl font-black">Ripristino sessione...</p>
+              <p className="mt-2 text-sm text-slate-400">
+                Attendi qualche secondo mentre ATLAS verifica lâ€™accesso.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-4 text-xl font-black">Sessione bloccata</p>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                ATLAS non Ã¨ riuscito a ripristinare la sessione. Puoi riprovare,
+                ricaricare lâ€™app oppure tornare al login.
+              </p>
+
+              <div className="mt-6 grid gap-3">
+                <button
+                  type="button"
+                  onClick={retrySessionRestore}
+                  disabled={authRestoreRetrying}
+                  className="rounded-2xl bg-blue-600 px-4 py-3 font-black text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {authRestoreRetrying ? "Riprovo..." : "Riprova sessione"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  disabled={authRestoreRetrying}
+                  className="rounded-2xl bg-white/10 px-4 py-3 font-black text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Ricarica app
+                </button>
+
+                <button
+                  type="button"
+                  onClick={returnToLogin}
+                  disabled={authRestoreRetrying}
+                  className="rounded-2xl border border-red-300/20 bg-red-500/10 px-4 py-3 font-black text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Torna al login
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </main>
     );
@@ -4711,13 +4124,11 @@ export default function Home() {
         selectedTicketWorkspace={isCustomerDataSession ? null : selectedTicketWorkspace}
         onCloseTicketWorkspace={() => setSelectedTicketWorkspace(null)}
         onTicketWorkspaceStatusUpdated={updateTicketFromWorkspace}
-        glpiEnabled={glpiEnabled}
       >
             <AtlasWorkspaceContent
               ctx={{
                 tenantLoading,
                 activeTenant,
-                glpiEnabled,
                 mobileView,
                 setMobileView,
                 canAccessTab,
@@ -4796,21 +4207,16 @@ export default function Home() {
                 region,
                 technician,
                 setTechnician,
-                technicians: isCustomerDataSession ? [] : operationalTechnicians,
-                operators: isCustomerDataSession ? [] : operationalOperators,
-                operatorSectors: isCustomerDataSession ? [] : operationalOperatorSectors,
-                addTenantOperator,
-                addTenantOperatorSector,
+                technicians: isCustomerDataSession ? [] : technicians,
                 renderDateInput,
                 selectedDate,
                 setSelectedDate,
                 selectedSlot,
                 setSelectedSlot,
-                materials: isCustomerDataSession ? [] : operationalMaterials,
-                addTenantMaterial,
+                materials: isCustomerDataSession ? [] : materials,
                 toggleMaterial,
                 selectedMaterials: isCustomerDataSession ? [] : selectedMaterials,
-                materialCost: operationalMaterialCost,
+                materialCost,
                 creatingTicket,
                 changeMonth,
                 monthLabel,
@@ -4857,7 +4263,7 @@ export default function Home() {
                 budgetForm,
                 setBudgetForm,
                 editableContracts: isCustomerDataSession ? [] : editableContracts,
-                INITIAL_BUDGET: 0,
+                INITIAL_BUDGET: isCustomerDataSession ? {} : INITIAL_BUDGET,
                 saveMobileBudget,
                 setBudgetClientSearch,
                 clientCategories,
@@ -4870,7 +4276,6 @@ export default function Home() {
                 promptAddClient,
                 selectedSystem,
                 setSelectedSystem,
-                systemsCatalogItems: isCustomerDataSession ? [] : systemsCatalogItems,
                 systemSearch,
                 setSystemSearch,
                 showMessage,
@@ -4925,3 +4330,4 @@ export default function Home() {
     </main>
   );
 }
+
