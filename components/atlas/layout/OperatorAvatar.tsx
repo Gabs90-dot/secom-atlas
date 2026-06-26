@@ -194,7 +194,7 @@ export default function OperatorAvatar({
     offsetY: number;
   } | null>(null);
   const easterEggClicksRef = useRef<number[]>([]);
-  const uploadClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uploadClickTimerRef = useRef<number | null>(null);
 
   const [cropImage, setCropImage] = useState<CropImage | null>(null);
   const [zoom, setZoom] = useState(MIN_ZOOM);
