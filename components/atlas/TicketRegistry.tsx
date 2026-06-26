@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, ArrowDownUp, CheckCircle2, Clock, Download, Filter, Flame, RefreshCw, Search, Trash2, XCircle } from "lucide-react";
 import { materials, technicians } from "@/lib/atlasConstants";
 import { euro, materialCost } from "@/lib/atlasUtils";
@@ -113,8 +114,8 @@ function normalizeStatus(status?: any) {
     .trim();
 }
 
-function displayStatus(ticket: any) {
-  const value = normalizeStatus(ticket?.status || ticket?.ticket_status || ticket?.glpi_status);
+function displayStatus(ticket: any, glpiEnabled = true) {
+  const value = normalizeStatus(ticket?.status || ticket?.ticket_status || (glpiEnabled ? ticket?.glpi_status : null));
 
   if (
     ticket?.closedAt ||
@@ -146,37 +147,37 @@ function statusTone(status?: any) {
   return "bg-slate-500/15 text-slate-300 border-slate-500/30";
 }
 
-function isClosed(ticket: any) {
-  return displayStatus(ticket) === "Chiuso";
+function isClosed(ticket: any, glpiEnabled = true) {
+  return displayStatus(ticket, glpiEnabled) === "Chiuso";
 }
 
-function ticketDescription(ticket: any) {
+function ticketDescription(ticket: any, glpiEnabled = true) {
   return (
     ticket.problem ||
     ticket.description ||
     ticket.content ||
-    ticket.glpi_description ||
-    ticket.glpi_raw?.content ||
-    ticket.glpi_raw?.["21"] ||
-    ticket.glpi_raw?.["Commenti - Descrizione"] ||
-    ticket.glpi_raw?.["Descrizione"] ||
+    (glpiEnabled ? ticket.glpi_description : null) ||
+    (glpiEnabled ? ticket.glpi_raw?.content : null) ||
+    (glpiEnabled ? ticket.glpi_raw?.["21"] : null) ||
+    (glpiEnabled ? ticket.glpi_raw?.["Commenti - Descrizione"] : null) ||
+    (glpiEnabled ? ticket.glpi_raw?.["Descrizione"] : null) ||
     "Descrizione non disponibile"
   );
 }
 
-function ticketTitle(ticket: any) {
+function ticketTitle(ticket: any, glpiEnabled = true) {
   return (
     ticket.title ||
     ticket.name ||
-    ticket.glpi_title ||
-    ticket.glpi_raw?.name ||
-    ticket.glpi_raw?.["1"] ||
+    (glpiEnabled ? ticket.glpi_title : null) ||
+    (glpiEnabled ? ticket.glpi_raw?.name : null) ||
+    (glpiEnabled ? ticket.glpi_raw?.["1"] : null) ||
     `Ticket #${ticket.id}`
   );
 }
 
-function isOverdue(ticket: any) {
-  if (!ticket.expectedCloseDate || isClosed(ticket)) return false;
+function isOverdue(ticket: any, glpiEnabled = true) {
+  if (!ticket.expectedCloseDate || isClosed(ticket, glpiEnabled)) return false;
   const expected = new Date(ticket.expectedCloseDate);
   const today = new Date();
   expected.setHours(23, 59, 59, 999);
@@ -320,10 +321,10 @@ function RegistryFilters({
   );
 }
 
-function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClosingTicketId, onOpenDetail, onDeleteTicket }: any) {
-  const overdue = isOverdue(ticket);
-  const closed = isClosed(ticket);
-  const readableStatus = displayStatus(ticket);
+function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClosingTicketId, onOpenDetail, onDeleteTicket, glpiEnabled = true }: any) {
+  const overdue = isOverdue(ticket, glpiEnabled);
+  const closed = isClosed(ticket, glpiEnabled);
+  const readableStatus = displayStatus(ticket, glpiEnabled);
   const isMobile = variant === "mobile";
   const [actionsOpen, setActionsOpen] = useState(false);
 
@@ -385,7 +386,7 @@ function TicketCard({ ticket, variant, onToggleUrgent, promptCloseTicket, setClo
           </div>
 
           <p className="mt-2 break-words text-sm text-slate-400">{ticket.region || ticket.entity || "Area n/d"} · {ticket.technician || "Tecnico non assegnato"}</p>
-          <p className="mt-3 break-words text-sm text-slate-300">{ticketDescription(ticket)}</p>
+          <p className="mt-3 break-words text-sm text-slate-300">{ticketDescription(ticket, glpiEnabled)}</p>
 
           <div className="mt-4 grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
             <div className="rounded-2xl bg-slate-950/35 p-3"><span className="block font-black text-slate-300">Apertura</span>{formatDateTime(ticket.openedAt || ticket.opened_at || ticket.created_at || ticket.date)}</div>
@@ -487,28 +488,28 @@ export default function TicketRegistry(props: TicketRegistryProps) {
     onOpenTicketDetail?.(ticket);
   }
 
-  const openCount = tickets.filter((ticket) => !isClosed(ticket)).length;
-  const urgentCount = tickets.filter((ticket) => ticket.urgent && !isClosed(ticket)).length;
-  const overdueCount = tickets.filter(isOverdue).length;
-  const closedCount = tickets.filter(isClosed).length;
+  const openCount = tickets.filter((ticket) => !isClosed(ticket, glpiEnabled)).length;
+  const urgentCount = tickets.filter((ticket) => ticket.urgent && !isClosed(ticket, glpiEnabled)).length;
+  const overdueCount = tickets.filter((ticket) => isOverdue(ticket, glpiEnabled)).length;
+  const closedCount = tickets.filter((ticket) => isClosed(ticket, glpiEnabled)).length;
 
   const visibleTickets = useMemo(() => {
     let filtered = tickets;
 
     if (boardFilter === "open") {
-      filtered = filtered.filter((ticket) => !isClosed(ticket));
+      filtered = filtered.filter((ticket) => !isClosed(ticket, glpiEnabled));
     }
 
     if (boardFilter === "urgent") {
-      filtered = filtered.filter((ticket) => ticket.urgent && !isClosed(ticket));
+      filtered = filtered.filter((ticket) => ticket.urgent && !isClosed(ticket, glpiEnabled));
     }
 
     if (boardFilter === "overdue") {
-      filtered = filtered.filter(isOverdue);
+      filtered = filtered.filter((ticket) => isOverdue(ticket, glpiEnabled));
     }
 
     if (boardFilter === "closed") {
-      filtered = filtered.filter(isClosed);
+      filtered = filtered.filter((ticket) => isClosed(ticket, glpiEnabled));
     }
 
     if (dateFilter) {
@@ -542,7 +543,7 @@ export default function TicketRegistry(props: TicketRegistryProps) {
       if (sortOrder === "oldest") return aTime - bTime;
       return bTime - aTime;
     });
-  }, [tickets, boardFilter, dateFilter, sortOrder]);
+  }, [tickets, boardFilter, dateFilter, sortOrder, glpiEnabled]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -587,11 +588,25 @@ export default function TicketRegistry(props: TicketRegistryProps) {
     props.setUrgentOnly?.(false);
   }
 
-  const board = (
-    <div className={executiveMode ? "grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden rounded-[34px] border border-cyan-300/10 bg-[radial-gradient(circle_at_10%_0%,rgba(34,211,238,0.10),transparent_28%),linear-gradient(135deg,rgba(2,7,19,0.96),rgba(7,19,33,0.92)_48%,rgba(3,7,17,0.98))] p-4 shadow-[0_28px_100px_rgba(0,0,0,0.34)] md:p-5" : "grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden"}>
-      {selectedTicket && (
-        <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-hidden bg-black/70 px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] pt-[calc(1rem_+_env(safe-area-inset-top))] backdrop-blur-sm lg:items-center lg:py-6">
-          <div className="max-h-[calc(100dvh_-_2rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full max-w-4xl overflow-y-auto overscroll-contain rounded-[2rem] border border-white/10 bg-[#081523] p-5 shadow-2xl md:p-7 lg:max-h-[90vh]">
+  const ticketDetailModal =
+    selectedTicket && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[200] overflow-y-auto overscroll-contain bg-black/70 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Dettaglio ticket ${selectedTicket.id}`}
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setSelectedTicket(null);
+              }
+            }}
+          >
+            <div className="flex min-h-full items-start justify-center px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] pt-[calc(1rem_+_env(safe-area-inset-top))] lg:px-6 lg:py-8">
+              <div
+                className="my-auto w-full max-w-4xl rounded-[2rem] border border-white/10 bg-[#081523] p-5 shadow-2xl md:p-7"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
@@ -601,8 +616,8 @@ export default function TicketRegistry(props: TicketRegistryProps) {
                   #{selectedTicket.id} · {selectedTicket.site || "Sede n/d"}
                 </h3>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(displayStatus(selectedTicket))}`}>
-                    {displayStatus(selectedTicket)}
+                  <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(displayStatus(selectedTicket, glpiEnabled))}`}>
+                    {displayStatus(selectedTicket, glpiEnabled)}
                   </span>
                   {selectedTicket.urgent && (
                     <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">
@@ -625,13 +640,15 @@ export default function TicketRegistry(props: TicketRegistryProps) {
             <div className="grid gap-4">
               <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
                 <p className="text-sm font-black text-slate-400">Titolo</p>
-                <p className="mt-2 text-lg font-black text-white">{ticketTitle(selectedTicket)}</p>
+                <p className="mt-2 text-lg font-black text-white">{ticketTitle(selectedTicket, glpiEnabled)}</p>
               </div>
 
               <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                <p className="text-sm font-black text-slate-400">{glpiEnabled ? "Descrizione problema GLPI / ATLAS" : "Descrizione problema"}</p>
+                <p className="text-sm font-black text-slate-400">
+                  {glpiEnabled ? "Descrizione problema GLPI / ATLAS" : "Descrizione problema ATLAS"}
+                </p>
                 <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-relaxed text-slate-200">
-                  {ticketDescription(selectedTicket)}
+                  {ticketDescription(selectedTicket, glpiEnabled)}
                 </p>
               </div>
 
@@ -659,7 +676,9 @@ export default function TicketRegistry(props: TicketRegistryProps) {
                 </div>
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
                   <p className="text-xs font-black text-slate-400">Tecnico / gruppo</p>
-                  <p className="mt-1 break-words font-black text-white">{selectedTicket.technician || selectedTicket.glpi_technician_group || "Non assegnato"}</p>
+                  <p className="mt-1 break-words font-black text-white">
+                    {selectedTicket.technician || (glpiEnabled ? selectedTicket.glpi_technician_group : null) || "Non assegnato"}
+                  </p>
                 </div>
               </div>
 
@@ -672,9 +691,16 @@ export default function TicketRegistry(props: TicketRegistryProps) {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  const board = (
+    <div className={executiveMode ? "grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden rounded-[34px] border border-cyan-300/10 bg-[radial-gradient(circle_at_10%_0%,rgba(34,211,238,0.10),transparent_28%),linear-gradient(135deg,rgba(2,7,19,0.96),rgba(7,19,33,0.92)_48%,rgba(3,7,17,0.98))] p-4 shadow-[0_28px_100px_rgba(0,0,0,0.34)] md:p-5" : "grid w-full max-w-full min-w-0 gap-5 overflow-x-hidden"}>
+      {ticketDetailModal}
       <div className={`${isMobile ? "grid gap-4" : "sticky top-0 z-40 -mx-1 grid gap-4 border-b border-white/10 bg-[#0b1524]/95 p-4 shadow-2xl backdrop-blur-xl"}`}>
       <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 overflow-hidden">
