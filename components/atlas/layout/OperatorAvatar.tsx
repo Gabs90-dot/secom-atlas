@@ -193,12 +193,15 @@ export default function OperatorAvatar({
     offsetX: number;
     offsetY: number;
   } | null>(null);
+  const easterEggClicksRef = useRef<number[]>([]);
+  const uploadClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [cropImage, setCropImage] = useState<CropImage | null>(null);
   const [zoom, setZoom] = useState(MIN_ZOOM);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [isFarting, setIsFarting] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -207,6 +210,14 @@ export default function OperatorAvatar({
       }
     };
   }, [cropImage]);
+
+  useEffect(() => {
+    return () => {
+      if (uploadClickTimerRef.current) {
+        clearTimeout(uploadClickTimerRef.current);
+      }
+    };
+  }, []);
 
   const renderedImageStyle = useMemo(() => {
     if (!cropImage) return undefined;
@@ -219,6 +230,36 @@ export default function OperatorAvatar({
       transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`,
     };
   }, [cropImage, offset.x, offset.y, zoom]);
+
+  function handleAvatarClick() {
+    if (uploadClickTimerRef.current) {
+      clearTimeout(uploadClickTimerRef.current);
+      uploadClickTimerRef.current = null;
+    }
+
+    const now = Date.now();
+    easterEggClicksRef.current = [...easterEggClicksRef.current, now].filter(
+      (clickTime) => now - clickTime < 2000,
+    );
+
+    if (easterEggClicksRef.current.length >= 5) {
+      easterEggClicksRef.current = [];
+
+      const audio = new Audio("/sounds/fart.mp3");
+      audio.volume = 0.8;
+      void audio.play().catch(() => undefined);
+
+      setIsFarting(true);
+      window.setTimeout(() => setIsFarting(false), 350);
+      return;
+    }
+
+    uploadClickTimerRef.current = window.setTimeout(() => {
+      easterEggClicksRef.current = [];
+      uploadClickTimerRef.current = null;
+      fileInputRef.current?.click();
+    }, 450);
+  }
 
   function closeCropper() {
     if (saving) return;
@@ -331,8 +372,10 @@ export default function OperatorAvatar({
       <button
         type="button"
         title="Cambia foto profilo"
-        onClick={() => fileInputRef.current?.click()}
-        className="relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-amber-200/30 bg-amber-300/10 text-sm font-black text-amber-50 shadow-[0_0_24px_rgba(251,191,36,0.12)] transition-all hover:border-amber-200/60 hover:bg-amber-300/20"
+        onClick={handleAvatarClick}
+        className={`relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-amber-200/30 bg-amber-300/10 text-sm font-black text-amber-50 shadow-[0_0_24px_rgba(251,191,36,0.12)] transition-all hover:border-amber-200/60 hover:bg-amber-300/20 ${
+          isFarting ? "animate-pulse" : ""
+        }`}
       >
         {avatar ? (
           <img
