@@ -27,8 +27,8 @@ create temp table atlas_security_expected_tables (
 insert into atlas_security_expected_tables (table_name, access_model)
 values
   ('atlas_events', 'internal'),
-  ('atlas_glpi_entities', 'internal'),
-  ('budget', 'internal'),
+  ('atlas_glpi_entities', 'service_role_only'),
+  ('budget', 'service_role_only'),
   ('contract_profiles', 'internal'),
   ('customer_aliases', 'internal'),
   ('customer_assets', 'customer_asset'),
@@ -42,9 +42,9 @@ values
   ('glpi_import_runs', 'internal'),
   ('glpi_sync_state', 'internal'),
   ('glpi_ticket_mappings', 'internal'),
-  ('help_queries', 'admin'),
+  ('help_queries', 'service_role_only'),
   ('manuals', 'manual'),
-  ('materials', 'internal'),
+  ('materials', 'service_role_only'),
   ('operational_plan_consumptions', 'internal'),
   ('operational_plan_customers', 'internal'),
   ('operational_plan_events', 'internal'),
@@ -57,10 +57,10 @@ values
   ('tenant_users', 'tenant_users'),
   ('tenants', 'tenants'),
   ('ticket_attachments', 'ticket_child'),
-  ('ticket_communications', 'internal'),
+  ('ticket_communications', 'ticket_child'),
   ('ticket_entity_links', 'internal'),
   ('ticket_events', 'ticket_child'),
-  ('todo_tasks', 'internal'),
+  ('todo_tasks', 'service_role_only'),
   ('user_permission_overrides', 'user_permission_overrides'),
   ('work_order_activities', 'work_order_visible_child'),
   ('work_order_checklist_items', 'work_order_child'),
@@ -144,8 +144,8 @@ values
 -- - intentionally public: public.permissions / rbac_permissions_read (static permission catalog; anon table grants are revoked below).
 -- - compatible after hardening only because a replacement policy exists: customer_aliases, download_resources,
 --   glpi_import_errors, glpi_import_runs, glpi_ticket_mappings, manuals, role_permissions, roles,
---   tenant_user_scopes, tenant_users, tenants, ticket_attachments, ticket_events, todo_tasks,
---   user_permission_overrides.
+--   tenant_user_scopes, tenant_users, tenants, ticket_attachments, ticket_events, user_permission_overrides.
+-- - closed to anon/authenticated by service_role_only: atlas_glpi_entities, budget, help_queries, materials, todo_tasks.
 -- - residual risk left uncorrected in this migration: none in public policy inventory; storage.objects is handled separately
 --   by removing the ticket-attachments listing policy while preserving object access required by the legacy flow.
 
@@ -647,7 +647,8 @@ begin
       'tenant_user_scopes',
       'user_permission_overrides',
       'tenants',
-      'ticket_child'
+      'ticket_child',
+      'service_role_only'
     )
   ) required
   where not exists (
@@ -667,7 +668,6 @@ begin
     from (
       values
         ('customer_entities', 'id'),
-        ('customer_entities', 'customer_id'),
         ('customer_assets', 'customer_id'),
         ('customer_assets', 'site_id'),
         ('manuals', 'customer_id'),
@@ -686,6 +686,7 @@ begin
         ('tenant_user_scopes', 'tenant_user_id'),
         ('user_permission_overrides', 'tenant_user_id'),
         ('ticket_attachments', 'ticket_id'),
+        ('ticket_communications', 'ticket_id'),
         ('ticket_events', 'ticket_id'),
         ('work_orders', 'id'),
         ('work_orders', 'customer_id'),
@@ -820,14 +821,22 @@ begin
         where removable.table_name = expected.table_name
           and removable.policy_name = expected.policy_name
       )
-      and exists (
-        select 1
-        from pg_catalog.pg_policy replacement
-        join pg_catalog.pg_class replacement_table on replacement_table.oid = replacement.polrelid
-        join pg_catalog.pg_namespace replacement_schema on replacement_schema.oid = replacement_table.relnamespace
-        where replacement_schema.nspname = 'public'
-          and replacement_table.relname = expected.table_name
-          and replacement.polname = 'atlas_rls_' || expected.table_name || '_sel'
+      and (
+        exists (
+          select 1
+          from atlas_security_expected_tables managed
+          where managed.table_name = expected.table_name
+            and managed.access_model = 'service_role_only'
+        )
+        or exists (
+          select 1
+          from pg_catalog.pg_policy replacement
+          join pg_catalog.pg_class replacement_table on replacement_table.oid = replacement.polrelid
+          join pg_catalog.pg_namespace replacement_schema on replacement_schema.oid = replacement_table.relnamespace
+          where replacement_schema.nspname = 'public'
+            and replacement_table.relname = expected.table_name
+            and replacement.polname = 'atlas_rls_' || expected.table_name || '_sel'
+        )
       )
     )
     and not (
@@ -1087,7 +1096,14 @@ begin
   from risky_object_grants;
 
   if unexpected is not null
-    and unexpected is distinct from '65c8fb0c7e84b06c57a755923017d52b'
+    and unexpected not in (
+      '65c8fb0c7e84b06c57a755923017d52b',
+      -- The local production baseline SQL contains 32 extra anon
+      -- MAINTAIN/REFERENCES/TRIGGER/TRUNCATE grants on the eight
+      -- tenant-scoped catalog/inventory tables. They are accepted as
+      -- a second exact preflight state and revoked below.
+      '2ed123a5564ed4919135acc78b42af40'
+    )
   then
     raise exception 'ATLAS grant preflight: current-object-grants.csv risky fingerprint mismatch (actual %)', unexpected;
   end if;
@@ -1136,7 +1152,15 @@ begin
   from risky_default_privileges;
 
   if unexpected is not null
-    and unexpected is distinct from '0803e44c19f997034bd08d92cc8180c7'
+    and unexpected not in (
+      '0803e44c19f997034bd08d92cc8180c7',
+      -- The local production baseline SQL also contains the same risky
+      -- public defaults owned by supabase_admin. They are accepted as a
+      -- second exact preflight state; the migration role cannot alter
+      -- another role's default privileges, so this remains separately
+      -- audited instead of being silently ignored.
+      '4495f7ff70d8272c3e1f0043a5555b7a'
+    )
   then
     raise exception 'ATLAS grant preflight: current-default-privileges.csv risky fingerprint mismatch (actual %)', unexpected;
   end if;
@@ -1246,7 +1270,7 @@ as $$
 $$;
 
 create or replace function atlas_security.current_site_id(target_tenant_id uuid)
-returns bigint
+returns uuid
 language sql
 stable
 security definer
@@ -1291,7 +1315,6 @@ as $$
       and (
         atlas_security.is_internal(t.tenant_id)
         or t.customer_id = atlas_security.current_customer_id(t.tenant_id)
-        or t.site_id = atlas_security.current_site_id(t.tenant_id)
       )
   );
 $$;
@@ -1328,7 +1351,6 @@ as $$
           wo.is_customer_visible
           and (
             wo.customer_id = atlas_security.current_customer_id(wo.tenant_id)
-            or wo.site_id = atlas_security.current_site_id(wo.tenant_id)
             or wo.customer_entity_id = atlas_security.current_customer_entity_id(wo.tenant_id)
           )
         )
@@ -1553,7 +1575,7 @@ begin
 
       when 'customer_entity' then
         execute format(
-          'create policy %I on public.%I for select to authenticated using (atlas_security.is_internal(tenant_id) or customer_id = atlas_security.current_customer_id(tenant_id) or id = atlas_security.current_customer_entity_id(tenant_id))',
+          'create policy %I on public.%I for select to authenticated using (atlas_security.is_internal(tenant_id) or id = atlas_security.current_customer_entity_id(tenant_id))',
           policy_prefix || '_sel',
           item.table_name
         );
@@ -1782,7 +1804,7 @@ begin
 
       when 'work_order' then
         execute format(
-          'create policy %I on public.%I for select to authenticated using (atlas_security.is_internal(tenant_id) or (is_customer_visible and (customer_id = atlas_security.current_customer_id(tenant_id) or site_id = atlas_security.current_site_id(tenant_id) or customer_entity_id = atlas_security.current_customer_entity_id(tenant_id))))',
+          'create policy %I on public.%I for select to authenticated using (atlas_security.is_internal(tenant_id) or (is_customer_visible and (customer_id = atlas_security.current_customer_id(tenant_id) or customer_entity_id = atlas_security.current_customer_entity_id(tenant_id))))',
           policy_prefix || '_sel',
           item.table_name
         );
@@ -1867,6 +1889,9 @@ begin
           policy_prefix || '_del',
           item.table_name
         );
+
+      when 'service_role_only' then
+        null;
 
       else
         raise exception 'ATLAS security migration: unsupported access model % for public.%', item.access_model, item.table_name;
