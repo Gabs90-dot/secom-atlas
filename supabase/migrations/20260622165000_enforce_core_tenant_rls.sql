@@ -60,7 +60,6 @@ values
   ('ticket_communications', 'ticket_child'),
   ('ticket_entity_links', 'internal'),
   ('ticket_events', 'ticket_child'),
-  ('todo_tasks', 'service_role_only'),
   ('user_permission_overrides', 'user_permission_overrides'),
   ('work_order_activities', 'work_order_visible_child'),
   ('work_order_checklist_items', 'work_order_child'),
@@ -145,7 +144,8 @@ values
 -- - compatible after hardening only because a replacement policy exists: customer_aliases, download_resources,
 --   glpi_import_errors, glpi_import_runs, glpi_ticket_mappings, manuals, role_permissions, roles,
 --   tenant_user_scopes, tenant_users, tenants, ticket_attachments, ticket_events, user_permission_overrides.
--- - closed to anon/authenticated by service_role_only: atlas_glpi_entities, budget, help_queries, materials, todo_tasks.
+-- - closed to anon/authenticated by service_role_only: atlas_glpi_entities, budget, help_queries, materials.
+-- - deferred to 20260622165100_tenantize_todo_tasks.sql to avoid a To Do outage between migrations.
 -- - residual risk left uncorrected in this migration: none in public policy inventory; storage.objects is handled separately
 --   by removing the ticket-attachments listing policy while preserving object access required by the legacy flow.
 
@@ -1501,7 +1501,11 @@ do $$
 declare
   item record;
 begin
-  for item in select * from atlas_security_bad_policies order by table_name, policy_name
+  for item in
+    select *
+    from atlas_security_bad_policies
+    where table_name <> 'todo_tasks'
+    order by table_name, policy_name
   loop
     execute format(
       'drop policy if exists %I on public.%I',
