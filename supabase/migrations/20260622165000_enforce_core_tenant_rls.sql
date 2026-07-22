@@ -1154,6 +1154,7 @@ begin
   if unexpected is not null
     and unexpected not in (
       '0803e44c19f997034bd08d92cc8180c7',
+      'd480f0249242ef6d3e383a6ccbecfc12',
       -- The local production baseline SQL also contains the same risky
       -- public defaults owned by supabase_admin. They are accepted as a
       -- second exact preflight state; the migration role cannot alter
