@@ -18,11 +18,11 @@ task_base as (
   from public.todo_tasks t
 ),
 task_users as (
-  select id as task_id, 'c' as source_kind, created_by as user_id
+  select id as task_id, 'created_by' as source_kind, created_by as user_id
   from task_base
   where created_by is not null
-  union
-  select id as task_id, 'a' as source_kind, assigned_to as user_id
+  union all
+  select id as task_id, 'assigned_to' as source_kind, assigned_to as user_id
   from task_base
   where assigned_to is not null
 ),
@@ -51,8 +51,8 @@ candidate_summary as (
 source_summary as (
   select
     tu.task_id,
-    array_agg(distinct am.tenant_id order by am.tenant_id) filter (where tu.source_kind = 'c') as c_tenants,
-    array_agg(distinct am.tenant_id order by am.tenant_id) filter (where tu.source_kind = 'a') as a_tenants
+    array_agg(distinct am.tenant_id order by am.tenant_id) filter (where tu.source_kind = 'created_by') as created_by_tenants,
+    array_agg(distinct am.tenant_id order by am.tenant_id) filter (where tu.source_kind = 'assigned_to') as assigned_to_tenants
   from task_users tu
   join active_memberships am on am.user_id = tu.user_id
   group by tu.task_id
@@ -77,9 +77,9 @@ problem_sets as (
       where tenants.id = tb.existing_tenant_id
     ) as existing_tenant_exists,
     (
-      ss.c_tenants is not null
-      and ss.a_tenants is not null
-      and ss.c_tenants <> ss.a_tenants
+      ss.created_by_tenants is not null
+      and ss.assigned_to_tenants is not null
+      and ss.created_by_tenants <> ss.assigned_to_tenants
     ) as source_conflict
   from task_base tb
   left join candidate_summary cs on cs.task_id = tb.id
@@ -197,12 +197,18 @@ acl_rows as (
       when 'n' then 'schemas'
       else d.defaclobjtype::text
     end as object_kind,
-    case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+    case
+      when acl.grantee = 0 then 'ACL_GRANTEE_0'
+      else coalesce(grantee_role.rolname, 'ROLE_OID_' || acl.grantee::text)
+    end as grantee,
+    acl.grantee = 0 as is_acl_public,
+    grantee_role.rolname as grantee_role_name,
     acl.privilege_type::text as privilege_type
   from pg_catalog.pg_default_acl d
   join pg_catalog.pg_namespace n on n.oid = d.defaclnamespace
   join pg_catalog.pg_roles owner_role on owner_role.oid = d.defaclrole
   cross join lateral pg_catalog.aclexplode(d.defaclacl) acl
+  left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
   where n.nspname = 'public'
     and owner_role.rolname in ('supabase_admin', 'postgres', 'authenticator', 'service_role')
 )
@@ -213,12 +219,12 @@ select
   ar.grantee,
   ar.privilege_type,
   case
-    when ar.grantee = 'PUBLIC' then 'RISKY_PUBLIC'
-    when ar.grantee = 'anon' then 'RISKY_ANON'
-    when ar.grantee = 'authenticated'
+    when ar.is_acl_public then 'RISKY_PUBLIC'
+    when ar.grantee_role_name = 'anon' then 'RISKY_ANON'
+    when ar.grantee_role_name = 'authenticated'
       and ar.object_kind = 'functions'
       and ar.privilege_type = lex.e then 'RISKY_AUTHENTICATED_EXECUTE'
-    when ar.grantee = 'authenticated'
+    when ar.grantee_role_name = 'authenticated'
       and ar.object_kind in ('tables', 'sequences')
       and ar.privilege_type in (lex.i, lex.u, lex.d, lex.x, lex.r, lex.g, lex.m) then 'RISKY_AUTHENTICATED_MUTATION'
     else 'SAFE'
@@ -241,73 +247,98 @@ lex as (
     chr(85)||chr(83)||chr(65)||chr(71)||chr(69) as y,
     chr(69)||chr(88)||chr(69)||chr(67)||chr(85)||chr(84)||chr(69) as e
 ),
-dangerous_rel_acl as (
+rel_acl as (
   select
+    c.relkind,
     case when c.relkind = 'v' then 'view' when c.relkind = 'S' then 'sequence' else 'table' end as object_kind,
     n.nspname as schema_name,
     c.relname as object_name,
-    roles.role_name as grantee,
-    privs.privilege_name,
+    acl.grantee,
     case
-      when roles.role_name = 'anon' then 'RISKY_ANON'
-      when roles.role_name = 'authenticated'
-        and c.relkind = 'v'
-        and privs.privilege_name in (lex.i, lex.u, lex.d) then 'RISKY_AUTHENTICATED_MUTATION'
-      when roles.role_name = 'authenticated'
-        and c.relkind in ('r', 'p')
-        and privs.privilege_name in (lex.x, lex.r, lex.g, lex.m) then 'RISKY_AUTHENTICATED_MUTATION'
-      else 'SAFE'
-    end as classification
+      when acl.grantee = 0 then 'ACL_GRANTEE_0'
+      else coalesce(grantee_role.rolname, 'ROLE_OID_' || acl.grantee::text)
+    end as grantee_display,
+    grantee_role.rolname as grantee_role_name,
+    acl.privilege_type::text as privilege_name
   from pg_catalog.pg_class c
   join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-  cross join lex
-  cross join (values ('anon'), ('authenticated')) as roles(role_name)
-  cross join lateral (
-    values (lex.s), (lex.i), (lex.u), (lex.d), (lex.x), (lex.r), (lex.g), (lex.m), (lex.y)
-  ) as privs(privilege_name)
+  cross join lateral pg_catalog.aclexplode(
+    coalesce(
+      c.relacl,
+      pg_catalog.acldefault((case when c.relkind = 'S' then 'S' else 'r' end)::"char", c.relowner)
+    )
+  ) acl
+  left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
   where n.nspname = 'public'
     and c.relkind in ('r', 'p', 'v', 'S')
-    and (
-      (
-        c.relkind = 'S'
-        and privs.privilege_name in (lex.s, lex.u, lex.y)
-        and pg_catalog.has_sequence_privilege(roles.role_name, c.oid, privs.privilege_name)
-      )
-      or (
-        c.relkind <> 'S'
-        and privs.privilege_name <> lex.y
-        and pg_catalog.has_table_privilege(roles.role_name, c.oid, privs.privilege_name)
-      )
+),
+dangerous_rel_acl as (
+  select
+    ra.object_kind,
+    ra.schema_name,
+    ra.object_name,
+    ra.grantee_display as grantee,
+    ra.privilege_name,
+    case
+      when ra.grantee = 0 then 'RISKY_PUBLIC'
+      when ra.grantee_role_name = 'anon' then 'RISKY_ANON'
+      when ra.grantee_role_name = 'authenticated'
+        and ra.relkind = 'v'
+        and ra.privilege_name in (lex.i, lex.u, lex.d) then 'RISKY_AUTHENTICATED_MUTATION'
+      when ra.grantee_role_name = 'authenticated'
+        and ra.relkind in ('r', 'p')
+        and ra.privilege_name in (lex.x, lex.r, lex.g, lex.m) then 'RISKY_AUTHENTICATED_MUTATION'
+      else 'SAFE'
+    end as classification
+  from rel_acl ra
+  cross join lex
+  where ra.grantee = 0
+    or ra.grantee_role_name = 'anon'
+    or (
+      ra.grantee_role_name = 'authenticated'
+      and ra.relkind = 'v'
+      and ra.privilege_name in (lex.i, lex.u, lex.d)
     )
-    and (
-      roles.role_name = 'anon'
-      or (
-        roles.role_name = 'authenticated'
-        and c.relkind = 'v'
-        and privs.privilege_name in (lex.i, lex.u, lex.d)
-      )
-      or (
-        roles.role_name = 'authenticated'
-        and c.relkind in ('r', 'p')
-        and privs.privilege_name in (lex.x, lex.r, lex.g, lex.m)
-      )
+    or (
+      ra.grantee_role_name = 'authenticated'
+      and ra.relkind in ('r', 'p')
+      and ra.privilege_name in (lex.x, lex.r, lex.g, lex.m)
     )
 ),
-dangerous_fn_acl as (
+fn_acl as (
   select
     'secdef_function' as object_kind,
     n.nspname as schema_name,
     p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')' as object_name,
-    roles.role_name as grantee,
-    lex.e as privilege_name,
-    case when roles.role_name = 'PUBLIC' then 'RISKY_PUBLIC' else 'RISKY_ANON' end as classification
+    acl.grantee,
+    case
+      when acl.grantee = 0 then 'ACL_GRANTEE_0'
+      else coalesce(grantee_role.rolname, 'ROLE_OID_' || acl.grantee::text)
+    end as grantee_display,
+    grantee_role.rolname as grantee_role_name,
+    acl.privilege_type::text as privilege_name
   from pg_catalog.pg_proc p
   join pg_catalog.pg_namespace n on n.oid = p.pronamespace
-  cross join lex
-  cross join (values ('PUBLIC'), ('anon')) as roles(role_name)
+  cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
+  left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
   where n.nspname = 'public'
     and p.prosecdef
-    and pg_catalog.has_function_privilege(roles.role_name, p.oid, lex.e)
+),
+dangerous_fn_acl as (
+  select
+    fa.object_kind,
+    fa.schema_name,
+    fa.object_name,
+    fa.grantee_display as grantee,
+    fa.privilege_name,
+    case when fa.grantee = 0 then 'RISKY_PUBLIC' else 'RISKY_ANON' end as classification
+  from fn_acl fa
+  cross join lex
+  where fa.privilege_name = lex.e
+    and (
+      fa.grantee = 0
+      or fa.grantee_role_name = 'anon'
+    )
 )
 select *
 from (
@@ -342,11 +373,11 @@ task_base as (
   from public.todo_tasks t
 ),
 task_users as (
-  select id as task_id, 'c' as source_kind, created_by as user_id
+  select id as task_id, 'created_by' as source_kind, created_by as user_id
   from task_base
   where created_by is not null
-  union
-  select id as task_id, 'a' as source_kind, assigned_to as user_id
+  union all
+  select id as task_id, 'assigned_to' as source_kind, assigned_to as user_id
   from task_base
   where assigned_to is not null
 ),
@@ -371,8 +402,8 @@ candidate_summary as (
 source_summary as (
   select
     tu.task_id,
-    array_agg(distinct am.tenant_id order by am.tenant_id) filter (where tu.source_kind = 'c') as c_tenants,
-    array_agg(distinct am.tenant_id order by am.tenant_id) filter (where tu.source_kind = 'a') as a_tenants
+    array_agg(distinct am.tenant_id order by am.tenant_id) filter (where tu.source_kind = 'created_by') as created_by_tenants,
+    array_agg(distinct am.tenant_id order by am.tenant_id) filter (where tu.source_kind = 'assigned_to') as assigned_to_tenants
   from task_users tu
   join active_memberships am on am.user_id = tu.user_id
   group by tu.task_id
@@ -390,9 +421,9 @@ todo_counts as (
         and coalesce(cs.tenant_count, 0) > 0
     ) as ambiguous_rows,
     count(*) filter (
-      where ss.c_tenants is not null
-        and ss.a_tenants is not null
-        and ss.c_tenants <> ss.a_tenants
+      where ss.created_by_tenants is not null
+        and ss.assigned_to_tenants is not null
+        and ss.created_by_tenants <> ss.assigned_to_tenants
     ) as source_conflict_rows,
     count(*) filter (
       where tb.existing_tenant_id is not null
@@ -428,28 +459,35 @@ default_risky as (
     owner_role.rolname as owner_role,
     n.nspname as schema_name,
     d.defaclobjtype::text as object_type_code,
-    case when acl.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(acl.grantee) end as grantee,
+    case
+      when acl.grantee = 0 then 'ACL_GRANTEE_0'
+      else coalesce(grantee_role.rolname, 'ROLE_OID_' || acl.grantee::text)
+    end as grantee,
+    acl.grantee = 0 as is_acl_public,
+    grantee_role.rolname as grantee_role_name,
     acl.privilege_type::text as privilege_type
   from pg_catalog.pg_default_acl d
   join pg_catalog.pg_namespace n on n.oid = d.defaclnamespace
   join pg_catalog.pg_roles owner_role on owner_role.oid = d.defaclrole
   cross join lateral pg_catalog.aclexplode(d.defaclacl) acl
+  left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
   cross join lex
   where n.nspname = 'public'
     and (
-      case when acl.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(acl.grantee) end in ('PUBLIC', 'anon')
+      acl.grantee = 0
+      or grantee_role.rolname = 'anon'
       or (
-        case when acl.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(acl.grantee) end = 'authenticated'
+        grantee_role.rolname = 'authenticated'
         and d.defaclobjtype = 'r'
         and acl.privilege_type::text in (lex.i, lex.u, lex.d, lex.x, lex.r, lex.g, lex.m)
       )
       or (
-        case when acl.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(acl.grantee) end = 'authenticated'
+        grantee_role.rolname = 'authenticated'
         and d.defaclobjtype = 'S'
         and acl.privilege_type::text = lex.u
       )
       or (
-        case when acl.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(acl.grantee) end = 'authenticated'
+        grantee_role.rolname = 'authenticated'
         and d.defaclobjtype = 'f'
         and acl.privilege_type::text = lex.e
       )
@@ -479,66 +517,91 @@ default_summary as (
     case
       when risky_count = 0 then 'SAFE'
       when risky_hash = '0803e44c19f997034bd08d92cc8180c7' then 'HANDLED_BY_MIGRATION'
+      when risky_hash = 'c49a239a0c4a6daf9c6e2748c9eedbc6' then 'HANDLED_BY_PLATFORM_SUPABASE_ADMIN'
       else 'BLOCKED_UNHANDLED_DEFAULT_PRIVILEGES'
     end as default_privileges_status
   from default_fingerprint
 ),
-dangerous_rel_acl as (
+rel_acl as (
   select
-    n.nspname as schema_name,
+    c.relkind,
     case when c.relkind = 'v' then 'view' when c.relkind = 'S' then 'sequence' else 'table' end as object_kind,
+    n.nspname as schema_name,
     c.relname as object_name,
-    roles.role_name as grantee,
-    privs.privilege_name
+    acl.grantee,
+    case
+      when acl.grantee = 0 then 'ACL_GRANTEE_0'
+      else coalesce(grantee_role.rolname, 'ROLE_OID_' || acl.grantee::text)
+    end as grantee_display,
+    grantee_role.rolname as grantee_role_name,
+    acl.privilege_type::text as privilege_name
   from pg_catalog.pg_class c
   join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-  cross join lex
-  cross join (values ('anon'), ('authenticated')) as roles(role_name)
-  cross join lateral (
-    values (lex.s), (lex.i), (lex.u), (lex.d), (lex.x), (lex.r), (lex.g), (lex.m), (lex.y)
-  ) as privs(privilege_name)
+  cross join lateral pg_catalog.aclexplode(
+    coalesce(
+      c.relacl,
+      pg_catalog.acldefault((case when c.relkind = 'S' then 'S' else 'r' end)::"char", c.relowner)
+    )
+  ) acl
+  left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
   where n.nspname = 'public'
     and c.relkind in ('r', 'p', 'v', 'S')
-    and (
-      (
-        c.relkind = 'S'
-        and privs.privilege_name in (lex.s, lex.u, lex.y)
-        and pg_catalog.has_sequence_privilege(roles.role_name, c.oid, privs.privilege_name)
-      )
-      or (
-        c.relkind <> 'S'
-        and privs.privilege_name <> lex.y
-        and pg_catalog.has_table_privilege(roles.role_name, c.oid, privs.privilege_name)
-      )
+),
+dangerous_rel_acl as (
+  select
+    ra.schema_name,
+    ra.object_kind,
+    ra.object_name,
+    ra.grantee_display as grantee,
+    ra.privilege_name
+  from rel_acl ra
+  cross join lex
+  where ra.grantee = 0
+    or ra.grantee_role_name = 'anon'
+    or (
+      ra.grantee_role_name = 'authenticated'
+      and ra.relkind = 'v'
+      and ra.privilege_name in (lex.i, lex.u, lex.d)
     )
-    and (
-      roles.role_name = 'anon'
-      or (
-        roles.role_name = 'authenticated'
-        and c.relkind = 'v'
-        and privs.privilege_name in (lex.i, lex.u, lex.d)
-      )
-      or (
-        roles.role_name = 'authenticated'
-        and c.relkind in ('r', 'p')
-        and privs.privilege_name in (lex.x, lex.r, lex.g, lex.m)
-      )
+    or (
+      ra.grantee_role_name = 'authenticated'
+      and ra.relkind in ('r', 'p')
+      and ra.privilege_name in (lex.x, lex.r, lex.g, lex.m)
     )
 ),
-dangerous_fn_acl as (
+fn_acl as (
   select
     n.nspname as schema_name,
     'secdef_function' as object_kind,
     p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')' as object_name,
-    roles.role_name as grantee,
-    lex.e as privilege_name
+    acl.grantee,
+    case
+      when acl.grantee = 0 then 'ACL_GRANTEE_0'
+      else coalesce(grantee_role.rolname, 'ROLE_OID_' || acl.grantee::text)
+    end as grantee_display,
+    grantee_role.rolname as grantee_role_name,
+    acl.privilege_type::text as privilege_name
   from pg_catalog.pg_proc p
   join pg_catalog.pg_namespace n on n.oid = p.pronamespace
-  cross join lex
-  cross join (values ('PUBLIC'), ('anon')) as roles(role_name)
+  cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
+  left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
   where n.nspname = 'public'
     and p.prosecdef
-    and pg_catalog.has_function_privilege(roles.role_name, p.oid, lex.e)
+),
+dangerous_fn_acl as (
+  select
+    fa.schema_name,
+    fa.object_kind,
+    fa.object_name,
+    fa.grantee_display as grantee,
+    fa.privilege_name
+  from fn_acl fa
+  cross join lex
+  where fa.privilege_name = lex.e
+    and (
+      fa.grantee = 0
+      or fa.grantee_role_name = 'anon'
+    )
 ),
 dangerous_current_acl as (
   select * from dangerous_rel_acl
@@ -584,7 +647,7 @@ select
   current_summary.dangerous_current_grants_count,
   case
     when todo_summary.todo_preflight_status = 'SAFE_TO_MIGRATE'
-      and default_summary.default_privileges_status in ('SAFE', 'HANDLED_BY_MIGRATION')
+      and default_summary.default_privileges_status in ('SAFE', 'HANDLED_BY_MIGRATION', 'HANDLED_BY_PLATFORM_SUPABASE_ADMIN')
       and current_summary.dangerous_current_grants_count = 0
     then 'READY'
     else 'NOT_READY'
